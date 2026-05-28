@@ -24,8 +24,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: Resolve release settings
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      target: ${{ steps.release.outputs.target }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Resolve release settings
+        id: release
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_PRERELEASE: ${{ github.event.inputs.prerelease }}
+        run: |
+          version="$(sed -n 's/^version: \([^ +]*\).*/\1/p' pubspec.yaml)"
+
+          if [[ -z "${version}" ]]; then
+            echo "Could not resolve app version from pubspec.yaml." >&2
+            exit 1
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag="${GITHUB_REF_NAME}"
+            target="${GITHUB_SHA}"
+            prerelease="false"
+          else
+            tag="${INPUT_TAG:-desktop-v${version}}"
+            target="${GITHUB_SHA}"
+            prerelease="${INPUT_PRERELEASE:-false}"
+          fi
+
+          expected_tag="desktop-v${version}"
+          if [[ "${tag}" != "${expected_tag}" ]]; then
+            echo "Release tag ${tag} does not match pubspec.yaml version ${version}. Expected ${expected_tag}." >&2
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "target=${target}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+
   build-linux:
     name: Build Linux
+    needs: preflight
     runs-on: ubuntu-latest
 
     steps:
@@ -69,6 +115,7 @@ jobs:
 
   build-windows:
     name: Build Windows
+    needs: preflight
     runs-on: windows-latest
 
     steps:
@@ -122,6 +169,7 @@ jobs:
     name: Publish GitHub release
     runs-on: ubuntu-latest
     needs:
+      - preflight
       - build-linux
       - build-windows
 
@@ -135,33 +183,25 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Resolve release settings
-        id: release
-        env:
-          INPUT_TAG: ${{ github.event.inputs.tag }}
-          INPUT_PRERELEASE: ${{ github.event.inputs.prerelease }}
-        run: |
-          version="$(sed -n 's/^version: \([^ +]*\).*/\1/p' pubspec.yaml)"
-
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            tag="${GITHUB_REF_NAME}"
-            target="${GITHUB_SHA}"
-            prerelease="false"
-          else
-            tag="${INPUT_TAG:-desktop-v${version}}"
-            target="${GITHUB_SHA}"
-            prerelease="${INPUT_PRERELEASE:-false}"
-          fi
-
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "target=${target}" >> "$GITHUB_OUTPUT"
-          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
-
       - name: Prepare checksums and notes
         env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
         run: |
           ls -lh dist
+          required_assets=(
+            "Musify-linux-x64.deb"
+            "Musify-linux-x64.tar.gz"
+            "Musify-windows-x64-setup.exe"
+            "Musify-windows-x64-portable.zip"
+          )
+
+          for required_asset in "${required_assets[@]}"; do
+            if [[ ! -f "dist/${required_asset}" ]]; then
+              echo "Missing expected release artifact: ${required_asset}" >&2
+              exit 1
+            fi
+          done
+
           sha256sum dist/* > dist/SHA256SUMS.txt
 
           cat > release-notes.md <<NOTES
@@ -184,23 +224,27 @@ jobs:
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_TARGET: ${{ steps.release.outputs.target }}
-          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_TARGET: ${{ needs.preflight.outputs.target }}
+          PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
         run: |
-          release_args=(--title "Musify Desktop Port ${RELEASE_TAG}" --notes-file release-notes.md)
+          create_args=(--title "Musify Desktop Port ${RELEASE_TAG}" --notes-file release-notes.md)
+          edit_args=(--title "Musify Desktop Port ${RELEASE_TAG}" --notes-file release-notes.md --draft=false)
+
           if [[ "${PRERELEASE}" == "true" ]]; then
-            release_args+=(--prerelease)
+            create_args+=(--prerelease)
+            edit_args+=(--prerelease)
           else
-            release_args+=(--latest)
+            create_args+=(--latest)
+            edit_args+=(--latest --prerelease=false)
           fi
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_TAG}" dist/* --clobber
-            gh release edit "${RELEASE_TAG}" "${release_args[@]}" --target "${RELEASE_TARGET}"
+            gh release edit "${RELEASE_TAG}" "${edit_args[@]}" --target "${RELEASE_TARGET}"
             exit 0
           fi
 
           gh release create "${RELEASE_TAG}" dist/* \
-            "${release_args[@]}" \
+            "${create_args[@]}" \
             --target "${RELEASE_TARGET}"

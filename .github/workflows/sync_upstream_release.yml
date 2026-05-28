@@ -43,21 +43,61 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_UPSTREAM_TAG: ${{ github.event.inputs.upstream_tag }}
+          INPUT_RELEASE_AFTER_SYNC: ${{ github.event.inputs.release_after_sync }}
         run: |
+          release_after_sync="${INPUT_RELEASE_AFTER_SYNC:-true}"
+          if [[ "${release_after_sync}" != "true" && "${release_after_sync}" != "false" ]]; then
+            echo "release_after_sync must be true or false." >&2
+            exit 1
+          fi
+
           if [[ -n "${INPUT_UPSTREAM_TAG}" ]]; then
-            upstream_tag="${INPUT_UPSTREAM_TAG}"
+            upstream_tag="$(gh release view "${INPUT_UPSTREAM_TAG}" --repo gokadzev/Musify --json tagName --jq .tagName)"
           else
             upstream_tag="$(gh release view --repo gokadzev/Musify --json tagName --jq .tagName)"
           fi
 
           desktop_tag="desktop-v${upstream_tag#v}"
+          required_assets=(
+            "Musify-linux-x64.deb"
+            "Musify-linux-x64.tar.gz"
+            "Musify-windows-x64-setup.exe"
+            "Musify-windows-x64-portable.zip"
+            "SHA256SUMS.txt"
+          )
 
           echo "upstream_tag=${upstream_tag}" >> "$GITHUB_OUTPUT"
           echo "desktop_tag=${desktop_tag}" >> "$GITHUB_OUTPUT"
+          echo "release_after_sync=${release_after_sync}" >> "$GITHUB_OUTPUT"
 
           if gh release view "${desktop_tag}" >/dev/null 2>&1; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Desktop release ${desktop_tag} already exists."
+            is_draft="$(gh release view "${desktop_tag}" --json isDraft --jq .isDraft)"
+            mapfile -t existing_assets < <(gh release view "${desktop_tag}" --json assets --jq '.assets[].name')
+            missing_assets=()
+
+            for required_asset in "${required_assets[@]}"; do
+              found=false
+              for existing_asset in "${existing_assets[@]}"; do
+                if [[ "${existing_asset}" == "${required_asset}" ]]; then
+                  found=true
+                  break
+                fi
+              done
+
+              if [[ "${found}" != "true" ]]; then
+                missing_assets+=("${required_asset}")
+              fi
+            done
+
+            if [[ "${is_draft}" == "false" && "${#missing_assets[@]}" -eq 0 ]]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Desktop release ${desktop_tag} already exists with all expected assets."
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "Desktop release ${desktop_tag} exists but needs repair."
+              echo "Draft: ${is_draft}"
+              printf 'Missing assets: %s\n' "${missing_assets[*]:-none}"
+            fi
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -71,6 +111,12 @@ jobs:
         run: |
           git remote add upstream https://github.com/gokadzev/Musify.git
           git fetch upstream --tags --prune
+
+      - name: Install Linux build dependencies
+        if: ${{ steps.release.outputs.skip != 'true' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev dpkg-dev
 
       - name: Merge upstream release
         if: ${{ steps.release.outputs.skip != 'true' }}
@@ -98,9 +144,30 @@ jobs:
           ./update.sh
           flutter pub get
 
+      - name: Validate synced desktop version
+        if: ${{ steps.release.outputs.skip != 'true' }}
+        run: |
+          expected_version="${{ steps.release.outputs.desktop_tag }}"
+          expected_version="${expected_version#desktop-v}"
+          actual_version="$(sed -n 's/^version: \([^ +]*\).*/\1/p' pubspec.yaml)"
+
+          if [[ -z "${actual_version}" ]]; then
+            echo "Could not resolve app version from pubspec.yaml." >&2
+            exit 1
+          fi
+
+          if [[ "${actual_version}" != "${expected_version}" ]]; then
+            echo "Upstream tag ${{ steps.release.outputs.upstream_tag }} maps to desktop-v${expected_version}, but pubspec.yaml is ${actual_version}." >&2
+            exit 1
+          fi
+
       - name: Analyze synced code
         if: ${{ steps.release.outputs.skip != 'true' }}
         run: flutter analyze
+
+      - name: Build Linux smoke test
+        if: ${{ steps.release.outputs.skip != 'true' }}
+        run: flutter build linux --release
 
       - name: Commit generated sync updates
         if: ${{ steps.release.outputs.skip != 'true' }}
@@ -115,7 +182,7 @@ jobs:
         run: git push origin master
 
       - name: Dispatch desktop release workflow
-        if: ${{ steps.release.outputs.skip != 'true' && github.event.inputs.release_after_sync != 'false' }}
+        if: ${{ steps.release.outputs.skip != 'true' && steps.release.outputs.release_after_sync != 'false' }}
         env:
           GH_TOKEN: ${{ github.token }}
           DESKTOP_TAG: ${{ steps.release.outputs.desktop_tag }}

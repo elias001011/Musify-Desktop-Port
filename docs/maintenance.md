@@ -9,17 +9,24 @@ When GitHub Actions is available:
 
 1. `Sync Upstream Release` runs every six hours and can also be started manually.
 2. It reads the latest upstream release tag from `gokadzev/Musify`.
-3. If this repository already has a matching `desktop-v<version>` release, it
-   exits without changes.
+3. If this repository already has a matching, non-draft `desktop-v<version>`
+   release with all expected desktop assets, it exits without changes.
 4. If the desktop release does not exist, it fetches upstream tags and merges the
-   upstream release tag into `master`.
+   upstream release tag into `master`. If the release exists but is incomplete,
+   the workflow continues so the release can be repaired.
 5. It runs `update.sh`, `flutter pub get`, and `flutter analyze`.
-6. If the sync is clean, it pushes `master` and dispatches `Build Desktop Release`.
-7. `Build Desktop Release` builds Linux and Windows packages and publishes a
+6. It verifies that `pubspec.yaml` matches the expected `desktop-v<version>` tag.
+7. It runs a Linux release build as a desktop smoke test before pushing `master`.
+8. If the sync is clean, it pushes `master` and dispatches `Build Desktop Release`.
+9. `Build Desktop Release` validates the requested release tag before starting
+   expensive builds, then builds Linux and Windows packages and publishes a
    stable GitHub release.
 
-If the upstream merge or analysis fails, the sync workflow opens an issue with a
-link to the failed run.
+`Build Desktop Release` also refuses to publish a manual release when the
+requested `desktop-v<version>` tag does not match `pubspec.yaml`.
+
+If the upstream merge, version validation, analysis, or Linux smoke build fails,
+the sync workflow opens an issue with a link to the failed run.
 
 ## Manual Sync
 
@@ -32,6 +39,7 @@ git merge --no-edit refs/tags/<upstream-version>
 ./update.sh
 flutter pub get
 flutter analyze
+flutter build linux --release
 git push origin master
 ```
 
