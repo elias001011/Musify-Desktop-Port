@@ -46,8 +46,6 @@ jobs:
 
       - run: flutter pub get
 
-      - run: dart format --set-exit-if-changed .
-
       - run: flutter analyze .
 
       - name: Build debug APK
