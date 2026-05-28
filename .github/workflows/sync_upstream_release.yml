@@ -167,7 +167,7 @@ jobs:
 
       - name: Build Linux smoke test
         if: ${{ steps.release.outputs.skip != 'true' }}
-        run: flutter build linux --release
+        run: flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL="${{ vars.MUSIFY_CLOUD_SYNC_URL }}"
 
       - name: Commit generated sync updates
         if: ${{ steps.release.outputs.skip != 'true' }}

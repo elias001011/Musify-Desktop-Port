@@ -33,6 +33,25 @@ minimum desktop support needed for daily use:
 - Desktop-safe guards for Android-only equalizer and mobile sharing-intent APIs.
 - Desktop updater that checks this repository's releases instead of the Android
   upstream release feed.
+- Optional cloud sync for multi-device desktop use. When enabled by the user,
+  Musify can load and replace the latest cloud backup for settings, playlists,
+  liked songs, recently played songs, and most-played data.
+
+## Optional Cloud Sync
+
+Cloud sync is off by default. Users enable it from Settings with a passphrase.
+Release builds need a backend URL compiled in with:
+
+```bash
+flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL=https://example.com
+```
+
+For GitHub Actions releases, set the repository variable
+`MUSIFY_CLOUD_SYNC_URL`. If the value is empty, the app still builds and the
+sync UI explains that no backend is configured.
+
+See [docs/cloud-sync.md](docs/cloud-sync.md) for the backend protocol and a
+minimal Cloudflare Worker example.
 
 ## Updating From Upstream
 

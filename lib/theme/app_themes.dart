@@ -33,6 +33,14 @@ PageTransitionsBuilder transitionsBuilder = predictiveBack.value
     ? const PredictiveBackPageTransitionsBuilder()
     : const CupertinoPageTransitionsBuilder();
 
+void refreshThemeSettingsFromStorage() {
+  themeMode = getThemeMode(themeModeSetting);
+  brightness = getBrightnessFromThemeMode(themeMode);
+  transitionsBuilder = predictiveBack.value
+      ? const PredictiveBackPageTransitionsBuilder()
+      : const CupertinoPageTransitionsBuilder();
+}
+
 Brightness getBrightnessFromThemeMode(ThemeMode themeMode) {
   final themeBrightnessMapping = {
     ThemeMode.light: Brightness.light,

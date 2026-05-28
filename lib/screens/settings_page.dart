@@ -27,6 +27,8 @@ import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
 import 'package:musify/screens/search_page.dart';
+import 'package:musify/services/backed_up_state_manager.dart';
+import 'package:musify/services/cloud_sync_manager.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/playlist_download_service.dart';
@@ -246,8 +248,131 @@ class SettingsPage extends StatelessWidget {
           },
         ),
 
+        _buildCloudSyncSection(context),
         _buildToolsSection(context),
         _buildSponsorSection(context),
+      ],
+    );
+  }
+
+  Widget _buildCloudSyncSection(BuildContext context) {
+    final manager = CloudSyncManager.instance;
+
+    if (!manager.isSupportedPlatform) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      children: [
+        const SectionHeader(
+          title: 'Cloud Sync',
+          icon: FluentIcons.cloud_sync_24_filled,
+        ),
+        ValueListenableBuilder<bool>(
+          valueListenable: cloudSyncEnabled,
+          builder: (_, enabled, __) {
+            return CustomBar(
+              'Cloud backup',
+              FluentIcons.cloud_sync_24_regular,
+              description: _cloudSyncDescription(manager, enabled),
+              borderRadius: enabled
+                  ? commonCustomBarRadiusFirst
+                  : commonCustomBarRadius,
+              onTap: manager.isAvailable
+                  ? () => enabled
+                        ? _runCloudSyncAction(context, manager.synchronize())
+                        : _showCloudSyncSetupDialog(context)
+                  : null,
+              trailing: Switch(
+                value: enabled,
+                onChanged: manager.isAvailable
+                    ? (value) => _toggleCloudSync(context, value)
+                    : null,
+              ),
+            );
+          },
+        ),
+        ValueListenableBuilder<bool>(
+          valueListenable: cloudSyncEnabled,
+          builder: (_, enabled, __) {
+            if (!enabled) {
+              return const SizedBox.shrink();
+            }
+
+            return Column(
+              children: [
+                ValueListenableBuilder<bool>(
+                  valueListenable: cloudSyncAutomatic,
+                  builder: (_, automatic, __) {
+                    return CustomBar(
+                      'Automatic uploads',
+                      FluentIcons.arrow_upload_24_regular,
+                      description:
+                          'When enabled, Musify uploads a fresh backup shortly after local changes.',
+                      trailing: Switch(
+                        value: automatic,
+                        onChanged: (value) =>
+                            _toggleCloudSyncAutomatic(context, value),
+                      ),
+                    );
+                  },
+                ),
+                ValueListenableBuilder<String>(
+                  valueListenable: cloudSyncStatus,
+                  builder: (_, status, __) {
+                    return CustomBar(
+                      'Sync now',
+                      FluentIcons.arrow_sync_24_regular,
+                      description: _cloudSyncStatusDescription(status),
+                      onTap: () =>
+                          _runCloudSyncAction(context, manager.synchronize()),
+                    );
+                  },
+                ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: cloudSyncAutomatic,
+                  builder: (_, automatic, __) {
+                    if (automatic) {
+                      return CustomBar(
+                        'Load cloud backup',
+                        FluentIcons.cloud_arrow_down_24_regular,
+                        description:
+                            'Download and apply the latest backup stored in the cloud.',
+                        borderRadius: commonCustomBarRadiusLast,
+                        onTap: () =>
+                            _runCloudSyncAction(context, manager.downloadNow()),
+                      );
+                    }
+
+                    return Column(
+                      children: [
+                        CustomBar(
+                          'Upload local backup',
+                          FluentIcons.cloud_arrow_up_24_regular,
+                          description:
+                              'Send the current local state to the cloud now.',
+                          onTap: () =>
+                              _runCloudSyncAction(context, manager.uploadNow()),
+                        ),
+                        CustomBar(
+                          'Load cloud backup',
+                          FluentIcons.cloud_arrow_down_24_regular,
+                          description:
+                              'Download and apply the latest backup stored in the cloud.',
+                          borderRadius: commonCustomBarRadiusLast,
+                          onTap: () => _runCloudSyncAction(
+                            context,
+                            manager.downloadNow(),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            );
+          },
+        ),
       ],
     );
   }
@@ -330,6 +455,11 @@ class SettingsPage extends StatelessWidget {
           onTap: () async {
             try {
               final result = await restoreData(context);
+              if (result.success) {
+                refreshBackedUpStateFromStorage();
+                await CloudSyncManager.instance.rebindStorageListeners();
+                CloudSyncManager.instance.markBackedUpStateChanged();
+              }
               if (context.mounted) {
                 showToast(
                   context,
@@ -782,6 +912,129 @@ class SettingsPage extends StatelessWidget {
           icon: FluentIcons.error_circle_24_regular,
         );
       }
+    }
+  }
+
+  String _cloudSyncDescription(CloudSyncManager manager, bool enabled) {
+    if (!manager.isAvailable) {
+      return 'Backend not configured. Build with MUSIFY_CLOUD_SYNC_URL to enable this optional desktop sync.';
+    }
+    if (enabled) {
+      return 'Optional sync is connected. Startup downloads cloud updates; local changes can auto-upload.';
+    }
+    return 'Optional multi-device backup. Enter a passphrase to create or load your cloud backup.';
+  }
+
+  String _cloudSyncStatusDescription(String status) {
+    final lastSyncedAt = cloudSyncLastSyncedAt.value;
+    if (lastSyncedAt == null) {
+      return status;
+    }
+
+    return '$status. Last sync: ${lastSyncedAt.toLocal()}';
+  }
+
+  Future<void> _toggleCloudSync(BuildContext context, bool value) async {
+    if (value && !cloudSyncConfigured.value) {
+      await _showCloudSyncSetupDialog(context);
+      return;
+    }
+
+    await _runCloudSyncAction(
+      context,
+      CloudSyncManager.instance.setEnabled(value),
+    );
+  }
+
+  Future<void> _toggleCloudSyncAutomatic(
+    BuildContext context,
+    bool value,
+  ) async {
+    await _runCloudSyncAction(
+      context,
+      CloudSyncManager.instance.setAutomaticUploads(value),
+    );
+  }
+
+  Future<void> _showCloudSyncSetupDialog(BuildContext context) async {
+    final controller = TextEditingController();
+
+    try {
+      await showDialog(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            icon: Icon(
+              FluentIcons.cloud_sync_24_regular,
+              color: Theme.of(dialogContext).colorScheme.primary,
+              size: 32,
+            ),
+            title: const Text('Cloud Sync'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Use the same passphrase on every device. If a backup already exists, Musify will load it from the cloud.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  obscureText: true,
+                  autofillHints: const [AutofillHints.password],
+                  decoration: const InputDecoration(
+                    labelText: 'Passphrase',
+                    helperText: 'Minimum 8 characters',
+                  ),
+                  onSubmitted: (_) =>
+                      _connectCloudSync(context, dialogContext, controller),
+                ),
+              ],
+            ),
+            actionsAlignment: MainAxisAlignment.center,
+            actions: [
+              OutlinedButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(context.l10n!.cancel),
+              ),
+              FilledButton(
+                onPressed: () =>
+                    _connectCloudSync(context, dialogContext, controller),
+                child: const Text('Connect'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _connectCloudSync(
+    BuildContext context,
+    BuildContext dialogContext,
+    TextEditingController controller,
+  ) async {
+    Navigator.pop(dialogContext);
+    await _runCloudSyncAction(
+      context,
+      CloudSyncManager.instance.connect(controller.text),
+    );
+  }
+
+  Future<void> _runCloudSyncAction(
+    BuildContext context,
+    Future<({String message, bool success})> action,
+  ) async {
+    final result = await action;
+    if (context.mounted) {
+      showToast(
+        context,
+        result.message,
+        icon: result.success ? null : FluentIcons.error_circle_24_regular,
+      );
     }
   }
 }

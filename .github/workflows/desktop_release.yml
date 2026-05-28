@@ -101,7 +101,7 @@ jobs:
         run: flutter analyze
 
       - name: Build Linux release
-        run: flutter build linux --release
+        run: flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL="${{ vars.MUSIFY_CLOUD_SYNC_URL }}"
 
       - name: Package Linux release
         run: .github/scripts/package_linux_desktop.sh
@@ -144,7 +144,7 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows release
-        run: flutter build windows --release
+        run: flutter build windows --release --dart-define=MUSIFY_CLOUD_SYNC_URL="${{ vars.MUSIFY_CLOUD_SYNC_URL }}"
 
       - name: Package portable Windows release
         shell: pwsh

@@ -34,6 +34,7 @@ import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/localization/app_localizations.dart';
 import 'package:musify/services/audio_service.dart';
+import 'package:musify/services/cloud_sync_manager.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/io_service.dart';
 import 'package:musify/services/logger_service.dart';
@@ -130,6 +131,7 @@ class _MusifyState extends State<Musify> {
     };
 
     offlineMode.addListener(_onOfflineModeChanged);
+    appStateReloadSignal.addListener(_onBackedUpStateReloaded);
 
     if (_supportsSharingIntent) {
       sharingIntentSubscription = ReceiveSharingIntent.getTextStream().listen(
@@ -197,7 +199,9 @@ class _MusifyState extends State<Musify> {
   @override
   void dispose() {
     offlineMode.removeListener(_onOfflineModeChanged);
+    appStateReloadSignal.removeListener(_onBackedUpStateReloaded);
 
+    unawaited(CloudSyncManager.instance.dispose());
     Hive.close();
     sharingIntentSubscription?.cancel();
     super.dispose();
@@ -205,6 +209,12 @@ class _MusifyState extends State<Musify> {
 
   void _onOfflineModeChanged() {
     // Force rebuild when offline mode changes
+    setState(() {});
+  }
+
+  void _onBackedUpStateReloaded() {
+    refreshThemeSettingsFromStorage();
+    NavigationManager.refreshRouter();
     setState(() {});
   }
 
@@ -270,6 +280,8 @@ Future<void> initialisation() async {
       Hive.openBox('userNoBackup'),
       Hive.openBox('cache'),
     ]);
+
+    await CloudSyncManager.instance.initialise();
 
     audioHandler = await AudioService.init(
       builder: MusifyAudioHandler.new,

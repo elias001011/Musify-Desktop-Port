@@ -25,6 +25,11 @@ When GitHub Actions is available:
 `Build Desktop Release` also refuses to publish a manual release when the
 requested `desktop-v<version>` tag does not match `pubspec.yaml`.
 
+If cloud sync should be enabled in release builds, configure the repository
+variable `MUSIFY_CLOUD_SYNC_URL` with the HTTPS endpoint of the sync backend.
+When the variable is empty, the app builds normally and the optional sync UI
+shows that no backend is configured.
+
 If the upstream merge, version validation, analysis, or Linux smoke build fails,
 the sync workflow opens an issue with a link to the failed run.
 
@@ -39,7 +44,7 @@ git merge --no-edit refs/tags/<upstream-version>
 ./update.sh
 flutter pub get
 flutter analyze
-flutter build linux --release
+flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL=<sync-endpoint>
 git push origin master
 ```
 
