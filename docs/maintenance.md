@@ -87,6 +87,18 @@ flutter build linux --release
 gh release create desktop-v<version> build/desktop-artifacts/* --latest
 ```
 
+## Automatic Offline Notes
+
+Automatic offline mode is deliberately conservative. It checks multiple network
+endpoints and requires repeated failures before enabling offline mode, then
+requires repeated successes before disabling an auto-applied offline mode.
+
+Manual offline mode always wins. If the user turns offline mode on, the
+automatic checker will report the connection state but will not turn offline
+mode off for the user.
+
+The current offline state is local-only and is not included in Cloud Sync.
+
 ## Remotes
 
 Recommended local remotes:

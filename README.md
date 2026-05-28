@@ -1,11 +1,16 @@
 # Musify Desktop Port
 
-Unofficial Windows and Linux desktop port of [Musify](https://github.com/gokadzev/Musify).
+Unofficial Windows and Linux desktop port of
+[Musify](https://github.com/gokadzev/Musify).
 
 Musify is created and maintained upstream by Valeri Gokadze and contributors at
 [gokadzev/Musify](https://github.com/gokadzev/Musify). This repository keeps a
-desktop-focused port that tracks upstream releases and packages ready-to-install
-builds for Windows and Linux.
+minimal desktop-focused port that tracks upstream releases and packages
+ready-to-install builds for Windows and Linux.
+
+The goal is not to fork Musify into a totally different app. The desktop branch
+keeps startup and core app changes small, then layers a few companion features
+that make the desktop and Musify Cloud mobile builds work better together.
 
 ## Downloads
 
@@ -31,21 +36,34 @@ This repository publishes two release families:
   branch. Mobile releases are intentionally not marked as GitHub Latest, so the
   desktop app never sees Android APKs as updates.
 
-## Desktop Changes
+## Minimal Desktop Startup
 
-This port keeps the upstream Musify app as intact as possible and adds the
-minimum desktop support needed for daily use:
+The desktop port keeps the upstream app close to original Musify and only adds
+the compatibility pieces needed for desktop startup and daily use:
 
 - Flutter Windows and Linux desktop targets.
 - `just_audio` desktop playback through `media_kit`.
 - Linux package metadata with `libmpv` runtime dependency.
 - Windows portable ZIP and Inno Setup installer packaging.
 - Desktop-safe guards for Android-only equalizer and mobile sharing-intent APIs.
-- Desktop updater that checks this repository's releases instead of the Android
-  upstream release feed.
-- Optional cloud sync for multi-device desktop use. When enabled by the user,
-  Musify can load and replace the latest cloud backup for settings, playlists,
-  liked songs, recently played songs, and most-played data.
+- Desktop updater that checks this repository's `desktop-v*` releases instead
+  of the upstream Android release feed.
+
+## Extra Features
+
+These features exist to make this desktop port and the Musify Cloud mobile build
+feel like one optional multi-device experience:
+
+- Optional Cloud Sync. Users can enter the same passphrase on desktop and
+  Musify Cloud mobile to load and replace the latest cloud backup for settings,
+  playlists, liked songs, recently played songs, and most-played data.
+- Automatic offline mode. The app can switch to offline mode after repeated
+  confirmed connectivity failures and return online when connectivity is
+  confirmed again. A Settings toggle disables this behavior.
+
+Automatic offline mode is conservative on purpose: it checks multiple endpoints
+and requires repeated failures before enabling offline mode, so a slow request
+should not immediately cause a false offline flip.
 
 ## Optional Cloud Sync
 
@@ -59,9 +77,6 @@ flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL=https://exampl
 For GitHub Actions releases, set the repository variable
 `MUSIFY_CLOUD_SYNC_URL`. If the value is empty, the app still builds and the
 sync UI explains that no backend is configured.
-
-See [docs/cloud-sync.md](docs/cloud-sync.md) for the backend protocol and a
-minimal Cloudflare Worker example.
 
 Current sync behavior is last-writer-wins at the full-backup level. The newest
 snapshot replaces the older one; it is not a per-song or per-playlist merge.

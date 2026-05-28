@@ -27,6 +27,7 @@ import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
 import 'package:musify/screens/search_page.dart';
+import 'package:musify/services/automatic_offline_manager.dart';
 import 'package:musify/services/backed_up_state_manager.dart';
 import 'package:musify/services/cloud_sync_manager.dart';
 import 'package:musify/services/common_services.dart';
@@ -173,6 +174,27 @@ class SettingsPage extends StatelessWidget {
                 value: value,
                 onChanged: (value) => _toggleOfflineMode(context, value),
               ),
+            );
+          },
+        ),
+        ValueListenableBuilder<bool>(
+          valueListenable: automaticOfflineMode,
+          builder: (_, value, __) {
+            return ValueListenableBuilder<String>(
+              valueListenable: automaticOfflineModeStatus,
+              builder: (_, status, __) {
+                return CustomBar(
+                  'Automatic offline mode',
+                  FluentIcons.globe_warning_24_regular,
+                  description:
+                      'Switch to offline mode only after repeated connection failures. $status',
+                  trailing: Switch(
+                    value: value,
+                    onChanged: (value) =>
+                        _toggleAutomaticOfflineMode(context, value),
+                  ),
+                );
+              },
             );
           },
         ),
@@ -816,6 +838,7 @@ class SettingsPage extends StatelessWidget {
   }
 
   void _toggleOfflineMode(BuildContext context, bool value) {
+    AutomaticOfflineManager.instance.markManualOfflineChange();
     addOrUpdateData('settings', 'offlineMode', value);
     offlineMode.value = value;
 
@@ -823,6 +846,16 @@ class SettingsPage extends StatelessWidget {
     NavigationManager.refreshRouter();
 
     showToast(context, context.l10n!.settingChangedMsg);
+  }
+
+  Future<void> _toggleAutomaticOfflineMode(
+    BuildContext context,
+    bool value,
+  ) async {
+    await AutomaticOfflineManager.instance.setEnabled(value);
+    if (context.mounted) {
+      showToast(context, context.l10n!.settingChangedMsg);
+    }
   }
 
   void _toggleSponsorBlock(BuildContext context, bool value) {
