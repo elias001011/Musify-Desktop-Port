@@ -57,7 +57,7 @@ jobs:
             --flavor github \
             --dart-define=MUSIFY_CLOUD_SYNC_URL="${MUSIFY_CLOUD_SYNC_URL}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MusifyCloud-debug.apk
           path: build/app/outputs/flutter-apk/app-github-debug.apk
