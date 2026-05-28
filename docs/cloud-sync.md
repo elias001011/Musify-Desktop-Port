@@ -140,6 +140,12 @@ This first version is intentionally simple: latest snapshot wins.
 - If automatic uploads are disabled, startup still loads newer cloud data but
   does not upload local changes by itself. The user can manually upload or
   download from Settings.
+- App offline mode pauses sync and cancels pending uploads.
+- Leaving offline mode runs a normal sync first, so a newer cloud backup can be
+  loaded before local changes are uploaded.
+
+`offlineMode` is local-only and is not included in cloud backups. One device
+going offline should not force the other devices offline when they sync.
 
 Future versions can add field-level merge for playlist ordering and per-song
 conflicts, but snapshot replacement is safer for the first desktop test.
