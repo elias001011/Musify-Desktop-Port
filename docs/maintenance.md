@@ -23,7 +23,8 @@ When GitHub Actions is available:
    stable GitHub release.
 
 `Build Desktop Release` also refuses to publish a manual release when the
-requested `desktop-v<version>` tag does not match `pubspec.yaml`.
+requested tag does not match `pubspec.yaml`. Rebuild-only desktop releases may
+use a numeric revision suffix such as `desktop-v10.0.8-2`.
 
 If cloud sync should be enabled in release builds, configure the repository
 variable `MUSIFY_CLOUD_SYNC_URL` with the HTTPS endpoint of the sync backend.

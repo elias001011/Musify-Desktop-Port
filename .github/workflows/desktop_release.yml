@@ -59,9 +59,9 @@ jobs:
             prerelease="${INPUT_PRERELEASE:-false}"
           fi
 
-          expected_tag="desktop-v${version}"
-          if [[ "${tag}" != "${expected_tag}" ]]; then
-            echo "Release tag ${tag} does not match pubspec.yaml version ${version}. Expected ${expected_tag}." >&2
+          expected_tag_pattern="^desktop-v${version}(-[0-9]+)?$"
+          if [[ ! "${tag}" =~ ${expected_tag_pattern} ]]; then
+            echo "Release tag ${tag} does not match pubspec.yaml version ${version}. Expected desktop-v${version} or desktop-v${version}-<revision>." >&2
             exit 1
           fi
 
