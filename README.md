@@ -68,6 +68,20 @@ Original Musify downloads remain available from
 
 ---
 
+## Release Channels
+
+This repository publishes two release families:
+
+- `mobile-v*` is the Musify Cloud Android channel. These releases are not
+  marked as GitHub Latest, so desktop builds do not accidentally detect Android
+  packages as updates.
+- `desktop-v*` is the desktop channel for Windows and Linux. Those releases are
+  allowed to be GitHub Latest.
+
+Musify Cloud only checks `mobile-v*` releases when looking for Android updates.
+
+---
+
 ## Optional Cloud Sync
 
 Cloud Sync is off by default. Users enable it in Settings with a passphrase.
@@ -78,6 +92,34 @@ backup after a short debounce.
 Release builds read the backend URL from `MUSIFY_CLOUD_SYNC_URL`. See
 [docs/cloud-sync.md](docs/cloud-sync.md) for the Cloudflare Worker/KV setup.
 
+Current behavior is intentionally simple: the newest full backup wins. If a
+device has newer local changes, it uploads them; if the cloud backup is newer,
+the app loads it. See [docs/cloud-sync.md](docs/cloud-sync.md) for the security
+model, limits and conflict notes.
+
+---
+
+## Upstream Sync
+
+The `mobile-cloud-sync` branch is kept close to
+[gokadzev/Musify](https://github.com/gokadzev/Musify). Our changes are layered
+on top: Cloud Sync, separate Android identity, update channel changes, release
+workflows, and small compatibility fixes.
+
+Automation checks upstream releases every six hours:
+
+- if upstream publishes a new release, the workflow merges that upstream tag
+  into `mobile-cloud-sync`;
+- it runs dependency restore and `flutter analyze`;
+- if validation passes, it dispatches the Android release workflow;
+- the Android workflow publishes a new `mobile-v*` release without marking it
+  as GitHub Latest.
+
+If the upstream merge conflicts, GitHub Actions cannot safely guess the right
+resolution. The workflow fails and opens an issue pointing to the failed run so
+the conflict can be resolved manually.
+
+See [docs/maintenance.md](docs/maintenance.md) for the release flow.
 
 ---
 

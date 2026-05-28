@@ -46,12 +46,13 @@ Future<void> checkAppUpdates() async {
     final latestRelease = await _fetchLatestMobileCloudRelease();
     if (latestRelease == null) return;
 
-    announcementURL.value = latestRelease['html_url']?.toString();
     final latestVersion = _versionFromRelease(latestRelease);
 
     if (!isLatestVersionHigher(appVersion, latestVersion)) {
       return;
     }
+
+    announcementURL.value = latestRelease['html_url']?.toString();
 
     await showDialog(
       context: NavigationManager().context,
@@ -333,7 +334,14 @@ Future<Map<String, dynamic>?> _fetchLatestMobileCloudRelease() async {
 Future<void> fetchAnnouncementOnly() async {
   try {
     final latestRelease = await _fetchLatestMobileCloudRelease();
-    final ann = latestRelease?['html_url'];
+    if (latestRelease == null) return;
+
+    final latestVersion = _versionFromRelease(latestRelease);
+    if (!isLatestVersionHigher(appVersion, latestVersion)) {
+      return;
+    }
+
+    final ann = latestRelease['html_url'];
     if (ann != null) {
       announcementURL.value = ann.toString();
     }

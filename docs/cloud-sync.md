@@ -9,6 +9,53 @@ one. The snapshot includes the same backed-up state used by Musify's local
 backup flow: settings, playlists, liked songs, recently played songs, and
 most-played metadata.
 
+## Security Model
+
+Cloud Sync is designed to avoid shipping a write token in the app. The Worker is
+public, and the user's passphrase selects the backup namespace by deriving a
+SHA-256 account id from:
+
+```text
+musify-cloud-sync-v1:<passphrase>
+```
+
+That means a strong passphrase is important. Someone who can guess the
+passphrase can derive the same account id and read or replace that backup.
+
+The current implementation does not encrypt the backup payload before storing
+it in Cloudflare KV. Cloudflare and anyone with access to the Cloudflare account
+can technically read the stored JSON. This is acceptable for low-sensitivity
+music/app state, but it is not private end-to-end encryption.
+
+Good next hardening step: derive an encryption key from the passphrase and
+encrypt the snapshot client-side before upload. The account id and encryption
+key should be derived separately so the Worker can route the object without
+being able to read it.
+
+## Conflict Behavior
+
+Sync is last-writer-wins at the full-backup level:
+
+- startup downloads the cloud backup if it is newer than local state;
+- local changes schedule an upload when automatic sync is enabled;
+- manual upload replaces the previous cloud backup;
+- manual load applies the current cloud backup to the device.
+
+This keeps the first implementation simple and predictable, but it is not a
+field-level merge. If two devices are edited offline at the same time, whichever
+device uploads last becomes the cloud state. More advanced conflict handling
+would need per-box or per-record timestamps.
+
+## Limits
+
+Cloudflare KV stores each value with a 25 MiB limit. The Worker example uses a
+24 MB guard to stay under that limit. Musify may gzip-compress large snapshots
+and wrap them in JSON before upload, which keeps normal large backups below the
+limit.
+
+If compressed backups start hitting 413 again, move the storage to Cloudflare R2
+or split the snapshot into multiple keys.
+
 ## Backend
 
 Release builds need this Dart define:
