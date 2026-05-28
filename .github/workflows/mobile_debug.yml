@@ -8,9 +8,6 @@ on:
         required: false
         default: mobile-cloud-sync
         type: string
-  push:
-    branches:
-      - mobile-cloud-sync
 
 permissions:
   contents: read
