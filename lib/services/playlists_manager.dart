@@ -102,6 +102,27 @@ final currentLikedPlaylistsLength = ValueNotifier<int>(
   userLikedPlaylists.length,
 );
 
+void refreshPlaylistsFromStorage() {
+  final userBox = Hive.box('user');
+
+  userPlaylists.value = List<String>.from(
+    userBox.get('playlists', defaultValue: []),
+  );
+  userCustomPlaylists.value = List<Map>.from(
+    userBox.get('customPlaylists', defaultValue: []),
+  );
+  userLikedPlaylists = List<Map>.from(
+    userBox.get('likedPlaylists', defaultValue: []),
+  );
+  userPlaylistFolders.value = List<Map>.from(
+    userBox.get('playlistFolders', defaultValue: []),
+  );
+  pinnedPlaylistIds.value = List<String>.from(
+    userBox.get('pinnedPlaylistIds', defaultValue: <String>[]),
+  );
+  currentLikedPlaylistsLength.value = userLikedPlaylists.length;
+}
+
 Future<List<dynamic>> getUserPlaylists() async {
   final futures = userPlaylists.value.map((playlistID) async {
     try {

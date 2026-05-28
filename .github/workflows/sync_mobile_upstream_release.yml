@@ -1,0 +1,108 @@
+name: Sync Mobile Upstream Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: Upstream Musify tag to sync. Leave empty for latest release.
+        required: false
+        type: string
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  sync:
+    name: Merge upstream and dispatch mobile release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout mobile branch
+        uses: actions/checkout@v5
+        with:
+          ref: mobile-cloud-sync
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Resolve upstream release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_UPSTREAM_TAG: ${{ inputs.upstream_tag }}
+        shell: bash
+        run: |
+          if [[ -n "$INPUT_UPSTREAM_TAG" ]]; then
+            upstream_tag="$INPUT_UPSTREAM_TAG"
+          else
+            upstream_tag="$(gh release view --repo gokadzev/Musify --json tagName --jq '.tagName')"
+          fi
+
+          version="${upstream_tag#v}"
+          release_tag="mobile-v${version}"
+
+          echo "tag=${upstream_tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Stop if mobile release already exists
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          release_tag="${{ steps.upstream.outputs.release_tag }}"
+
+          if ! gh release view "$release_tag" --json assets >/tmp/mobile_release.json 2>/dev/null; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          asset_count="$(jq '[.assets[] | select(.name == "MusifyCloud.apk" or .name == "MusifyCloud-arm64-v8a.apk")] | length' /tmp/mobile_release.json)"
+          if [[ "$asset_count" -ge 2 ]]; then
+            echo "Mobile release $release_tag already has APK assets."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Mobile release $release_tag exists but is incomplete; release workflow will repair it."
+            echo "exists=incomplete" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Add upstream remote
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          git remote add upstream https://github.com/gokadzev/Musify.git || git remote set-url upstream https://github.com/gokadzev/Musify.git
+          git fetch upstream --tags --prune
+
+      - name: Merge upstream release
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          upstream_tag="${{ steps.upstream.outputs.tag }}"
+          git merge --no-edit "refs/tags/${upstream_tag}"
+
+      - name: Push mobile branch
+        if: steps.existing.outputs.exists != 'true'
+        run: git push origin HEAD:mobile-cloud-sync
+
+      - name: Dispatch mobile release build
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          repair="false"
+          if [[ "${{ steps.existing.outputs.exists }}" == "incomplete" ]]; then
+            repair="true"
+          fi
+
+          gh workflow run mobile_release.yml \
+            --ref mobile-cloud-sync \
+            -f version="${{ steps.upstream.outputs.version }}" \
+            -f source_ref="mobile-cloud-sync" \
+            -f repair_existing_release="$repair"

@@ -33,6 +33,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/localization/app_localizations.dart';
 import 'package:musify/services/audio_service.dart';
+import 'package:musify/services/cloud_sync_manager.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/io_service.dart';
 import 'package:musify/services/logger_service.dart';
@@ -124,6 +125,7 @@ class _MusifyState extends State<Musify> {
     };
 
     offlineMode.addListener(_onOfflineModeChanged);
+    appStateReloadSignal.addListener(_onBackedUpStateReloaded);
 
     sharingIntentSubscription = ReceiveSharingIntent.getTextStream().listen(
       (String? value) async {
@@ -189,7 +191,9 @@ class _MusifyState extends State<Musify> {
   @override
   void dispose() {
     offlineMode.removeListener(_onOfflineModeChanged);
+    appStateReloadSignal.removeListener(_onBackedUpStateReloaded);
 
+    unawaited(CloudSyncManager.instance.dispose());
     Hive.close();
     sharingIntentSubscription.cancel();
     super.dispose();
@@ -197,6 +201,12 @@ class _MusifyState extends State<Musify> {
 
   void _onOfflineModeChanged() {
     // Force rebuild when offline mode changes
+    setState(() {});
+  }
+
+  void _onBackedUpStateReloaded() {
+    refreshThemeSettingsFromStorage();
+    NavigationManager.refreshRouter();
     setState(() {});
   }
 
@@ -262,11 +272,13 @@ Future<void> initialisation() async {
       Hive.openBox('cache'),
     ]);
 
+    await CloudSyncManager.instance.initialise();
+
     audioHandler = await AudioService.init(
       builder: MusifyAudioHandler.new,
       config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.gokadzev.musify',
-        androidNotificationChannelName: 'Musify',
+        androidNotificationChannelId: 'com.elias001011.musifycloud',
+        androidNotificationChannelName: 'Musify Cloud',
         androidNotificationIcon: 'drawable/ic_launcher_foreground',
         androidShowNotificationBadge: true,
         androidStopForegroundOnPause: false,
@@ -300,7 +312,7 @@ Future<void> initialisation() async {
 }
 
 void handleIncomingLink(Uri? uri) async {
-  if (uri != null && uri.scheme == 'musify' && uri.host == 'playlist') {
+  if (uri != null && uri.scheme == 'musifycloud' && uri.host == 'playlist') {
     try {
       if (uri.pathSegments[0] == 'custom') {
         final encodedPlaylist = uri.pathSegments[1];

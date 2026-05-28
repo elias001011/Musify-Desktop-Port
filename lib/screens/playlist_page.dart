@@ -331,7 +331,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
           final encodedPlaylist = PlaylistSharingService.encodePlaylist(
             _playlist,
           );
-          final url = 'musify://playlist/custom/$encodedPlaylist';
+          final url = 'musifycloud://playlist/custom/$encodedPlaylist';
           await Clipboard.setData(ClipboardData(text: url));
           if (mounted) {
             showToast(context, context.l10n!.linkCopied);
@@ -555,7 +555,9 @@ class _PlaylistPageState extends State<PlaylistPage> {
                           width: 40,
                           height: 40,
                           child: CircularProgressIndicator(
-                            value: progress.isCancelled ? null : progress.progress,
+                            value: progress.isCancelled
+                                ? null
+                                : progress.progress,
                             strokeWidth: 3,
                             backgroundColor: Theme.of(
                               context,

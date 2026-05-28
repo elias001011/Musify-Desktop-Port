@@ -43,7 +43,7 @@ class AboutPage extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Musify',
+                    'Musify Cloud',
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.primary,
                       fontSize: 36,
@@ -122,7 +122,7 @@ class AboutPage extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'WEB & APP Developer',
+                            'Original Musify maintainer',
                             style: TextStyle(
                               color: Theme.of(
                                 context,
@@ -154,6 +154,66 @@ class AboutPage extends StatelessWidget {
                           },
                         ),
                       ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Material(
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(20),
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Image.network(
+                        'https://github.com/elias001011.png',
+                        width: 52,
+                        height: 52,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Elias Juriatti',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Musify Cloud maintainer',
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _SocialButton(
+                      icon: FluentIcons.code_24_filled,
+                      tooltip: 'Github',
+                      onPressed: () {
+                        launchURL(Uri.parse('https://github.com/elias001011'));
+                      },
                     ),
                   ],
                 ),

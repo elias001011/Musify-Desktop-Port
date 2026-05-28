@@ -35,44 +35,23 @@ import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/url_launcher.dart';
 import 'package:musify/widgets/auto_format_text.dart';
 
-const String checkUrl =
-    'https://raw.githubusercontent.com/gokadzev/Musify/update/check.json';
 const String releasesUrl =
-    'https://api.github.com/repos/gokadzev/Musify/releases/latest';
-const String downloadUrlKey = 'url';
-const String downloadUrlArm64Key = 'arm64url';
-const String downloadFilename = 'Musify.apk';
+    'https://api.github.com/repos/elias001011/Musify-Desktop-Port/releases';
+const String mobileReleaseTagPrefix = 'mobile-v';
+const String downloadFilename = 'MusifyCloud.apk';
+const String downloadArm64Filename = 'MusifyCloud-arm64-v8a.apk';
 
 Future<void> checkAppUpdates() async {
   try {
-    final response = await http.get(Uri.parse(checkUrl));
+    final latestRelease = await _fetchLatestMobileCloudRelease();
+    if (latestRelease == null) return;
 
-    if (response.statusCode != 200) {
-      logger.log(
-        'Fetch update API (checkUrl) call returned status code ${response.statusCode}',
-      );
-      return;
-    }
-
-    final map = json.decode(response.body) as Map<String, dynamic>;
-    announcementURL.value = map['announcementurl'];
-    final latestVersion = map['version'].toString();
+    announcementURL.value = latestRelease['html_url']?.toString();
+    final latestVersion = _versionFromRelease(latestRelease);
 
     if (!isLatestVersionHigher(appVersion, latestVersion)) {
       return;
     }
-
-    final releasesRequest = await http.get(Uri.parse(releasesUrl));
-
-    if (releasesRequest.statusCode != 200) {
-      logger.log(
-        'Fetch update API (releasesUrl) call returned status code ${response.statusCode}',
-      );
-      return;
-    }
-
-    final releasesResponse =
-        json.decode(releasesRequest.body) as Map<String, dynamic>;
 
     await showDialog(
       context: NavigationManager().context,
@@ -136,7 +115,9 @@ Future<void> checkAppUpdates() async {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: SingleChildScrollView(
-                  child: AutoFormatText(text: releasesResponse['body']),
+                  child: AutoFormatText(
+                    text: latestRelease['body']?.toString() ?? '',
+                  ),
                 ),
               ),
             ],
@@ -155,7 +136,7 @@ Future<void> checkAppUpdates() async {
             ),
             FilledButton.icon(
               onPressed: () {
-                getDownloadUrl(map).then(
+                getDownloadUrl(latestRelease).then(
                   (url) => {launchURL(Uri.parse(url)), Navigator.pop(context)},
                 );
               },
@@ -231,17 +212,15 @@ void showUpdateCheckDialog(BuildContext context) {
 }
 
 bool isLatestVersionHigher(String appVersion, String latestVersion) {
-  final parsedAppVersion = appVersion.split('.');
-  final parsedAppLatestVersion = latestVersion.split('.');
+  final parsedAppVersion = _parseVersionParts(appVersion);
+  final parsedAppLatestVersion = _parseVersionParts(latestVersion);
   final length = parsedAppVersion.length > parsedAppLatestVersion.length
       ? parsedAppVersion.length
       : parsedAppLatestVersion.length;
   for (var i = 0; i < length; i++) {
-    final value1 = i < parsedAppVersion.length
-        ? int.parse(parsedAppVersion[i])
-        : 0;
+    final value1 = i < parsedAppVersion.length ? parsedAppVersion[i] : 0;
     final value2 = i < parsedAppLatestVersion.length
-        ? int.parse(parsedAppLatestVersion[i])
+        ? parsedAppLatestVersion[i]
         : 0;
     if (value2 > value1) {
       return true;
@@ -253,6 +232,12 @@ bool isLatestVersionHigher(String appVersion, String latestVersion) {
   return false;
 }
 
+List<int> _parseVersionParts(String version) {
+  final match = RegExp(r'(\d+(?:\.\d+){0,3})').firstMatch(version);
+  final normalized = match?.group(1) ?? '0';
+  return normalized.split('.').map((part) => int.tryParse(part) ?? 0).toList();
+}
+
 Future<String> getCPUArchitecture() async {
   final info = await Process.run('uname', ['-m']);
   final cpu = info.stdout.toString().replaceAll('\n', '');
@@ -260,32 +245,95 @@ Future<String> getCPUArchitecture() async {
   return cpu;
 }
 
-Future<String> getDownloadUrl(Map<String, dynamic> map) async {
-  final cpuArchitecture = await getCPUArchitecture();
-  final url = cpuArchitecture == 'aarch64'
-      ? map[downloadUrlArm64Key].toString()
-      : map[downloadUrlKey].toString();
+Future<String> getDownloadUrl(Map<String, dynamic> release) async {
+  final assets = (release['assets'] as List? ?? [])
+      .whereType<Map>()
+      .map(Map<String, dynamic>.from)
+      .toList();
 
-  return url;
+  String? assetUrl(String name) {
+    for (final asset in assets) {
+      if (asset['name'] == name) {
+        return asset['browser_download_url']?.toString();
+      }
+    }
+    return null;
+  }
+
+  var cpuArchitecture = '';
+  try {
+    cpuArchitecture = await getCPUArchitecture();
+  } catch (e, stackTrace) {
+    logger.log(
+      'Failed to detect CPU architecture',
+      error: e,
+      stackTrace: stackTrace,
+    );
+  }
+
+  final preferredNames = cpuArchitecture == 'aarch64'
+      ? [downloadArm64Filename, downloadFilename]
+      : [downloadFilename, downloadArm64Filename];
+
+  for (final name in preferredNames) {
+    final url = assetUrl(name);
+    if (url != null && url.isNotEmpty) {
+      return url;
+    }
+  }
+
+  return release['html_url']?.toString() ?? releasesUrl;
 }
 
-/// Fetch only the announcement URL from the `check.json` file and set the
-/// global `announcementURL` ValueNotifier. This does not trigger releases
-/// fetching or any update dialogs/downloads and is safe to call for F‑Droid
-/// builds where update prompts are not allowed.
+String _versionFromRelease(Map<String, dynamic> release) {
+  final tagName = release['tag_name']?.toString() ?? '';
+  final match = RegExp(r'(\d+(?:\.\d+){0,3})').firstMatch(tagName);
+  if (match != null) {
+    return match.group(1)!;
+  }
+
+  return release['name']?.toString() ?? '0.0.0';
+}
+
+Future<Map<String, dynamic>?> _fetchLatestMobileCloudRelease() async {
+  final releasesRequest = await http.get(Uri.parse(releasesUrl));
+
+  if (releasesRequest.statusCode != 200) {
+    logger.log(
+      'Fetch update API (releasesUrl) call returned status code ${releasesRequest.statusCode}',
+    );
+    return null;
+  }
+
+  final decoded = json.decode(releasesRequest.body);
+  if (decoded is! List) {
+    logger.log('Fetch update API (releasesUrl) did not return a list');
+    return null;
+  }
+
+  for (final rawRelease in decoded) {
+    if (rawRelease is! Map) continue;
+
+    final release = Map<String, dynamic>.from(rawRelease);
+    final tagName = release['tag_name']?.toString() ?? '';
+    final draft = release['draft'] == true;
+    final prerelease = release['prerelease'] == true;
+
+    if (!draft && !prerelease && tagName.startsWith(mobileReleaseTagPrefix)) {
+      return release;
+    }
+  }
+
+  return null;
+}
+
+/// Fetch only the latest Musify Cloud mobile release URL. This does not trigger
+/// update dialogs/downloads and is safe to call for F-Droid builds where update
+/// prompts are not allowed.
 Future<void> fetchAnnouncementOnly() async {
   try {
-    final response = await http.get(Uri.parse(checkUrl));
-
-    if (response.statusCode != 200) {
-      logger.log(
-        'Fetch announcement (checkUrl) call returned status code ${response.statusCode}',
-      );
-      return;
-    }
-
-    final map = json.decode(response.body) as Map<String, dynamic>;
-    final ann = map['announcementurl'];
+    final latestRelease = await _fetchLatestMobileCloudRelease();
+    final ann = latestRelease?['html_url'];
     if (ann != null) {
       announcementURL.value = ann.toString();
     }

@@ -90,7 +90,7 @@ Locale languageSetting = getLocaleFromLanguageCode(
   Hive.box('settings').get('languageCode', defaultValue: 'en') as String,
 );
 
-final themeModeSetting =
+int themeModeSetting =
     Hive.box('settings').get('themeIndex', defaultValue: 0) as int;
 
 String playlistSortSetting = Hive.box(
@@ -115,6 +115,28 @@ final repeatNotifier = ValueNotifier<AudioServiceRepeatMode>(
   ).get('repeatMode', defaultValue: 0)],
 );
 
+final cloudSyncEnabled = ValueNotifier<bool>(
+  Hive.box('settings').get('cloudSyncEnabled', defaultValue: false),
+);
+
+final cloudSyncAutomatic = ValueNotifier<bool>(
+  Hive.box('settings').get('cloudSyncAutomatic', defaultValue: true),
+);
+
+final cloudSyncConfigured = ValueNotifier<bool>(
+  Hive.box(
+    'settings',
+  ).get('cloudSyncAccountId', defaultValue: '').toString().isNotEmpty,
+);
+
+final cloudSyncLastSyncedAt = ValueNotifier<DateTime?>(
+  _readDateTimeSetting('cloudSyncLastSyncedAt'),
+);
+
+final cloudSyncStatus = ValueNotifier<String>('Cloud sync is idle');
+
+final appStateReloadSignal = ValueNotifier<int>(0);
+
 // Non-storage notifiers
 
 var sleepTimerNotifier = ValueNotifier<Duration?>(null);
@@ -122,3 +144,86 @@ var sleepTimerNotifier = ValueNotifier<Duration?>(null);
 // Server-Notifiers
 
 final announcementURL = ValueNotifier<String?>(null);
+
+DateTime? _readDateTimeSetting(String key) {
+  final value = Hive.box('settings').get(key);
+  if (value is DateTime) {
+    return value;
+  }
+  if (value is String) {
+    return DateTime.tryParse(value);
+  }
+  return null;
+}
+
+void refreshSettingsFromStorage() {
+  final settingsBox = Hive.box('settings');
+
+  shouldWeCheckUpdates.value = settingsBox.get(
+    'shouldWeCheckUpdates',
+    defaultValue: null,
+  );
+  playNextSongAutomatically.value = settingsBox.get(
+    'playNextSongAutomatically',
+    defaultValue: false,
+  );
+  useSystemColor.value = settingsBox.get('useSystemColor', defaultValue: true);
+  usePureBlackColor.value = settingsBox.get(
+    'usePureBlackColor',
+    defaultValue: false,
+  );
+  offlineMode.value = settingsBox.get('offlineMode', defaultValue: false);
+  predictiveBack.value = settingsBox.get('predictiveBack', defaultValue: true);
+  sponsorBlockSupport.value = settingsBox.get(
+    'sponsorBlockSupport',
+    defaultValue: false,
+  );
+  externalRecommendations.value = settingsBox.get(
+    'externalRecommendations',
+    defaultValue: false,
+  );
+  useProxy.value = settingsBox.get('useProxy', defaultValue: false);
+  audioQualitySetting.value = settingsBox.get(
+    'audioQuality',
+    defaultValue: 'high',
+  );
+  equalizerEnabled.value = settingsBox.get(
+    'equalizerEnabled',
+    defaultValue: false,
+  );
+  equalizerBandGains.value = _readEqualizerGains();
+  languageSetting = getLocaleFromLanguageCode(
+    settingsBox.get('languageCode', defaultValue: 'en') as String,
+  );
+  themeModeSetting = settingsBox.get('themeIndex', defaultValue: 0) as int;
+  playlistSortSetting = settingsBox.get(
+    'playlistSortType',
+    defaultValue: PlaylistSortType.default_.name,
+  );
+  offlineSortSetting = settingsBox.get(
+    'offlineSortType',
+    defaultValue: OfflineSortType.default_.name,
+  );
+  primaryColorSetting = Color(
+    settingsBox.get('accentColor', defaultValue: 0xff91cef4),
+  );
+  shuffleNotifier.value = settingsBox.get(
+    'shuffleEnabled',
+    defaultValue: false,
+  );
+  repeatNotifier.value = AudioServiceRepeatMode
+      .values[settingsBox.get('repeatMode', defaultValue: 0)];
+  cloudSyncEnabled.value = settingsBox.get(
+    'cloudSyncEnabled',
+    defaultValue: false,
+  );
+  cloudSyncAutomatic.value = settingsBox.get(
+    'cloudSyncAutomatic',
+    defaultValue: true,
+  );
+  cloudSyncConfigured.value = settingsBox
+      .get('cloudSyncAccountId', defaultValue: '')
+      .toString()
+      .isNotEmpty;
+  cloudSyncLastSyncedAt.value = _readDateTimeSetting('cloudSyncLastSyncedAt');
+}

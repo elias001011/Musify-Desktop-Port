@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    package="com.gokadzev.musify">
+    package="com.elias001011.musifycloud">
 
 
     <!-- Permissions -->
@@ -30,7 +30,7 @@
     </queries>
 
     <application
-        android:label="Musify"
+        android:label="Musify Cloud"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:enableOnBackInvokedCallback="true"
@@ -70,7 +70,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="musify"
+                    android:scheme="musifycloud"
                     android:host="playlist"
                     android:pathPattern="/custom/.*" />
             </intent-filter>

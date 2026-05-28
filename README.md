@@ -1,14 +1,18 @@
 <div align="center">
 <img src="https://github.com/gokadzev/Musify/raw/master/.github/assets/Musify-banner.png" width="100%">
 
-# Musify
+# Musify Cloud
 
-Unlock the full potential of music: Stream effortlessly with one app!
+Unofficial Musify mobile build with optional Cloud Sync.
 
-[![Stars](https://img.shields.io/github/stars/gokadzev/Musify?style=flat-square&color=D3BEAB)](https://github.com/gokadzev/Musify/stargazers)
-[![Forks](https://img.shields.io/github/forks/gokadzev/Musify?style=flat-square&color=D3BEAB)](https://github.com/gokadzev/Musify/fork)
-[![Downloads](https://img.shields.io/github/downloads/gokadzev/Musify/total?style=flat-square&color=D3BEAB)](https://github.com/gokadzev/Musify/releases)
-[![GitHub release](https://img.shields.io/github/v/release/gokadzev/Musify?color=D3BEAB)](https://github.com/gokadzev/Musify/releases)
+Musify Cloud tracks [gokadzev/Musify](https://github.com/gokadzev/Musify), keeps
+the upstream app experience, and adds a separate Android package, distinct icon,
+our update channel, and optional sync for multi-device use.
+
+[![Stars](https://img.shields.io/github/stars/elias001011/Musify-Desktop-Port?style=flat-square&color=008F8C)](https://github.com/elias001011/Musify-Desktop-Port/stargazers)
+[![Forks](https://img.shields.io/github/forks/elias001011/Musify-Desktop-Port?style=flat-square&color=008F8C)](https://github.com/elias001011/Musify-Desktop-Port/fork)
+[![Downloads](https://img.shields.io/github/downloads/elias001011/Musify-Desktop-Port/total?style=flat-square&color=008F8C)](https://github.com/elias001011/Musify-Desktop-Port/releases)
+[![GitHub release](https://img.shields.io/github/v/release/elias001011/Musify-Desktop-Port?color=008F8C)](https://github.com/elias001011/Musify-Desktop-Port/releases)
 [![License](https://img.shields.io/github/license/gokadzev/Musify?color=D3BEAB)](LICENSE)
 
 ---
@@ -38,6 +42,8 @@ Built-in updater <br/>
 Built-in equalizer with presets <br/>
 21 supported languages <br/>
 Material UI & accent colors & dynamic colors (Android 12+) <br/>
+Optional Cloud Sync for settings, playlists, liked songs and play history <br/>
+Separate package name, app name and icon so original Musify can stay installed <br/>
 
 </center>
 
@@ -52,11 +58,25 @@ Material UI & accent colors & dynamic colors (Android 12+) <br/>
 
 ---
 
-## Download
+## Download Musify Cloud
 
 
-[<img src="https://github.com/gokadzev/Musify/raw/master/.github/assets/get-it-on-github.png" alt="Get it on Github" height="80">](https://github.com/gokadzev/Musify/releases/latest)
-[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on Fdroid" height="80">](https://f-droid.org/packages/com.gokadzev.musify.fdroid)
+[<img src="https://github.com/gokadzev/Musify/raw/master/.github/assets/get-it-on-github.png" alt="Get it on Github" height="80">](https://github.com/elias001011/Musify-Desktop-Port/releases)
+
+Original Musify downloads remain available from
+[gokadzev/Musify](https://github.com/gokadzev/Musify/releases).
+
+---
+
+## Optional Cloud Sync
+
+Cloud Sync is off by default. Users enable it in Settings with a passphrase.
+Using the same passphrase on desktop and mobile loads the same cloud backup.
+When automatic uploads are enabled, new local changes replace the previous cloud
+backup after a short debounce.
+
+Release builds read the backend URL from `MUSIFY_CLOUD_SYNC_URL`. See
+[docs/cloud-sync.md](docs/cloud-sync.md) for the Cloudflare Worker/KV setup.
 
 
 ---

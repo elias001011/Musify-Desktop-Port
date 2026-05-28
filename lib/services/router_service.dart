@@ -234,7 +234,7 @@ class NavigationManager {
                 path: 'license',
                 pageBuilder: (context, state) => _pushPage(
                   child: const LicensePage(
-                    applicationName: 'Musify',
+                    applicationName: 'Musify Cloud',
                     applicationVersion: appVersion,
                   ),
                   state: state,

@@ -61,6 +61,21 @@ final recentlyPlayedVersion = ValueNotifier<int>(0);
 final lyrics = ValueNotifier<String?>(null);
 String? lastFetchedLyrics;
 
+void refreshUserSongsFromStorage() {
+  final userBox = Hive.box('user');
+
+  userLikedSongsList = userBox.get('likedSongs', defaultValue: []);
+  userRecentlyPlayed = userBox.get('recentlyPlayedSongs', defaultValue: []);
+  userOfflineSongs = Hive.box(
+    'userNoBackup',
+  ).get('offlineSongs', defaultValue: []);
+
+  currentLikedSongsLength.value = userLikedSongsList.length;
+  currentRecentlyPlayedLength.value = userRecentlyPlayed.length;
+  currentOfflineSongsLength.value = userOfflineSongs.length;
+  recentlyPlayedVersion.value++;
+}
+
 // Timeouts and durations used across manifest fetching and cache validation.
 const Duration _manifestTimeout = Duration(seconds: 30);
 const Duration _cacheValidationDuration = Duration(hours: 1);
