@@ -25,6 +25,9 @@ The backend contract is intentionally tiny:
 - `GET /sync/<account-id>` returns the latest JSON backup or `404`.
 - `PUT /sync/<account-id>` replaces the latest JSON backup.
 
+Musify may gzip-compress large snapshots and store them inside a JSON envelope,
+so the backend should treat the request body as opaque JSON and store it as-is.
+
 `account-id` is a SHA-256 hash derived from the user's passphrase. Do not embed
 a GitHub token or any write token in the app. Treat the endpoint as public and
 let the passphrase separate backup namespaces.
@@ -34,6 +37,8 @@ let the passphrase separate backup namespaces.
 Create a KV namespace and bind it as `MUSIFY_SYNC`, then deploy:
 
 ```js
+const maxBackupBytes = 24_000_000;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,PUT,OPTIONS",
@@ -75,7 +80,8 @@ export default {
 
     if (request.method === "PUT") {
       const body = await request.text();
-      if (body.length > 5_000_000) {
+      const bodySize = new TextEncoder().encode(body).length;
+      if (bodySize > maxBackupBytes) {
         return new Response("Backup too large", {
           status: 413,
           headers: corsHeaders,
