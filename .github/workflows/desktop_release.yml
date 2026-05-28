@@ -42,6 +42,8 @@ jobs:
       prerelease: ${{ steps.release.outputs.prerelease }}
       source_ref: ${{ steps.release.outputs.source_ref }}
       repair_existing_release: ${{ steps.release.outputs.repair_existing_release }}
+      release_version: ${{ steps.release.outputs.release_version }}
+      deb_revision: ${{ steps.release.outputs.deb_revision }}
 
     steps:
       - name: Checkout code
@@ -89,11 +91,19 @@ jobs:
             exit 1
           fi
 
+          release_version="${tag#desktop-v}"
+          deb_revision="${release_version#${version}-}"
+          if [[ "${deb_revision}" == "${release_version}" ]]; then
+            deb_revision="1"
+          fi
+
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "target=${target}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
           echo "source_ref=${source_ref}" >> "$GITHUB_OUTPUT"
           echo "repair_existing_release=${repair_existing_release}" >> "$GITHUB_OUTPUT"
+          echo "release_version=${release_version}" >> "$GITHUB_OUTPUT"
+          echo "deb_revision=${deb_revision}" >> "$GITHUB_OUTPUT"
 
   build-linux:
     name: Build Linux
@@ -129,9 +139,15 @@ jobs:
         run: flutter analyze
 
       - name: Build Linux release
-        run: flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL="${{ vars.MUSIFY_CLOUD_SYNC_URL }}"
+        run: |
+          flutter build linux \
+            --release \
+            --dart-define=MUSIFY_CLOUD_SYNC_URL="${{ vars.MUSIFY_CLOUD_SYNC_URL }}" \
+            --dart-define=MUSIFY_DESKTOP_RELEASE_TAG="${{ needs.preflight.outputs.tag }}"
 
       - name: Package Linux release
+        env:
+          DEB_REVISION: ${{ needs.preflight.outputs.deb_revision }}
         run: .github/scripts/package_linux_desktop.sh
 
       - name: Upload Linux artifacts
@@ -161,8 +177,7 @@ jobs:
       - name: Resolve app version
         shell: pwsh
         run: |
-          $appVersion = Select-String -Path pubspec.yaml -Pattern '^version:\s+([^+\s]+)'
-          "MUSIFY_VERSION=$($appVersion.Matches[0].Groups[1].Value.Trim())" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "MUSIFY_VERSION=${{ needs.preflight.outputs.release_version }}" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -174,7 +189,11 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows release
-        run: flutter build windows --release --dart-define=MUSIFY_CLOUD_SYNC_URL="${{ vars.MUSIFY_CLOUD_SYNC_URL }}"
+        run: |
+          flutter build windows `
+            --release `
+            --dart-define=MUSIFY_CLOUD_SYNC_URL="${{ vars.MUSIFY_CLOUD_SYNC_URL }}" `
+            --dart-define=MUSIFY_DESKTOP_RELEASE_TAG="${{ needs.preflight.outputs.tag }}"
 
       - name: Package portable Windows release
         shell: pwsh

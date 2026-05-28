@@ -42,6 +42,9 @@ const String releasesUrl =
 const String desktopReleasesUrl =
     'https://api.github.com/repos/elias001011/Musify-Desktop-Port/releases/latest';
 const String desktopReleaseTagPrefix = 'desktop-v';
+const String desktopBuildReleaseTag = String.fromEnvironment(
+  'MUSIFY_DESKTOP_RELEASE_TAG',
+);
 const String downloadUrlKey = 'url';
 const String downloadUrlArm64Key = 'arm64url';
 const String downloadFilename = 'Musify.apk';
@@ -113,8 +116,11 @@ Future<void> _checkDesktopAppUpdates() async {
 
   final release = json.decode(releasesRequest.body) as Map<String, dynamic>;
 
-  final latestVersion = _desktopVersionFromTag(release['tag_name'].toString());
-  if (!isLatestVersionHigher(appVersion, latestVersion)) {
+  final latestTag = release['tag_name']?.toString() ?? '';
+  final latestVersion = _desktopVersionFromTag(latestTag);
+  final installedVersion = await _installedDesktopVersion();
+
+  if (!isLatestVersionHigher(installedVersion, latestVersion)) {
     return;
   }
 
@@ -330,6 +336,45 @@ String _desktopVersionFromTag(String tag) {
   return tag
       .replaceFirst(RegExp('^$desktopReleaseTagPrefix'), '')
       .replaceFirst(RegExp('^v'), '');
+}
+
+Future<String> _installedDesktopVersion() async {
+  if (desktopBuildReleaseTag.isNotEmpty) {
+    return _desktopVersionFromTag(desktopBuildReleaseTag);
+  }
+
+  final linuxPackageVersion = await _linuxPackageVersion();
+  if (linuxPackageVersion != null) {
+    return linuxPackageVersion;
+  }
+
+  return appVersion;
+}
+
+Future<String?> _linuxPackageVersion() async {
+  if (kIsWeb || !Platform.isLinux) {
+    return null;
+  }
+
+  try {
+    final result = await Process.run('dpkg-query', [
+      '-W',
+      '-f=\${Version}',
+      'musify',
+    ]);
+    final version = result.stdout.toString().trim();
+    if (result.exitCode == 0 && version.isNotEmpty) {
+      return version;
+    }
+  } catch (e, stackTrace) {
+    logger.log(
+      'Failed to read installed Linux package version',
+      error: e,
+      stackTrace: stackTrace,
+    );
+  }
+
+  return null;
 }
 
 String getDesktopDownloadUrl(Map<String, dynamic> release) {
