@@ -40,11 +40,17 @@ Sync is last-writer-wins at the full-backup level:
 - local changes schedule an upload when automatic sync is enabled;
 - manual upload replaces the previous cloud backup;
 - manual load applies the current cloud backup to the device.
+- app offline mode pauses sync and cancels pending uploads;
+- leaving offline mode runs a normal sync first, so a newer cloud backup can be
+  loaded before local changes are uploaded.
 
 This keeps the first implementation simple and predictable, but it is not a
 field-level merge. If two devices are edited offline at the same time, whichever
 device uploads last becomes the cloud state. More advanced conflict handling
 would need per-box or per-record timestamps.
+
+`offlineMode` is local-only and is not included in cloud backups. One device
+going offline should not force the other devices offline when they sync.
 
 ## Limits
 

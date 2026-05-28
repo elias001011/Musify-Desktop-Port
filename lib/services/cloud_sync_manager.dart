@@ -354,6 +354,10 @@ class CloudSyncManager {
     if (_applyingRemoteSnapshot) {
       return;
     }
+    if (boxName == 'settings' && key.toString() == 'offlineMode') {
+      _handleOfflineModeChange();
+      return;
+    }
     if (boxName == 'settings' && _isInternalSettingKey(key)) {
       return;
     }
@@ -371,6 +375,23 @@ class CloudSyncManager {
         cloudSyncAutomatic.value &&
         _accountId.isNotEmpty) {
       _scheduleUpload();
+    }
+  }
+
+  void _handleOfflineModeChange() {
+    if (offlineMode.value) {
+      _uploadTimer?.cancel();
+      cloudSyncStatus.value = 'Cloud sync is paused while offline mode is enabled';
+      return;
+    }
+
+    if (cloudSyncEnabled.value && _accountId.isNotEmpty) {
+      unawaited(
+        synchronize(
+          allowUpload: cloudSyncAutomatic.value,
+          reason: 'offline mode disabled',
+        ),
+      );
     }
   }
 
@@ -404,7 +425,7 @@ class CloudSyncManager {
     final result = <String, dynamic>{};
 
     for (final key in box.keys) {
-      if (boxName == 'settings' && _isInternalSettingKey(key)) {
+      if (boxName == 'settings' && _isLocalOnlySettingKey(key)) {
         continue;
       }
 
@@ -466,7 +487,7 @@ class CloudSyncManager {
 
     final box = Hive.box(boxName);
     final existingKeys = box.keys
-        .where((key) => boxName != 'settings' || !_isInternalSettingKey(key))
+        .where((key) => boxName != 'settings' || !_isLocalOnlySettingKey(key))
         .toList();
 
     for (final key in existingKeys) {
@@ -475,7 +496,7 @@ class CloudSyncManager {
 
     for (final entry in rawData.entries) {
       final key = entry.key.toString();
-      if (boxName == 'settings' && _isInternalSettingKey(key)) {
+      if (boxName == 'settings' && _isLocalOnlySettingKey(key)) {
         continue;
       }
       await box.put(key, _decodeValue(entry.value));
@@ -606,6 +627,9 @@ class CloudSyncManager {
 
   bool _isInternalSettingKey(dynamic key) =>
       key.toString().startsWith('cloudSync');
+
+  bool _isLocalOnlySettingKey(dynamic key) =>
+      _isInternalSettingKey(key) || key.toString() == 'offlineMode';
 
   DateTime? _readDateTimeSetting(String key) {
     final value = Hive.box('settings').get(key);
