@@ -26,6 +26,17 @@ When GitHub Actions is available:
 requested tag does not match `pubspec.yaml`. Rebuild-only desktop releases may
 use a numeric revision suffix such as `desktop-v10.0.8-2`.
 
+To rebuild or repair assets from an older commit while keeping the current
+workflow, pass `source_ref`:
+
+```bash
+gh workflow run desktop_release.yml \
+  --ref master \
+  -f tag=desktop-v10.0.8 \
+  -f source_ref=<commit-or-tag> \
+  -f prerelease=false
+```
+
 If cloud sync should be enabled in release builds, configure the repository
 variable `MUSIFY_CLOUD_SYNC_URL` with the HTTPS endpoint of the sync backend.
 When the variable is empty, the app builds normally and the optional sync UI

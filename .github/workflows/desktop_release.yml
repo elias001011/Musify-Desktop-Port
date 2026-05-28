@@ -7,6 +7,10 @@ on:
         description: "Release tag. Defaults to desktop-v<pubspec version>."
         required: false
         type: string
+      source_ref:
+        description: "Git ref/SHA to build. Defaults to the workflow ref."
+        required: false
+        type: string
       prerelease:
         description: "Mark the GitHub release as a prerelease."
         required: false
@@ -31,17 +35,24 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       target: ${{ steps.release.outputs.target }}
       prerelease: ${{ steps.release.outputs.prerelease }}
+      source_ref: ${{ steps.release.outputs.source_ref }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Resolve release settings
         id: release
         env:
           INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_SOURCE_REF: ${{ github.event.inputs.source_ref }}
           INPUT_PRERELEASE: ${{ github.event.inputs.prerelease }}
         run: |
+          source_ref="${INPUT_SOURCE_REF:-${GITHUB_SHA}}"
+          git checkout --detach "${source_ref}"
+
           version="$(sed -n 's/^version: \([^ +]*\).*/\1/p' pubspec.yaml)"
 
           if [[ -z "${version}" ]]; then
@@ -51,11 +62,11 @@ jobs:
 
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             tag="${GITHUB_REF_NAME}"
-            target="${GITHUB_SHA}"
+            target="$(git rev-parse HEAD)"
             prerelease="false"
           else
             tag="${INPUT_TAG:-desktop-v${version}}"
-            target="${GITHUB_SHA}"
+            target="$(git rev-parse HEAD)"
             prerelease="${INPUT_PRERELEASE:-false}"
           fi
 
@@ -68,6 +79,7 @@ jobs:
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "target=${target}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+          echo "source_ref=${source_ref}" >> "$GITHUB_OUTPUT"
 
   build-linux:
     name: Build Linux
@@ -77,6 +89,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preflight.outputs.source_ref }}
 
       - name: Install Linux build dependencies
         run: |
@@ -121,6 +135,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preflight.outputs.source_ref }}
 
       - name: Resolve Flutter version
         shell: pwsh
@@ -176,6 +192,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preflight.outputs.source_ref }}
 
       - name: Download release artifacts
         uses: actions/download-artifact@v4
