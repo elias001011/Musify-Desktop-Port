@@ -40,7 +40,7 @@ const String checkUrl =
 const String releasesUrl =
     'https://api.github.com/repos/gokadzev/Musify/releases/latest';
 const String desktopReleasesUrl =
-    'https://api.github.com/repos/elias001011/Musify-Desktop-Port/releases/latest';
+    'https://api.github.com/repos/elias001011/Musify-Desktop-Port/releases';
 const String desktopReleaseTagPrefix = 'desktop-v';
 const String desktopBuildReleaseTag = String.fromEnvironment(
   'MUSIFY_DESKTOP_RELEASE_TAG',
@@ -114,7 +114,16 @@ Future<void> _checkDesktopAppUpdates() async {
     return;
   }
 
-  final release = json.decode(releasesRequest.body) as Map<String, dynamic>;
+  final decoded = json.decode(releasesRequest.body);
+  if (decoded is! List) {
+    logger.log('Fetch update API (desktopReleasesUrl) did not return a list');
+    return;
+  }
+
+  final release = _latestDesktopRelease(decoded);
+  if (release == null) {
+    return;
+  }
 
   final latestTag = release['tag_name']?.toString() ?? '';
   final latestVersion = _desktopVersionFromTag(latestTag);
@@ -336,6 +345,23 @@ String _desktopVersionFromTag(String tag) {
   return tag
       .replaceFirst(RegExp('^$desktopReleaseTagPrefix'), '')
       .replaceFirst(RegExp('^v'), '');
+}
+
+Map<String, dynamic>? _latestDesktopRelease(List<dynamic> releases) {
+  for (final rawRelease in releases) {
+    if (rawRelease is! Map) continue;
+
+    final release = Map<String, dynamic>.from(rawRelease);
+    final tagName = release['tag_name']?.toString() ?? '';
+    final draft = release['draft'] == true;
+    final prerelease = release['prerelease'] == true;
+
+    if (!draft && !prerelease && tagName.startsWith(desktopReleaseTagPrefix)) {
+      return release;
+    }
+  }
+
+  return null;
 }
 
 Future<String> _installedDesktopVersion() async {
