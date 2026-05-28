@@ -86,6 +86,35 @@ jobs:
           upstream_tag="${{ steps.upstream.outputs.tag }}"
           git merge --no-edit "refs/tags/${upstream_tag}"
 
+      - name: Set up Java
+        if: steps.existing.outputs.exists != 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: Resolve Flutter version
+        if: steps.existing.outputs.exists != 'true'
+        id: flutter-version
+        shell: bash
+        run: |
+          flutter_version="$(grep -E '^[[:space:]]*flutter:[[:space:]]*\^?[0-9.]+' pubspec.yaml | head -1 | sed -E 's/^[[:space:]]*flutter:[[:space:]]*\^?//')"
+          flutter_version="${flutter_version:-3.x}"
+          echo "version=${flutter_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Flutter
+        if: steps.existing.outputs.exists != 'true'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ steps.flutter-version.outputs.version }}
+
+      - name: Validate merged source
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          flutter pub get
+          flutter analyze .
+
       - name: Push mobile branch
         if: steps.existing.outputs.exists != 'true'
         run: git push origin HEAD:mobile-cloud-sync
