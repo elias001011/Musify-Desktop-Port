@@ -381,7 +381,8 @@ class CloudSyncManager {
   void _handleOfflineModeChange() {
     if (offlineMode.value) {
       _uploadTimer?.cancel();
-      cloudSyncStatus.value = 'Cloud sync is paused while offline mode is enabled';
+      cloudSyncStatus.value =
+          'Cloud sync is paused while offline mode is enabled';
       return;
     }
 
@@ -629,7 +630,9 @@ class CloudSyncManager {
       key.toString().startsWith('cloudSync');
 
   bool _isLocalOnlySettingKey(dynamic key) =>
-      _isInternalSettingKey(key) || key.toString() == 'offlineMode';
+      _isInternalSettingKey(key) ||
+      key.toString() == 'offlineMode' ||
+      key.toString() == 'automaticOfflineModeApplied';
 
   DateTime? _readDateTimeSetting(String key) {
     final value = Hive.box('settings').get(key);

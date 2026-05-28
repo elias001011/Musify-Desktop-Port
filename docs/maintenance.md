@@ -2,7 +2,7 @@
 
 This branch tracks upstream mobile Musify and adds the Musify Cloud layer on
 top. The goal is to keep upstream changes flowing while preserving our Android
-package identity, update channel and Cloud Sync code.
+package identity, update channel, Cloud Sync code, and automatic offline mode.
 
 ## Branch Roles
 
@@ -70,3 +70,13 @@ but it is not a multi-user database and it does not do field-level conflict
 merges.
 
 See `docs/cloud-sync.md` for backend setup, limits and security notes.
+
+## Automatic Offline Notes
+
+Automatic offline mode is deliberately conservative. It checks multiple network
+endpoints and requires repeated failures before enabling offline mode, then
+requires repeated successes before disabling an auto-applied offline mode.
+
+Manual offline mode always wins. If the user turns offline mode on, the
+automatic checker will report the connection state but will not turn offline
+mode off for the user.

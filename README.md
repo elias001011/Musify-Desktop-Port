@@ -3,11 +3,13 @@
 
 # Musify Cloud
 
-Unofficial Musify mobile build with optional Cloud Sync.
+Unofficial Musify mobile companion build for the desktop port, with optional
+Cloud Sync.
 
 Musify Cloud tracks [gokadzev/Musify](https://github.com/gokadzev/Musify), keeps
 the upstream app experience, and adds a separate Android package, distinct icon,
-our update channel, and optional sync for multi-device use.
+our update channel, optional sync for multi-device use, and small quality of
+life features that match the desktop port.
 
 [![Stars](https://img.shields.io/github/stars/elias001011/Musify-Desktop-Port?style=flat-square&color=008F8C)](https://github.com/elias001011/Musify-Desktop-Port/stargazers)
 [![Forks](https://img.shields.io/github/forks/elias001011/Musify-Desktop-Port?style=flat-square&color=008F8C)](https://github.com/elias001011/Musify-Desktop-Port/fork)
@@ -43,6 +45,7 @@ Built-in equalizer with presets <br/>
 21 supported languages <br/>
 Material UI & accent colors & dynamic colors (Android 12+) <br/>
 Optional Cloud Sync for settings, playlists, liked songs and play history <br/>
+Automatic offline mode with repeated connectivity checks to avoid false offline flips <br/>
 Separate package name, app name and icon so original Musify can stay installed <br/>
 
 </center>
@@ -99,12 +102,27 @@ model, limits and conflict notes.
 
 ---
 
+## Automatic Offline Mode
+
+Automatic offline mode is enabled by default and can be disabled in Settings.
+Musify Cloud does not switch offline after one slow request: it checks multiple
+known endpoints and requires repeated failures before enabling offline mode.
+
+If the app enabled offline mode automatically, it also turns offline mode back
+off after connectivity is confirmed again. Manual offline mode remains manual:
+if the user turns offline mode on, the automatic checker will not turn it off.
+
+This feature is local to the device. Cloud Sync does not copy the current
+offline state between devices.
+
+---
+
 ## Upstream Sync
 
 The `mobile-cloud-sync` branch is kept close to
 [gokadzev/Musify](https://github.com/gokadzev/Musify). Our changes are layered
 on top: Cloud Sync, separate Android identity, update channel changes, release
-workflows, and small compatibility fixes.
+workflows, automatic offline mode, and small compatibility fixes.
 
 Automation checks upstream releases every six hours:
 
