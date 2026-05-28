@@ -1,0 +1,193 @@
+name: Build Musify Cloud Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Upstream Musify version to publish, for example 10.0.8
+        required: true
+        type: string
+      source_ref:
+        description: Branch, tag, or SHA to build
+        required: false
+        default: mobile-cloud-sync
+        type: string
+      repair_existing_release:
+        description: Replace assets on an existing mobile release
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - mobile-v*
+
+permissions:
+  contents: write
+
+env:
+  PROPERTIES_PATH: ./android/key.properties
+
+jobs:
+  build:
+    name: Build Android APKs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+            source_ref="${{ inputs.source_ref }}"
+            repair="${{ inputs.repair_existing_release }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#mobile-v}"
+            source_ref="${GITHUB_SHA}"
+            repair="false"
+          fi
+
+          version="${version#v}"
+          version="${version#mobile-v}"
+          tag="mobile-v${version}"
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "source_ref=${source_ref:-mobile-cloud-sync}" >> "$GITHUB_OUTPUT"
+          echo "repair=${repair}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.release.outputs.source_ref }}
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Resolve Flutter version
+        id: flutter-version
+        shell: bash
+        run: |
+          flutter_version="$(grep -E '^[[:space:]]*flutter:[[:space:]]*\^?[0-9.]+' pubspec.yaml | head -1 | sed -E 's/^[[:space:]]*flutter:[[:space:]]*\^?//')"
+          flutter_version="${flutter_version:-3.x}"
+          echo "version=${flutter_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ steps.flutter-version.outputs.version }}
+
+      - name: Configure Android signing
+        env:
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.KEY_STORE }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD || secrets.KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.KEY_ALIAS }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.KEYSTORE2 }}
+        shell: bash
+        run: |
+          if [[ -z "$ANDROID_KEY_PASSWORD" || -z "$ANDROID_STORE_PASSWORD" || -z "$ANDROID_KEY_ALIAS" || -z "$ANDROID_KEYSTORE_BASE64" ]]; then
+            echo "Android signing secrets are required: ANDROID_KEY_PASSWORD, ANDROID_STORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEYSTORE_BASE64." >&2
+            echo "Legacy upstream names are also accepted: KEY_STORE, KEY_PASSWORD, KEY_ALIAS, KEYSTORE2." >&2
+            exit 1
+          fi
+
+          echo "keyPassword=${ANDROID_KEY_PASSWORD}" > "${PROPERTIES_PATH}"
+          echo "storePassword=${ANDROID_STORE_PASSWORD}" >> "${PROPERTIES_PATH}"
+          echo "keyAlias=${ANDROID_KEY_ALIAS}" >> "${PROPERTIES_PATH}"
+          echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > android/app/key.jks
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Analyze Dart code
+        run: flutter analyze .
+
+      - name: Build arm64 APK
+        env:
+          MUSIFY_CLOUD_SYNC_URL: ${{ vars.MUSIFY_CLOUD_SYNC_URL }}
+        run: |
+          flutter build apk \
+            --release \
+            --split-per-abi \
+            --target-platform=android-arm64 \
+            --flavor github \
+            --dart-define=MUSIFY_CLOUD_SYNC_URL="${MUSIFY_CLOUD_SYNC_URL}"
+
+      - name: Build universal APK
+        env:
+          MUSIFY_CLOUD_SYNC_URL: ${{ vars.MUSIFY_CLOUD_SYNC_URL }}
+        run: |
+          flutter build apk \
+            --release \
+            --flavor github \
+            --dart-define=MUSIFY_CLOUD_SYNC_URL="${MUSIFY_CLOUD_SYNC_URL}"
+
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-github-release.apk dist/MusifyCloud-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-github-release.apk dist/MusifyCloud.apk
+          (cd dist && sha256sum MusifyCloud-arm64-v8a.apk MusifyCloud.apk > SHA256SUMS.txt)
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > release_notes.md <<EOF
+          Musify Cloud ${{ steps.release.outputs.version }}
+
+          Synced with upstream Musify ${{ steps.release.outputs.version }} and packaged as Musify Cloud.
+
+          Changes in this build:
+          - Optional Cloud Sync for settings, playlists, liked songs, recently played songs, and most-played metadata.
+          - Separate Android package id, app name, icon color, and update channel so it can be installed beside original Musify.
+          - Update checks now read mobile releases from this repository using the mobile-v* release channel.
+
+          Upstream Musify: https://github.com/gokadzev/Musify/releases/tag/${{ steps.release.outputs.version }}
+          EOF
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${{ steps.release.outputs.tag }}"
+          repair="${{ steps.release.outputs.repair }}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            if [[ "$repair" != "true" ]]; then
+              echo "Release $tag already exists. Re-run with repair_existing_release=true to replace assets." >&2
+              exit 1
+            fi
+
+            gh release delete-asset "$tag" MusifyCloud-arm64-v8a.apk -y || true
+            gh release delete-asset "$tag" MusifyCloud.apk -y || true
+            gh release delete-asset "$tag" SHA256SUMS.txt -y || true
+            gh release edit "$tag" \
+              --title "Musify Cloud ${{ steps.release.outputs.version }}" \
+              --notes-file release_notes.md \
+              --target "${GITHUB_SHA}"
+          else
+            gh release create "$tag" \
+              --title "Musify Cloud ${{ steps.release.outputs.version }}" \
+              --notes-file release_notes.md \
+              --target "${GITHUB_SHA}"
+          fi
+
+          gh release upload "$tag" dist/MusifyCloud-arm64-v8a.apk dist/MusifyCloud.apk dist/SHA256SUMS.txt --clobber
