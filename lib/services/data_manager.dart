@@ -294,8 +294,31 @@ Future<({String message, bool success})> restoreData(
   }
 
   try {
-    // Close all boxes before restoring to avoid conflicts
+    final backupFiles = <String, File>{};
+    final missingBoxNames = <String>[];
+
     for (final boxName in boxNames) {
+      final backupFile = await _findBackupFile(boxName, result.files);
+      if (backupFile != null) {
+        backupFiles[boxName] = backupFile;
+      } else {
+        missingBoxNames.add(boxName);
+        logger.log(
+          'Backup file for $boxName not found in selection or sibling folder',
+        );
+      }
+    }
+
+    if (backupFiles.isEmpty) {
+      return (
+        message:
+            '${context.l10n!.restoreError}: select user.hive and settings.hive',
+        success: false,
+      );
+    }
+
+    // Close all boxes before restoring to avoid conflicts
+    for (final boxName in backupFiles.keys) {
       if (Hive.isBoxOpen(boxName)) {
         try {
           await Hive.box(boxName).close();
@@ -312,62 +335,51 @@ Future<({String message, bool success})> restoreData(
     // Small delay to ensure boxes are properly closed
     await Future.delayed(const Duration(milliseconds: 100));
 
-    for (final boxName in boxNames) {
-      final backupFile = result.files
-          .where(
-            (file) =>
-                file.name == '$boxName.hive' ||
-                file.name.startsWith('${boxName}_'),
-          )
-          .firstOrNull;
+    for (final entry in backupFiles.entries) {
+      final boxName = entry.key;
+      final sourceFile = entry.value;
 
-      if (backupFile?.path != null) {
-        final sourceFile = File(backupFile!.path!);
+      if (await sourceFile.exists()) {
+        try {
+          // Get the original box path by temporarily opening the box.
+          final tempBox = await Hive.openBox(boxName);
+          final boxPath = tempBox.path;
+          await tempBox.close();
 
-        if (await sourceFile.exists()) {
-          try {
-            // Get the original box path by temporarily opening the box
-            final tempBox = await Hive.openBox(boxName);
-            final boxPath = tempBox.path;
-            await tempBox.close();
+          if (boxPath != null) {
+            final targetFile = File(boxPath);
 
-            if (boxPath != null) {
-              final targetFile = File(boxPath);
+            // Ensure target directory exists
+            await targetFile.parent.create(recursive: true);
 
-              // Ensure target directory exists
-              await targetFile.parent.create(recursive: true);
-
-              // Delete existing file if it exists
-              if (await targetFile.exists()) {
-                try {
-                  await targetFile.delete();
-                } catch (e, stackTrace) {
-                  logger.log(
-                    'Failed to delete existing file',
-                    error: e,
-                    stackTrace: stackTrace,
-                  );
-                }
+            // Delete existing file if it exists
+            if (await targetFile.exists()) {
+              try {
+                await targetFile.delete();
+              } catch (e, stackTrace) {
+                logger.log(
+                  'Failed to delete existing file',
+                  error: e,
+                  stackTrace: stackTrace,
+                );
               }
-
-              // Copy backup file to original location
-              await sourceFile.copy(targetFile.path);
-              logger.log(
-                'Restored $boxName from ${sourceFile.path} to ${targetFile.path}',
-              );
             }
-          } catch (e, stackTrace) {
+
+            // Copy backup file to original location
+            await sourceFile.copy(targetFile.path);
             logger.log(
-              'Failed to restore $boxName',
-              error: e,
-              stackTrace: stackTrace,
+              'Restored $boxName from ${sourceFile.path} to ${targetFile.path}',
             );
           }
-        } else {
-          logger.log('Backup file does not exist: ${sourceFile.path}');
+        } catch (e, stackTrace) {
+          logger.log(
+            'Failed to restore $boxName',
+            error: e,
+            stackTrace: stackTrace,
+          );
         }
       } else {
-        logger.log('Backup file for $boxName not found in selection');
+        logger.log('Backup file does not exist: ${sourceFile.path}');
       }
     }
 
@@ -387,9 +399,99 @@ Future<({String message, bool success})> restoreData(
       }
     }
 
+    if (missingBoxNames.isNotEmpty) {
+      return (
+        message:
+            '${context.l10n!.restoredSuccess}! Missing: ${missingBoxNames.join(', ')}. Select both user.hive and settings.hive for a complete restore.',
+        success: true,
+      );
+    }
+
     return (message: '${context.l10n!.restoredSuccess}!', success: true);
   } catch (e, stackTrace) {
     logger.log('Restore error', error: e, stackTrace: stackTrace);
     return (message: '${context.l10n!.restoreError}: $e', success: false);
   }
 }
+
+Future<File?> _findBackupFile(
+  String boxName,
+  List<PlatformFile> selectedFiles,
+) async {
+  final selectedFile = _matchingSelectedBackupFile(boxName, selectedFiles);
+  if (selectedFile != null) {
+    return selectedFile;
+  }
+
+  final siblingDirectories = <String>{};
+  for (final selectedFile in selectedFiles) {
+    final selectedPath = selectedFile.path;
+    if (selectedPath == null || selectedPath.isEmpty) {
+      continue;
+    }
+
+    final selectedType = await FileSystemEntity.type(selectedPath);
+    if (selectedType == FileSystemEntityType.directory) {
+      siblingDirectories.add(selectedPath);
+    } else {
+      siblingDirectories.add(File(selectedPath).parent.path);
+    }
+  }
+
+  for (final directoryPath in siblingDirectories) {
+    final exactFile = File('$directoryPath/$boxName.hive');
+    if (await exactFile.exists()) {
+      return exactFile;
+    }
+
+    final directory = Directory(directoryPath);
+    if (!await directory.exists()) {
+      continue;
+    }
+
+    final timestampedBackups = <File>[];
+    await for (final entity in directory.list()) {
+      if (entity is! File) {
+        continue;
+      }
+
+      final name = _fileName(entity.path);
+      if (name.startsWith('${boxName}_') && name.endsWith('.hive')) {
+        timestampedBackups.add(entity);
+      }
+    }
+
+    if (timestampedBackups.isNotEmpty) {
+      timestampedBackups.sort((a, b) {
+        final aModified = a.lastModifiedSync();
+        final bModified = b.lastModifiedSync();
+        return bModified.compareTo(aModified);
+      });
+      return timestampedBackups.first;
+    }
+  }
+
+  return null;
+}
+
+File? _matchingSelectedBackupFile(
+  String boxName,
+  List<PlatformFile> selectedFiles,
+) {
+  for (final selectedFile in selectedFiles) {
+    final selectedPath = selectedFile.path;
+    if (selectedPath == null || selectedPath.isEmpty) {
+      continue;
+    }
+
+    final name = selectedFile.name;
+    if (name == '$boxName.hive' ||
+        (name.startsWith('${boxName}_') && name.endsWith('.hive'))) {
+      return File(selectedPath);
+    }
+  }
+
+  return null;
+}
+
+String _fileName(String path) => path.split(Platform.pathSeparator).last;

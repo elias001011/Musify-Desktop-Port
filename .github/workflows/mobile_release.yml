@@ -191,3 +191,9 @@ jobs:
           fi
 
           gh release upload "$tag" dist/MusifyCloud-arm64-v8a.apk dist/MusifyCloud.apk dist/SHA256SUMS.txt --clobber
+
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq .id)"
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -f make_latest=false >/dev/null

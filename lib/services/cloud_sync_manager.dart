@@ -48,6 +48,7 @@ class CloudSyncManager {
   static const String _lastLocalChangeAtKey = 'cloudSyncLastLocalChangeAt';
   static const String _lastSyncedAtKey = 'cloudSyncLastSyncedAt';
   static const String _dateTimeMarker = '__musifyType';
+  static const String _transportEncoding = 'gzip+base64-json';
 
   final http.Client _client = http.Client();
 
@@ -263,13 +264,19 @@ class CloudSyncManager {
       final snapshot = await _createSnapshot();
       final updatedAt = DateTime.parse(snapshot['updatedAt'].toString());
       final uri = _recordUri(_accountId);
+      final body = _encodeSnapshotForTransport(snapshot);
       final response = await _client.put(
         uri,
         headers: const {'Content-Type': 'application/json'},
-        body: json.encode(snapshot),
+        body: body,
       );
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (response.statusCode == HttpStatus.requestEntityTooLarge) {
+          throw HttpException(
+            'PUT ${uri.path} returned 413. Cloud backup is too large for the current backend limit.',
+          );
+        }
         throw HttpException('PUT ${uri.path} returned ${response.statusCode}');
       }
 
@@ -417,12 +424,7 @@ class CloudSyncManager {
       throw HttpException('GET ${uri.path} returned ${response.statusCode}');
     }
 
-    final decoded = json.decode(response.body);
-    if (decoded is! Map) {
-      throw const FormatException('Cloud backup response is not an object');
-    }
-
-    return Map<String, dynamic>.from(decoded);
+    return _decodeSnapshotFromTransport(response.body);
   }
 
   Future<void> _applySnapshot(Map<String, dynamic> snapshot) async {
@@ -513,6 +515,50 @@ class CloudSyncManager {
     }
 
     return value;
+  }
+
+  String _encodeSnapshotForTransport(Map<String, dynamic> snapshot) {
+    final snapshotJson = json.encode(snapshot);
+    final compressedPayload = base64.encode(
+      gzip.encode(utf8.encode(snapshotJson)),
+    );
+    final compressedJson = json.encode({
+      'schemaVersion': 1,
+      'encoding': _transportEncoding,
+      'payload': compressedPayload,
+    });
+
+    return compressedJson.length < snapshotJson.length
+        ? compressedJson
+        : snapshotJson;
+  }
+
+  Map<String, dynamic> _decodeSnapshotFromTransport(String body) {
+    final decoded = json.decode(body);
+    if (decoded is! Map) {
+      throw const FormatException('Cloud backup response is not an object');
+    }
+
+    if (decoded['encoding'] == _transportEncoding) {
+      final payload = decoded['payload'];
+      if (payload is! String || payload.isEmpty) {
+        throw const FormatException(
+          'Compressed cloud backup is missing payload',
+        );
+      }
+
+      final decompressedJson = utf8.decode(gzip.decode(base64.decode(payload)));
+      final decompressed = json.decode(decompressedJson);
+      if (decompressed is! Map) {
+        throw const FormatException(
+          'Compressed cloud backup payload is not an object',
+        );
+      }
+
+      return Map<String, dynamic>.from(decompressed);
+    }
+
+    return Map<String, dynamic>.from(decoded);
   }
 
   Uri _recordUri(String accountId) {
