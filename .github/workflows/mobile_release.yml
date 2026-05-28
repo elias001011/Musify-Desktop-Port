@@ -169,6 +169,7 @@ jobs:
         run: |
           tag="${{ steps.release.outputs.tag }}"
           repair="${{ steps.release.outputs.repair }}"
+          target_commit="$(git rev-parse HEAD)"
 
           if gh release view "$tag" >/dev/null 2>&1; then
             if [[ "$repair" != "true" ]]; then
@@ -182,12 +183,12 @@ jobs:
             gh release edit "$tag" \
               --title "Musify Cloud ${{ steps.release.outputs.version }}" \
               --notes-file release_notes.md \
-              --target "${GITHUB_SHA}"
+              --target "$target_commit"
           else
             gh release create "$tag" \
               --title "Musify Cloud ${{ steps.release.outputs.version }}" \
               --notes-file release_notes.md \
-              --target "${GITHUB_SHA}"
+              --target "$target_commit"
           fi
 
           gh release upload "$tag" dist/MusifyCloud-arm64-v8a.apk dist/MusifyCloud.apk dist/SHA256SUMS.txt --clobber
