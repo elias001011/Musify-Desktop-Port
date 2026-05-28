@@ -95,21 +95,22 @@ jobs:
 
       - name: Configure Android signing
         env:
-          KEY_STORE: ${{ secrets.KEY_STORE }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEYSTORE2: ${{ secrets.KEYSTORE2 }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.KEY_STORE }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD || secrets.KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.KEY_ALIAS }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.KEYSTORE2 }}
         shell: bash
         run: |
-          if [[ -z "$KEY_STORE" || -z "$KEY_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEYSTORE2" ]]; then
-            echo "Android signing secrets are required: KEY_STORE, KEY_PASSWORD, KEY_ALIAS, KEYSTORE2." >&2
+          if [[ -z "$ANDROID_KEY_PASSWORD" || -z "$ANDROID_STORE_PASSWORD" || -z "$ANDROID_KEY_ALIAS" || -z "$ANDROID_KEYSTORE_BASE64" ]]; then
+            echo "Android signing secrets are required: ANDROID_KEY_PASSWORD, ANDROID_STORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEYSTORE_BASE64." >&2
+            echo "Legacy upstream names are also accepted: KEY_STORE, KEY_PASSWORD, KEY_ALIAS, KEYSTORE2." >&2
             exit 1
           fi
 
-          echo "keyPassword=${KEY_STORE}" > "${PROPERTIES_PATH}"
-          echo "storePassword=${KEY_PASSWORD}" >> "${PROPERTIES_PATH}"
-          echo "keyAlias=${KEY_ALIAS}" >> "${PROPERTIES_PATH}"
-          echo "${KEYSTORE2}" | base64 --decode > android/app/key.jks
+          echo "keyPassword=${ANDROID_KEY_PASSWORD}" > "${PROPERTIES_PATH}"
+          echo "storePassword=${ANDROID_STORE_PASSWORD}" >> "${PROPERTIES_PATH}"
+          echo "keyAlias=${ANDROID_KEY_ALIAS}" >> "${PROPERTIES_PATH}"
+          echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > android/app/key.jks
 
       - name: Get Flutter dependencies
         run: flutter pub get
