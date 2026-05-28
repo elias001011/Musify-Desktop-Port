@@ -11,6 +11,11 @@ on:
         description: "Git ref/SHA to build. Defaults to the workflow ref."
         required: false
         type: string
+      repair_existing_release:
+        description: "Allow overwriting assets on an existing release."
+        required: false
+        type: boolean
+        default: false
       prerelease:
         description: "Mark the GitHub release as a prerelease."
         required: false
@@ -36,6 +41,7 @@ jobs:
       target: ${{ steps.release.outputs.target }}
       prerelease: ${{ steps.release.outputs.prerelease }}
       source_ref: ${{ steps.release.outputs.source_ref }}
+      repair_existing_release: ${{ steps.release.outputs.repair_existing_release }}
 
     steps:
       - name: Checkout code
@@ -48,9 +54,16 @@ jobs:
         env:
           INPUT_TAG: ${{ github.event.inputs.tag }}
           INPUT_SOURCE_REF: ${{ github.event.inputs.source_ref }}
+          INPUT_REPAIR_EXISTING_RELEASE: ${{ github.event.inputs.repair_existing_release }}
           INPUT_PRERELEASE: ${{ github.event.inputs.prerelease }}
         run: |
           source_ref="${INPUT_SOURCE_REF:-${GITHUB_SHA}}"
+          repair_existing_release="${INPUT_REPAIR_EXISTING_RELEASE:-false}"
+          if [[ "${repair_existing_release}" != "true" && "${repair_existing_release}" != "false" ]]; then
+            echo "repair_existing_release must be true or false." >&2
+            exit 1
+          fi
+
           git checkout --detach "${source_ref}"
 
           version="$(sed -n 's/^version: \([^ +]*\).*/\1/p' pubspec.yaml)"
@@ -80,6 +93,7 @@ jobs:
           echo "target=${target}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
           echo "source_ref=${source_ref}" >> "$GITHUB_OUTPUT"
+          echo "repair_existing_release=${repair_existing_release}" >> "$GITHUB_OUTPUT"
 
   build-linux:
     name: Build Linux
@@ -245,6 +259,7 @@ jobs:
           RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
           RELEASE_TARGET: ${{ needs.preflight.outputs.target }}
           PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
+          REPAIR_EXISTING_RELEASE: ${{ needs.preflight.outputs.repair_existing_release }}
         run: |
           create_args=(--title "Musify Desktop Port ${RELEASE_TAG}" --notes-file release-notes.md)
           edit_args=(--title "Musify Desktop Port ${RELEASE_TAG}" --notes-file release-notes.md --draft=false)
@@ -258,6 +273,11 @@ jobs:
           fi
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            if [[ "${REPAIR_EXISTING_RELEASE}" != "true" ]]; then
+              echo "Release ${RELEASE_TAG} already exists. Refusing to overwrite it without repair_existing_release=true." >&2
+              exit 1
+            fi
+
             gh release upload "${RELEASE_TAG}" dist/* --clobber
             gh release edit "${RELEASE_TAG}" "${edit_args[@]}" --target "${RELEASE_TARGET}"
             exit 0

@@ -27,15 +27,21 @@ requested tag does not match `pubspec.yaml`. Rebuild-only desktop releases may
 use a numeric revision suffix such as `desktop-v10.0.8-2`.
 
 To rebuild or repair assets from an older commit while keeping the current
-workflow, pass `source_ref`:
+workflow, pass `source_ref` and explicitly allow repairing the existing release:
 
 ```bash
 gh workflow run desktop_release.yml \
   --ref master \
   -f tag=desktop-v10.0.8 \
   -f source_ref=<commit-or-tag> \
+  -f repair_existing_release=true \
   -f prerelease=false
 ```
+
+Normal release builds refuse to overwrite an existing GitHub release. This keeps
+upstream release syncs append-only: a new upstream release should produce a new
+`desktop-v<version>` release, while existing releases are only overwritten during
+an explicit repair.
 
 If cloud sync should be enabled in release builds, configure the repository
 variable `MUSIFY_CLOUD_SYNC_URL` with the HTTPS endpoint of the sync backend.
