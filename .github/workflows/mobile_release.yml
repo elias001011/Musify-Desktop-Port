@@ -152,14 +152,27 @@ jobs:
           cat > release_notes.md <<EOF
           Musify Cloud ${{ steps.release.outputs.version }}
 
-          Synced with upstream Musify ${{ steps.release.outputs.version }} and packaged as Musify Cloud.
+          Based on upstream Musify ${{ steps.release.outputs.version }} from gokadzev/Musify and packaged as the separate Musify Cloud Android build.
 
-          Changes in this build:
+          What is different from original Musify:
           - Optional Cloud Sync for settings, playlists, liked songs, recently played songs, and most-played metadata.
-          - Separate Android package id, app name, icon color, and update channel so it can be installed beside original Musify.
-          - Update checks now read mobile releases from this repository using the mobile-v* release channel.
+          - Separate Android package id com.elias001011.musifycloud, app name, icon color, and update channel, so it can be installed beside original Musify.
+          - Mobile updater checks this repository's mobile-v* release channel instead of upstream Android releases.
+          - Large cloud backups may be gzip-compressed inside a JSON envelope before upload.
+
+          Assets:
+          - MusifyCloud.apk: universal Android APK.
+          - MusifyCloud-arm64-v8a.apk: smaller APK for arm64-v8a devices.
+          - SHA256SUMS.txt: checksums for verification.
+
+          Notes:
+          - This mobile release is intentionally not marked as GitHub Latest. Latest is reserved for desktop-v* releases so the desktop updater does not see Android builds.
+          - If you previously installed a debug APK, uninstall it before installing this release APK because the signing key is different.
 
           Upstream Musify: https://github.com/gokadzev/Musify/releases/tag/${{ steps.release.outputs.version }}
+
+          Cloud Sync setup docs:
+          https://github.com/elias001011/Musify-Desktop-Port/blob/mobile-cloud-sync/docs/cloud-sync.md
           EOF
 
       - name: Publish GitHub release

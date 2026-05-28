@@ -13,6 +13,11 @@ on:
 permissions:
   actions: write
   contents: write
+  issues: write
+
+concurrency:
+  group: sync-mobile-upstream-release
+  cancel-in-progress: false
 
 jobs:
   sync:
@@ -135,3 +140,14 @@ jobs:
             -f version="${{ steps.upstream.outputs.version }}" \
             -f source_ref="mobile-cloud-sync" \
             -f repair_existing_release="$repair"
+
+      - name: Open sync failure issue
+        if: ${{ failure() && steps.existing.outputs.exists != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create \
+            --title "Mobile upstream sync failed for ${UPSTREAM_TAG:-unknown upstream tag}" \
+            --body "Automatic mobile sync from gokadzev/Musify ${UPSTREAM_TAG:-unknown upstream tag} failed. This usually means the upstream release touched files that Musify Cloud also changes, so the branch needs a manual conflict resolution. Run: ${RUN_URL}" || true
