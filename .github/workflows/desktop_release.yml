@@ -256,20 +256,31 @@ jobs:
           sha256sum dist/* > dist/SHA256SUMS.txt
 
           cat > release-notes.md <<NOTES
-          Unofficial Musify Desktop Port release for Windows and Linux.
+          Musify Desktop Port ${RELEASE_TAG}
 
-          Built from this repository, based on upstream Musify by Valeri Gokadze:
-          https://github.com/gokadzev/Musify
+          Unofficial Windows and Linux desktop release based on upstream Musify.
+
+          Desktop port changes:
+          - Windows and Linux packaging for Musify.
+          - Desktop updater follows this repository's desktop-v* release channel.
+          - Optional Cloud Sync for settings, playlists, liked songs, recently played songs, and most-played metadata.
+          - Large cloud backups may be gzip-compressed inside a JSON envelope before upload.
 
           Assets:
-          - Musify-linux-x64.deb
-          - Musify-linux-x64.tar.gz
-          - Musify-windows-x64-setup.exe
-          - Musify-windows-x64-portable.zip
-          - SHA256SUMS.txt
+          - Musify-linux-x64.deb: Debian/Ubuntu package.
+          - Musify-linux-x64.tar.gz: portable Linux archive.
+          - Musify-windows-x64-setup.exe: Windows installer.
+          - Musify-windows-x64-portable.zip: portable Windows archive.
+          - SHA256SUMS.txt: checksums for verification.
 
           The desktop updater checks releases from:
           https://github.com/elias001011/Musify-Desktop-Port/releases
+
+          Cloud Sync setup docs:
+          https://github.com/elias001011/Musify-Desktop-Port/blob/master/docs/cloud-sync.md
+
+          Upstream Musify:
+          https://github.com/gokadzev/Musify
           NOTES
 
       - name: Publish release assets

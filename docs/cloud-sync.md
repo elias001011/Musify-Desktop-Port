@@ -26,6 +26,39 @@ so the backend should treat the request body as opaque JSON and store it as-is.
 GitHub token or any other write token in the app. Treat this endpoint as public:
 the passphrase is the only thing separating one backup namespace from another.
 
+## Security Model
+
+Cloud Sync avoids embedding any GitHub or Cloudflare write token in the app. The
+Worker is public, and the passphrase selects the backup namespace by deriving a
+SHA-256 account id from:
+
+```text
+musify-cloud-sync-v1:<passphrase>
+```
+
+Use a strong passphrase. Anyone who can guess it can derive the same account id
+and read or replace that backup.
+
+The current payload is not end-to-end encrypted before being stored in
+Cloudflare KV. Cloudflare and anyone with access to the Cloudflare account can
+technically inspect the stored JSON. That is probably acceptable for music/app
+state, but it should not be described as private encrypted storage.
+
+Good next hardening step: derive an encryption key from the passphrase and
+encrypt the snapshot client-side before upload. Keep the storage account id and
+the encryption key as separate derivations so the Worker can route backups
+without being able to read them.
+
+## Limits
+
+Cloudflare KV stores each value with a 25 MiB limit. The Worker example uses a
+24 MB guard to stay under that limit. Musify may gzip-compress large snapshots
+and wrap them in JSON before upload, which keeps normal large backups below the
+limit.
+
+If compressed backups start hitting 413 again, move the storage to Cloudflare R2
+or split the snapshot into multiple keys.
+
 ## Cloudflare Worker Example
 
 Create a KV namespace and bind it as `MUSIFY_SYNC`, then deploy:

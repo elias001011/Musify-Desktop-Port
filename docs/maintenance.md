@@ -18,6 +18,8 @@ When GitHub Actions is available:
 6. It verifies that `pubspec.yaml` matches the expected `desktop-v<version>` tag.
 7. It runs a Linux release build as a desktop smoke test before pushing `master`.
 8. If the sync is clean, it pushes `master` and dispatches `Build Desktop Release`.
+   If the matching desktop release already existed but was missing assets, it
+   dispatches repair mode explicitly.
 9. `Build Desktop Release` validates the requested release tag before starting
    expensive builds, then builds Linux and Windows packages and publishes a
    stable GitHub release.
@@ -42,6 +44,10 @@ Normal release builds refuse to overwrite an existing GitHub release. This keeps
 upstream release syncs append-only: a new upstream release should produce a new
 `desktop-v<version>` release, while existing releases are only overwritten during
 an explicit repair.
+
+Do not repair an existing release just to ship new app code. If the app code
+changed after a published release, publish a numeric revision tag such as
+`desktop-v10.0.8-2` so installed apps can compare versions correctly.
 
 If cloud sync should be enabled in release builds, configure the repository
 variable `MUSIFY_CLOUD_SYNC_URL` with the HTTPS endpoint of the sync backend.

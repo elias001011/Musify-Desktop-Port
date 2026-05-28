@@ -21,6 +21,16 @@ Available assets:
 - `Musify-windows-x64-portable.zip` for portable Windows use.
 - `SHA256SUMS.txt` for artifact verification.
 
+## Release Channels
+
+This repository publishes two release families:
+
+- `desktop-v*` is the Windows/Linux desktop channel. These releases are allowed
+  to be GitHub Latest because the desktop updater follows them.
+- `mobile-v*` is the Musify Cloud Android channel from the `mobile-cloud-sync`
+  branch. Mobile releases are intentionally not marked as GitHub Latest, so the
+  desktop app never sees Android APKs as updates.
+
 ## Desktop Changes
 
 This port keeps the upstream Musify app as intact as possible and adds the
@@ -53,20 +63,31 @@ sync UI explains that no backend is configured.
 See [docs/cloud-sync.md](docs/cloud-sync.md) for the backend protocol and a
 minimal Cloudflare Worker example.
 
+Current sync behavior is last-writer-wins at the full-backup level. The newest
+snapshot replaces the older one; it is not a per-song or per-playlist merge.
+The current backend stores JSON in Cloudflare KV and is not end-to-end
+encrypted. See [docs/cloud-sync.md](docs/cloud-sync.md) for the security model
+and limits.
+
 ## Updating From Upstream
 
 The repository is prepared for automated maintenance with GitHub Actions:
 
 - `Sync Upstream Release` checks the latest release from
   [gokadzev/Musify](https://github.com/gokadzev/Musify), merges it into this
-  desktop port, runs Flutter dependency refresh and analysis, then dispatches
-  the desktop release workflow.
+  desktop port, runs Flutter dependency refresh, analysis, and a Linux smoke
+  build, then dispatches the desktop release workflow.
 - `Build Desktop Release` builds Linux and Windows packages and publishes a
-  stable GitHub release.
+  stable GitHub release. Existing releases are only overwritten when repair mode
+  is explicitly enabled.
 
 If GitHub Actions is unavailable on the account, the workflows remain ready and
 can be enabled later without changing the repository layout. See
 [docs/maintenance.md](docs/maintenance.md) for the manual and automated flows.
+
+If the upstream merge conflicts, Actions cannot safely guess the right answer.
+The sync workflow fails and opens an issue with a link to the run so the conflict
+can be resolved manually.
 
 ## Credits
 

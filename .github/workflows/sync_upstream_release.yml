@@ -91,15 +91,18 @@ jobs:
 
             if [[ "${is_draft}" == "false" && "${#missing_assets[@]}" -eq 0 ]]; then
               echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "repair_existing_release=false" >> "$GITHUB_OUTPUT"
               echo "Desktop release ${desktop_tag} already exists with all expected assets."
             else
               echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "repair_existing_release=true" >> "$GITHUB_OUTPUT"
               echo "Desktop release ${desktop_tag} exists but needs repair."
               echo "Draft: ${is_draft}"
               printf 'Missing assets: %s\n' "${missing_assets[*]:-none}"
             fi
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "repair_existing_release=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Stop when already released
@@ -190,6 +193,7 @@ jobs:
           gh workflow run desktop_release.yml \
             --ref master \
             -f tag="${DESKTOP_TAG}" \
+            -f repair_existing_release="${{ steps.release.outputs.repair_existing_release }}" \
             -f prerelease=false
 
       - name: Open sync failure issue
