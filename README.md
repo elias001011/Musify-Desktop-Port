@@ -54,6 +54,9 @@ the compatibility pieces needed for desktop startup and daily use:
 These features exist to make this desktop port and the Musify Cloud mobile build
 feel like one optional multi-device experience:
 
+- Desktop volume control. On Windows, Linux, and macOS, the miniplayer and the
+  expanded now-playing action bar show a speaker button that opens an inline
+  volume slider for the current audio player.
 - Optional Cloud Sync. Users can enter the same passphrase on desktop and
   Musify Cloud mobile to load and replace the latest cloud backup for settings,
   playlists, liked songs, recently played songs, and most-played data.
@@ -64,6 +67,21 @@ feel like one optional multi-device experience:
 Automatic offline mode is conservative on purpose: it checks multiple endpoints
 and requires repeated failures before enabling offline mode, so a slow request
 should not immediately cause a false offline flip.
+
+## Downstream Adjustments
+
+These are not intended as product features; they are maintenance and release
+adjustments that keep the downstream port usable:
+
+- GitHub Actions workflows for desktop packaging, mobile cloud packaging, and
+  upstream sync.
+- Workflow refs are written as `refs/heads/...` where possible, and upstream
+  sync fetches only the selected upstream release tag. This avoids the upstream
+  `master` tag being fetched into the job and making the local `master` branch
+  name ambiguous.
+- Release notes and updater channels are split so `desktop-v*` builds remain
+  the desktop channel and `mobile-v*` builds remain the Musify Cloud Android
+  channel.
 
 ## Optional Cloud Sync
 

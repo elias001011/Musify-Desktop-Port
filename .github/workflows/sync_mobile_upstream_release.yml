@@ -28,8 +28,9 @@ jobs:
       - name: Checkout mobile branch
         uses: actions/checkout@v5
         with:
-          ref: mobile-cloud-sync
+          ref: refs/heads/mobile-cloud-sync
           fetch-depth: 0
+          fetch-tags: false
 
       - name: Configure git
         run: |
@@ -82,7 +83,7 @@ jobs:
         if: steps.existing.outputs.exists != 'true'
         run: |
           git remote add upstream https://github.com/gokadzev/Musify.git || git remote set-url upstream https://github.com/gokadzev/Musify.git
-          git fetch upstream --tags --prune
+          git fetch upstream --no-tags --prune "+refs/tags/${{ steps.upstream.outputs.tag }}:refs/tags/${{ steps.upstream.outputs.tag }}"
 
       - name: Merge upstream release
         if: steps.existing.outputs.exists != 'true'
@@ -136,9 +137,9 @@ jobs:
           fi
 
           gh workflow run mobile_release.yml \
-            --ref mobile-cloud-sync \
+            --ref refs/heads/mobile-cloud-sync \
             -f version="${{ steps.upstream.outputs.version }}" \
-            -f source_ref="mobile-cloud-sync" \
+            -f source_ref="refs/heads/mobile-cloud-sync" \
             -f repair_existing_release="$repair"
 
       - name: Open sync failure issue

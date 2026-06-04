@@ -32,6 +32,7 @@ import 'package:musify/utilities/flutter_toast.dart';
 import 'package:musify/utilities/playlist_utils.dart';
 import 'package:musify/utilities/song_filtering.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';
+import 'package:musify/widgets/mini_player_bottom_space.dart';
 import 'package:musify/widgets/playlist_cube.dart';
 import 'package:musify/widgets/playlist_page/empty_playlist_state.dart';
 import 'package:musify/widgets/playlist_page/playlist_header.dart';
@@ -51,7 +52,6 @@ class UserSongsPage extends StatefulWidget {
 }
 
 class _UserSongsPageState extends State<UserSongsPage> {
-  bool _isEditEnabled = false;
   final ValueNotifier<String> _searchQueryNotifier = ValueNotifier('');
   late final TextEditingController _searchController;
   late final FocusNode _searchFocusNode;
@@ -83,39 +83,17 @@ class _UserSongsPageState extends State<UserSongsPage> {
   Widget build(BuildContext context) {
     final title = getTitle(widget.page, context);
     final icon = getIcon(widget.page);
-    final songsList = getSongsList(widget.page);
     final length = getLength(widget.page);
-    final isLikedSongs = title == context.l10n!.likedSongs;
     final isOfflineSongs = title == context.l10n!.offlineSongs;
 
     return Scaffold(
-      appBar: AppBar(
-        title: offlineMode.value ? Text(title) : null,
-        actions: [
-          if (isLikedSongs && songsList.isNotEmpty)
-            IconButton(
-              onPressed: _toggleEditMode,
-              icon: Icon(
-                FluentIcons.re_order_24_filled,
-                color: _isEditEnabled
-                    ? Theme.of(context).colorScheme.inversePrimary
-                    : Theme.of(context).colorScheme.primary,
-              ),
-            ),
-        ],
-      ),
-      body: _buildCustomScrollView(
-        title,
-        icon,
-        songsList,
-        length,
-        isOfflineSongs,
+      appBar: AppBar(title: offlineMode.value ? Text(title) : null),
+      body: ValueListenableBuilder<int>(
+        valueListenable: length,
+        builder: (_, songsLength, __) =>
+            _buildCustomScrollView(title, icon, songsLength, isOfflineSongs),
       ),
     );
-  }
-
-  void _toggleEditMode() {
-    setState(() => _isEditEnabled = !_isEditEnabled);
   }
 
   OfflineSortType _getCurrentOfflineSortType() {
@@ -128,21 +106,16 @@ class _UserSongsPageState extends State<UserSongsPage> {
   Widget _buildCustomScrollView(
     String title,
     IconData icon,
-    List songsList,
-    ValueNotifier<int> length,
+    int songsLength,
     bool isOfflineSongs,
   ) {
     return CustomScrollView(
       slivers: [
         SliverToBoxAdapter(
-          child: _buildHeaderSection(
-            title,
-            icon,
-            songsList.length,
-            isOfflineSongs,
-          ),
+          child: _buildHeaderSection(title, icon, songsLength, isOfflineSongs),
         ),
-        buildSongList(title, songsList, length),
+        buildSongList(title),
+        const SliverMiniPlayerBottomSpace(),
       ],
     );
   }
@@ -324,101 +297,60 @@ class _UserSongsPageState extends State<UserSongsPage> {
     );
   }
 
-  Widget buildSongList(
-    String title,
-    List songsList,
-    ValueNotifier<int> currentSongsLength,
-  ) {
+  Widget buildSongList(String title) {
     final isLikedSongs = title == context.l10n!.likedSongs;
     final isRecentlyPlayed = title == context.l10n!.recentlyPlayed;
     final isOfflineSongs = title == context.l10n!.offlineSongs;
 
-    return ValueListenableBuilder(
-      valueListenable: currentSongsLength,
-      builder: (_, value, __) {
-        return ValueListenableBuilder<String>(
-          valueListenable: _searchQueryNotifier,
-          builder: (_, searchQuery, __) {
-            final isSearching = searchQuery.isNotEmpty;
-            final displayList = _getDisplayList(songsList);
-            var sortedList = songsList;
-            if (isOfflineSongs) {
-              sortedList = _sortOfflineSongsLocal(
-                songsList,
-                _getCurrentOfflineSortType(),
-              );
-            }
-            final playlist = {
-              'ytid': '',
-              'title': title,
-              'source': 'user-created',
-              'list': sortedList,
-            };
+    return ValueListenableBuilder<String>(
+      valueListenable: _searchQueryNotifier,
+      builder: (_, searchQuery, __) {
+        final songsList = getSongsList(widget.page);
+        final listKeyScope = 'user_song_${widget.page}';
+        final isSearching = searchQuery.isNotEmpty;
+        final displayList = _getDisplayList(songsList);
+        var sortedList = songsList;
+        if (isOfflineSongs) {
+          sortedList = _sortOfflineSongsLocal(
+            songsList,
+            _getCurrentOfflineSortType(),
+          );
+        }
+        final playlist = {
+          'ytid': '',
+          'title': title,
+          'source': 'user-created',
+          'list': sortedList,
+        };
 
-            if (displayList.isEmpty) {
-              final emptyIcon = isLikedSongs
-                  ? FluentIcons.heart_24_regular
-                  : FluentIcons.text_bullet_list_24_filled;
-              return EmptyPlaylistState(
-                icon: emptyIcon,
-                message: context.l10n!.playlistEmpty,
-              );
-            }
+        if (displayList.isEmpty) {
+          final emptyIcon = isLikedSongs
+              ? FluentIcons.heart_24_regular
+              : FluentIcons.text_bullet_list_24_filled;
+          return EmptyPlaylistState(
+            icon: emptyIcon,
+            message: context.l10n!.playlistEmpty,
+          );
+        }
 
-            if (isLikedSongs && !isSearching) {
-              return SliverReorderableList(
-                itemCount: displayList.length,
-                itemBuilder: (context, index) {
-                  final song = displayList[index];
-                  final borderRadius = getItemBorderRadius(
-                    index,
-                    displayList.length,
-                  );
-                  return ReorderableDragStartListener(
-                    enabled: _isEditEnabled,
-                    key: listItemKey('liked_song', index, song),
-                    index: index,
-                    child: _buildSongBar(
-                      song,
-                      index,
-                      borderRadius,
-                      playlist,
-                      isRecentSong: isRecentlyPlayed,
-                    ),
-                  );
-                },
-                onReorderItem: (oldIndex, newIndex) {
-                  setState(() {
-                    if (oldIndex < newIndex) newIndex -= 1;
-                    moveLikedSong(oldIndex, newIndex);
-                  });
-                },
-              );
-            } else {
-              return SliverList(
-                key: isOfflineSongs && !isSearching
-                    ? ValueKey(_getCurrentOfflineSortType())
-                    : null,
-                delegate: SliverChildBuilderDelegate((context, index) {
-                  final song = displayList[index];
-                  final borderRadius = getItemBorderRadius(
-                    index,
-                    displayList.length,
-                  );
-                  return RepaintBoundary(
-                    key: listItemKey('offline_song', index, song),
-                    child: _buildSongBar(
-                      song,
-                      index,
-                      borderRadius,
-                      playlist,
-                      isRecentSong: isRecentlyPlayed,
-                    ),
-                  );
-                }, childCount: displayList.length),
-              );
-            }
-          },
+        return SliverList(
+          key: isOfflineSongs && !isSearching
+              ? ValueKey(_getCurrentOfflineSortType())
+              : null,
+          delegate: SliverChildBuilderDelegate((context, index) {
+            final song = displayList[index];
+            final borderRadius = getItemBorderRadius(index, displayList.length);
+            return RepaintBoundary(
+              key: listItemKey(listKeyScope, index, song),
+              child: _buildSongBar(
+                song,
+                index,
+                borderRadius,
+                playlist,
+                isRecentSong: isRecentlyPlayed,
+              ),
+            );
+          }, childCount: displayList.length),
         );
       },
     );

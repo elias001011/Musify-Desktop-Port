@@ -30,6 +30,7 @@ import 'package:musify/utilities/flutter_bottom_sheet.dart';
 import 'package:musify/utilities/flutter_toast.dart';
 import 'package:musify/utilities/mediaitem.dart';
 import 'package:musify/utilities/playlist_dialogs.dart';
+import 'package:musify/widgets/desktop_volume_control.dart';
 import 'package:musify/widgets/queue_list_view.dart';
 
 class BottomActionsRow extends StatefulWidget {
@@ -96,6 +97,7 @@ class _BottomActionsRowState extends State<BottomActionsRow> {
         final queue = snapshot.data ?? [];
 
         final actions = <Widget>[
+          const DesktopVolumeControl(iconSize: 22),
           _buildActionButton(
             context: context,
             icon: FluentIcons.cloud_arrow_down_24_regular,
@@ -155,7 +157,11 @@ class _BottomActionsRowState extends State<BottomActionsRow> {
               statusNotifier: _songLikeStatus,
               activeColor: colorScheme.primary,
               onPressed: () {
-                updateSongLikeStatus(widget.audioId, !_songLikeStatus.value);
+                updateSongLikeStatus(
+                  widget.audioId,
+                  !_songLikeStatus.value,
+                  songData: mediaItemToMap(widget.metadata),
+                );
                 _songLikeStatus.value = !_songLikeStatus.value;
               },
               tooltip: l10n.likedSongs,

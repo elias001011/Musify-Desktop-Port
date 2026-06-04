@@ -31,7 +31,9 @@ jobs:
       - name: Checkout desktop port
         uses: actions/checkout@v5
         with:
+          ref: refs/heads/master
           fetch-depth: 0
+          fetch-tags: false
 
       - name: Configure git
         run: |
@@ -112,8 +114,8 @@ jobs:
       - name: Add upstream remote
         if: ${{ steps.release.outputs.skip != 'true' }}
         run: |
-          git remote add upstream https://github.com/gokadzev/Musify.git
-          git fetch upstream --tags --prune
+          git remote add upstream https://github.com/gokadzev/Musify.git || git remote set-url upstream https://github.com/gokadzev/Musify.git
+          git fetch upstream --no-tags --prune "+refs/tags/${{ steps.release.outputs.upstream_tag }}:refs/tags/${{ steps.release.outputs.upstream_tag }}"
 
       - name: Install Linux build dependencies
         if: ${{ steps.release.outputs.skip != 'true' }}
@@ -124,7 +126,6 @@ jobs:
       - name: Merge upstream release
         if: ${{ steps.release.outputs.skip != 'true' }}
         run: |
-          git checkout master
           git merge --no-edit "refs/tags/${{ steps.release.outputs.upstream_tag }}"
 
       - name: Resolve Flutter version
@@ -182,7 +183,7 @@ jobs:
 
       - name: Push synced master
         if: ${{ steps.release.outputs.skip != 'true' }}
-        run: git push origin master
+        run: git push origin HEAD:refs/heads/master
 
       - name: Dispatch desktop release workflow
         if: ${{ steps.release.outputs.skip != 'true' && steps.release.outputs.release_after_sync != 'false' }}
@@ -191,7 +192,7 @@ jobs:
           DESKTOP_TAG: ${{ steps.release.outputs.desktop_tag }}
         run: |
           gh workflow run desktop_release.yml \
-            --ref master \
+            --ref refs/heads/master \
             -f tag="${DESKTOP_TAG}" \
             -f repair_existing_release="${{ steps.release.outputs.repair_existing_release }}" \
             -f prerelease=false

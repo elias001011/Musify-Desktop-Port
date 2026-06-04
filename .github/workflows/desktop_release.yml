@@ -262,6 +262,7 @@ jobs:
 
           Desktop port changes:
           - Windows and Linux packaging for Musify.
+          - Desktop speaker button with inline volume slider in the miniplayer and expanded player.
           - Desktop updater follows this repository's desktop-v* release channel.
           - Optional Cloud Sync for settings, playlists, liked songs, recently played songs, and most-played metadata.
           - Large cloud backups may be gzip-compressed inside a JSON envelope before upload.

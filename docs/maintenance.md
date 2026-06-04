@@ -11,9 +11,9 @@ When GitHub Actions is available:
 2. It reads the latest upstream release tag from `gokadzev/Musify`.
 3. If this repository already has a matching, non-draft `desktop-v<version>`
    release with all expected desktop assets, it exits without changes.
-4. If the desktop release does not exist, it fetches upstream tags and merges the
-   upstream release tag into `master`. If the release exists but is incomplete,
-   the workflow continues so the release can be repaired.
+4. If the desktop release does not exist, it fetches only the selected upstream
+   release tag and merges it into `refs/heads/master`. If the release exists but
+   is incomplete, the workflow continues so the release can be repaired.
 5. It runs `update.sh`, `flutter pub get`, and `flutter analyze`.
 6. It verifies that `pubspec.yaml` matches the expected `desktop-v<version>` tag.
 7. It runs a Linux release build as a desktop smoke test before pushing `master`.
@@ -33,7 +33,7 @@ workflow, pass `source_ref` and explicitly allow repairing the existing release:
 
 ```bash
 gh workflow run desktop_release.yml \
-  --ref master \
+  --ref refs/heads/master \
   -f tag=desktop-v10.0.8 \
   -f source_ref=<commit-or-tag> \
   -f repair_existing_release=true \
@@ -57,25 +57,39 @@ shows that no backend is configured.
 If the upstream merge, version validation, analysis, or Linux smoke build fails,
 the sync workflow opens an issue with a link to the failed run.
 
+## Branch And Tag Ambiguity
+
+`gokadzev/Musify` contains a historical tag named `master`. If a sync job fetches
+all upstream tags, local commands such as `git checkout master` can become
+ambiguous because both `refs/heads/master` and `refs/tags/master` exist. The
+workflows avoid that by:
+
+- Checking out local branches with explicit `refs/heads/...` refs.
+- Fetching only the upstream release tag needed for the sync instead of all
+  upstream tags.
+- Pushing with `HEAD:refs/heads/master` or `HEAD:refs/heads/mobile-cloud-sync`.
+- Dispatching downstream workflows with explicit branch refs.
+
 ## Manual Sync
 
 Use this when Actions is unavailable or a conflict needs local attention:
 
 ```bash
-git checkout master
-git fetch upstream --tags --prune
+git fetch origin refs/heads/master:refs/remotes/origin/master
+git checkout -B master refs/remotes/origin/master
+git fetch upstream --no-tags --prune +refs/tags/<upstream-version>:refs/tags/<upstream-version>
 git merge --no-edit refs/tags/<upstream-version>
 ./update.sh
 flutter pub get
 flutter analyze
 flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL=<sync-endpoint>
-git push origin master
+git push origin HEAD:refs/heads/master
 ```
 
 Then create a desktop release:
 
 ```bash
-gh workflow run desktop_release.yml --ref master -f tag=desktop-v<version> -f prerelease=false
+gh workflow run desktop_release.yml --ref refs/heads/master -f tag=desktop-v<version> -f prerelease=false
 ```
 
 If Actions is still blocked, build Linux locally and use a Windows machine for
@@ -98,6 +112,19 @@ automatic checker will report the connection state but will not turn offline
 mode off for the user.
 
 The current offline state is local-only and is not included in Cloud Sync.
+
+## Desktop Volume Control
+
+The desktop volume slider is a downstream desktop feature. It is exposed only on
+desktop targets and uses the existing `just_audio` player volume, so it does not
+change upstream mobile behavior. The control appears in:
+
+- `lib/widgets/mini_player.dart`, beside the miniplayer playback controls.
+- `lib/widgets/now_playing/bottom_actions_row.dart`, in the expanded player
+  action bar.
+
+The shared widget is `lib/widgets/desktop_volume_control.dart`, and the audio
+API is exposed by `MusifyAudioHandler.volumeStream`, `volume`, and `setVolume`.
 
 ## Remotes
 

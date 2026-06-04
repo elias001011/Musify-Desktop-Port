@@ -22,6 +22,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:audio_service/audio_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
@@ -42,6 +43,7 @@ class QueueWidget extends StatefulWidget {
 class _QueueWidgetState extends State<QueueWidget> {
   List<Map> _queue = [];
   late StreamSubscription<List<Map>> _subscription;
+  late StreamSubscription<MediaItem?> _mediaSubscription;
   bool _isDismissing = false;
   bool _hasScrolledToInitial = false;
   final ScrollController _scrollController = ScrollController();
@@ -60,6 +62,12 @@ class _QueueWidgetState extends State<QueueWidget> {
         }
       }
     });
+    // listen to mediaItem changes UI reflects current song accurately.
+    _mediaSubscription = audioHandler.mediaItem
+        .distinct((prev, next) => prev?.id == next?.id)
+        .listen((_) {
+          if (mounted && !_isDismissing) setState(() {});
+        });
   }
 
   void _scrollToCurrentSong() {
@@ -85,6 +93,7 @@ class _QueueWidgetState extends State<QueueWidget> {
   @override
   void dispose() {
     _subscription.cancel();
+    _mediaSubscription.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -289,12 +298,22 @@ class _QueueWidgetState extends State<QueueWidget> {
       padding: const EdgeInsets.only(top: 4, bottom: 24, left: 8, right: 8),
       itemCount: _queue.length,
       onReorderItem: (oldIndex, newIndex) {
-        if (newIndex > oldIndex) newIndex--;
+        final movingId =
+            _queue[oldIndex]['queueEntryId']?.toString() ??
+            'legacy_${_queue[oldIndex]['ytid']}_$oldIndex';
+
         setState(() {
           final item = _queue.removeAt(oldIndex);
-          _queue.insert(newIndex, item);
+          var insertIndex = newIndex;
+          if (insertIndex < 0) insertIndex = 0;
+          if (insertIndex > _queue.length) insertIndex = _queue.length;
+          _queue.insert(insertIndex, item);
         });
-        audioHandler.reorderQueue(oldIndex, newIndex);
+
+        final actualIndex = _queue.indexWhere(
+          (item) => item['queueEntryId']?.toString() == movingId,
+        );
+        audioHandler.reorderQueueById(movingId, actualIndex);
       },
       proxyDecorator: (child, index, animation) => Material(
         elevation: 8,

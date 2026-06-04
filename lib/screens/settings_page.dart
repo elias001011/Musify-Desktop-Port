@@ -45,6 +45,7 @@ import 'package:musify/utilities/url_launcher.dart';
 import 'package:musify/widgets/bottom_sheet_bar.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';
 import 'package:musify/widgets/custom_bar.dart';
+import 'package:musify/widgets/mini_player_bottom_space.dart';
 import 'package:musify/widgets/section_header.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -71,6 +72,7 @@ class SettingsPage extends StatelessWidget {
             if (!offlineMode.value) _buildOnlineFeaturesSection(context),
             _buildOthersSection(context),
             const SizedBox(height: 20),
+            const MiniPlayerBottomSpace(),
           ],
         ),
       ),
@@ -83,6 +85,8 @@ class SettingsPage extends StatelessWidget {
     Color activatedColor,
     Color inactivatedColor,
   ) {
+    final isOffline = offlineMode.value;
+
     return Column(
       children: [
         SectionHeader(
@@ -170,6 +174,9 @@ class SettingsPage extends StatelessWidget {
               context.l10n!.offlineMode,
               FluentIcons.cloud_off_24_regular,
               description: context.l10n!.offlineModeDescription,
+              borderRadius: isOffline && isFdroidBuild
+                  ? commonCustomBarRadiusLast
+                  : BorderRadius.zero,
               trailing: Switch(
                 value: value,
                 onChanged: (value) => _toggleOfflineMode(context, value),
@@ -206,7 +213,9 @@ class SettingsPage extends StatelessWidget {
                 context.l10n!.automaticUpdateChecks,
                 FluentIcons.arrow_sync_24_regular,
                 description: context.l10n!.automaticUpdateChecksDescription,
-                borderRadius: commonCustomBarRadiusLast,
+                borderRadius: offlineMode.value
+                    ? commonCustomBarRadiusLast
+                    : BorderRadius.zero,
                 trailing: Switch(
                   value: value ?? false,
                   onChanged: (value) =>
