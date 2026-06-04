@@ -33,7 +33,6 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/localization/app_localizations.dart';
 import 'package:musify/services/audio_service.dart';
-import 'package:musify/services/automatic_offline_manager.dart';
 import 'package:musify/services/cloud_sync_manager.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/io_service.dart';
@@ -194,7 +193,6 @@ class _MusifyState extends State<Musify> {
     offlineMode.removeListener(_onOfflineModeChanged);
     appStateReloadSignal.removeListener(_onBackedUpStateReloaded);
 
-    unawaited(AutomaticOfflineManager.instance.dispose());
     unawaited(CloudSyncManager.instance.dispose());
     Hive.close();
     sharingIntentSubscription.cancel();
@@ -274,7 +272,6 @@ Future<void> initialisation() async {
       Hive.openBox('cache'),
     ]);
 
-    await AutomaticOfflineManager.instance.initialise();
     await CloudSyncManager.instance.initialise();
 
     audioHandler = await AudioService.init(

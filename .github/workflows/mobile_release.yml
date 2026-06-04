@@ -10,7 +10,7 @@ on:
       source_ref:
         description: Branch, tag, or SHA to build
         required: false
-        default: mobile-cloud-sync
+        default: refs/heads/mobile-cloud-sync
         type: string
       repair_existing_release:
         description: Replace assets on an existing mobile release
@@ -54,7 +54,7 @@ jobs:
 
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "source_ref=${source_ref:-mobile-cloud-sync}" >> "$GITHUB_OUTPUT"
+          echo "source_ref=${source_ref:-refs/heads/mobile-cloud-sync}" >> "$GITHUB_OUTPUT"
           echo "repair=${repair}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout code

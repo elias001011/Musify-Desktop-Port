@@ -2,7 +2,10 @@
 
 This branch tracks upstream mobile Musify and adds the Musify Cloud layer on
 top. The goal is to keep upstream changes flowing while preserving our Android
-package identity, update channel, Cloud Sync code, and automatic offline mode.
+package identity, update channel, and Cloud Sync code. Musify Cloud should stay
+functionally equivalent to original mobile Musify except for sync, package
+identity, updater channel, release workflows, and the small compatibility code
+needed for those items.
 
 ## Branch Roles
 
@@ -36,9 +39,9 @@ Use this only when rebuilding a known-good branch or repairing a broken release.
 
 ```bash
 gh workflow run mobile_release.yml \
-  --ref mobile-cloud-sync \
+  --ref refs/heads/mobile-cloud-sync \
   -f version="10.0.8" \
-  -f source_ref="mobile-cloud-sync" \
+  -f source_ref="refs/heads/mobile-cloud-sync" \
   -f repair_existing_release=false
 ```
 
@@ -55,12 +58,14 @@ Manual recovery:
 
 1. Fetch the latest refs locally.
 2. Checkout `mobile-cloud-sync`.
-3. Merge the upstream tag that failed.
-4. Resolve conflicts while preserving Musify Cloud changes.
-5. Run `flutter pub get`.
-6. Run `flutter analyze`.
-7. Push `mobile-cloud-sync`.
-8. Run the mobile release workflow manually if needed.
+3. Fetch only the upstream tag that failed, for example
+   `git fetch upstream --no-tags --prune +refs/tags/10.0.9:refs/tags/10.0.9`.
+4. Merge the upstream tag that failed.
+5. Resolve conflicts while preserving Musify Cloud changes.
+6. Run `flutter pub get`.
+7. Run `flutter analyze`.
+8. Push with `git push origin HEAD:refs/heads/mobile-cloud-sync`.
+9. Run the mobile release workflow manually if needed.
 
 ## Cloud Sync Notes
 
@@ -71,12 +76,9 @@ merges.
 
 See `docs/cloud-sync.md` for backend setup, limits and security notes.
 
-## Automatic Offline Notes
+## Branch And Tag Ambiguity
 
-Automatic offline mode is deliberately conservative. It checks multiple network
-endpoints and requires repeated failures before enabling offline mode, then
-requires repeated successes before disabling an auto-applied offline mode.
-
-Manual offline mode always wins. If the user turns offline mode on, the
-automatic checker will report the connection state but will not turn offline
-mode off for the user.
+`gokadzev/Musify` has a historical tag named `master`. The mobile sync workflow
+fetches only the selected upstream release tag and uses `refs/heads/...` when it
+checks out, pushes, or dispatches workflows. This prevents the upstream
+`refs/tags/master` tag from making local branch references ambiguous.

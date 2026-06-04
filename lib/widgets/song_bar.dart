@@ -74,6 +74,8 @@ class SongBar extends StatefulWidget {
 }
 
 class _SongBarState extends State<SongBar> {
+  static const _menuHitAreaWidth = 72.0;
+
   static const likeStatusToIconMapper = {
     true: FluentIcons.heart_off_24_regular,
     false: FluentIcons.heart_24_regular,
@@ -145,23 +147,38 @@ class _SongBarState extends State<SongBar> {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: _handleSongTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-            child: Row(
-              children: [
-                _buildAlbumArt(colorScheme),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: _SongInfo(
-                    title: _songTitle,
-                    artist: _songArtist,
-                    plays: _plays,
-                    colorScheme: colorScheme,
-                  ),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsetsDirectional.fromSTEB(
+                  12,
+                  10,
+                  _menuHitAreaWidth,
+                  10,
                 ),
-                _buildActionButtons(context, colorScheme),
-              ],
-            ),
+                child: Row(
+                  children: [
+                    _buildAlbumArt(colorScheme),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: _SongInfo(
+                        title: _songTitle,
+                        artist: _songArtist,
+                        plays: _plays,
+                        colorScheme: colorScheme,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PositionedDirectional(
+                top: 0,
+                end: 0,
+                bottom: 0,
+                width: _menuHitAreaWidth,
+                child: _buildActionButtons(context, colorScheme),
+              ),
+            ],
           ),
         ),
       ),
@@ -216,19 +233,17 @@ class _SongBarState extends State<SongBar> {
   }
 
   Widget _buildActionButtons(BuildContext context, ColorScheme colorScheme) {
-    return SizedBox(
-      width: 40,
-      height: 40,
+    return PopupMenuButton<String>(
+      borderRadius: BorderRadius.circular(_menuHitAreaWidth / 2),
+      padding: EdgeInsets.zero,
+      splashRadius: 28,
+      onSelected: (value) => _handleMenuAction(context, value),
+      itemBuilder: (context) => _buildMenuItems(context, colorScheme),
       child: Center(
-        child: PopupMenuButton<String>(
-          icon: Icon(
-            FluentIcons.more_vertical_24_regular,
-            color: colorScheme.onSurfaceVariant,
-            size: 20,
-          ),
-          padding: EdgeInsets.zero,
-          onSelected: (value) => _handleMenuAction(context, value),
-          itemBuilder: (context) => _buildMenuItems(context, colorScheme),
+        child: Icon(
+          FluentIcons.more_vertical_24_regular,
+          color: colorScheme.onSurfaceVariant,
+          size: 20,
         ),
       ),
     );
@@ -255,16 +270,12 @@ class _SongBarState extends State<SongBar> {
       case 'like':
         final newValue = !_songLikeStatus.value;
         _songLikeStatus.value = newValue;
-        final likedSongsLength = currentLikedSongsLength.value;
-        currentLikedSongsLength.value = newValue
-            ? likedSongsLength + 1
-            : likedSongsLength - 1;
-        updateSongLikeStatus(_ytid, newValue).catchError((e) {
-          logger.log('Error updating song like status', error: e);
-          // Revert on error
-          _songLikeStatus.value = !newValue;
-          currentLikedSongsLength.value = likedSongsLength;
-        });
+        updateSongLikeStatus(_ytid, newValue, songData: widget.song).catchError(
+          (e) {
+            logger.log('Error updating song like status', error: e);
+            _songLikeStatus.value = !newValue;
+          },
+        );
         showToast(
           context,
           newValue
@@ -491,7 +502,10 @@ class _SongBarState extends State<SongBar> {
           value: 'add_to_playlist',
           child: Row(
             children: [
-              Icon(FluentIcons.album_add_24_regular, color: colorScheme.primary),
+              Icon(
+                FluentIcons.album_add_24_regular,
+                color: colorScheme.primary,
+              ),
               const SizedBox(width: 8),
               Text(
                 addToPlaylistText,

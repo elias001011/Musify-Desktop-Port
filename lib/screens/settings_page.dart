@@ -27,7 +27,6 @@ import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
 import 'package:musify/screens/search_page.dart';
-import 'package:musify/services/automatic_offline_manager.dart';
 import 'package:musify/services/backed_up_state_manager.dart';
 import 'package:musify/services/cloud_sync_manager.dart';
 import 'package:musify/services/common_services.dart';
@@ -45,6 +44,7 @@ import 'package:musify/utilities/url_launcher.dart';
 import 'package:musify/widgets/bottom_sheet_bar.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';
 import 'package:musify/widgets/custom_bar.dart';
+import 'package:musify/widgets/mini_player_bottom_space.dart';
 import 'package:musify/widgets/section_header.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -71,6 +71,7 @@ class SettingsPage extends StatelessWidget {
             if (!offlineMode.value) _buildOnlineFeaturesSection(context),
             _buildOthersSection(context),
             const SizedBox(height: 20),
+            const MiniPlayerBottomSpace(),
           ],
         ),
       ),
@@ -83,6 +84,8 @@ class SettingsPage extends StatelessWidget {
     Color activatedColor,
     Color inactivatedColor,
   ) {
+    final isOffline = offlineMode.value;
+
     return Column(
       children: [
         SectionHeader(
@@ -170,31 +173,13 @@ class SettingsPage extends StatelessWidget {
               context.l10n!.offlineMode,
               FluentIcons.cloud_off_24_regular,
               description: context.l10n!.offlineModeDescription,
+              borderRadius: isOffline && isFdroidBuild
+                  ? commonCustomBarRadiusLast
+                  : BorderRadius.zero,
               trailing: Switch(
                 value: value,
                 onChanged: (value) => _toggleOfflineMode(context, value),
               ),
-            );
-          },
-        ),
-        ValueListenableBuilder<bool>(
-          valueListenable: automaticOfflineMode,
-          builder: (_, value, __) {
-            return ValueListenableBuilder<String>(
-              valueListenable: automaticOfflineModeStatus,
-              builder: (_, status, __) {
-                return CustomBar(
-                  'Automatic offline mode',
-                  FluentIcons.globe_warning_24_regular,
-                  description:
-                      'Switch to offline mode only after repeated connection failures. $status',
-                  trailing: Switch(
-                    value: value,
-                    onChanged: (value) =>
-                        _toggleAutomaticOfflineMode(context, value),
-                  ),
-                );
-              },
             );
           },
         ),
@@ -206,6 +191,9 @@ class SettingsPage extends StatelessWidget {
                 context.l10n!.automaticUpdateChecks,
                 FluentIcons.arrow_sync_24_regular,
                 description: context.l10n!.automaticUpdateChecksDescription,
+                borderRadius: offlineMode.value
+                    ? commonCustomBarRadiusLast
+                    : BorderRadius.zero,
                 trailing: Switch(
                   value: value ?? false,
                   onChanged: (value) =>
@@ -837,7 +825,6 @@ class SettingsPage extends StatelessWidget {
   }
 
   void _toggleOfflineMode(BuildContext context, bool value) {
-    AutomaticOfflineManager.instance.markManualOfflineChange();
     addOrUpdateData('settings', 'offlineMode', value);
     offlineMode.value = value;
 
@@ -845,16 +832,6 @@ class SettingsPage extends StatelessWidget {
     NavigationManager.refreshRouter();
 
     showToast(context, context.l10n!.settingChangedMsg);
-  }
-
-  Future<void> _toggleAutomaticOfflineMode(
-    BuildContext context,
-    bool value,
-  ) async {
-    await AutomaticOfflineManager.instance.setEnabled(value);
-    if (context.mounted) {
-      showToast(context, context.l10n!.settingChangedMsg);
-    }
   }
 
   void _toggleSponsorBlock(BuildContext context, bool value) {
