@@ -60,13 +60,6 @@ feel like one optional multi-device experience:
 - Optional Cloud Sync. Users can enter the same passphrase on desktop and
   Musify Cloud mobile to load and replace the latest cloud backup for settings,
   playlists, liked songs, recently played songs, and most-played data.
-- Automatic offline mode. The app can switch to offline mode after repeated
-  confirmed connectivity failures and return online when connectivity is
-  confirmed again. A Settings toggle disables this behavior.
-
-Automatic offline mode is conservative on purpose: it checks multiple endpoints
-and requires repeated failures before enabling offline mode, so a slow request
-should not immediately cause a false offline flip.
 
 ## Downstream Adjustments
 

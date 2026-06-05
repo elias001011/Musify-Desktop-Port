@@ -48,18 +48,6 @@ final offlineMode = ValueNotifier<bool>(
   Hive.box('settings').get('offlineMode', defaultValue: false),
 );
 
-final automaticOfflineMode = ValueNotifier<bool>(
-  Hive.box('settings').get('automaticOfflineMode', defaultValue: true),
-);
-
-final automaticOfflineModeApplied = ValueNotifier<bool>(
-  Hive.box('settings').get('automaticOfflineModeApplied', defaultValue: false),
-);
-
-final automaticOfflineModeStatus = ValueNotifier<String>(
-  'Automatic offline checks are idle',
-);
-
 final predictiveBack = ValueNotifier<bool>(
   Hive.box('settings').get('predictiveBack', defaultValue: true),
 );
@@ -185,14 +173,6 @@ void refreshSettingsFromStorage() {
     defaultValue: false,
   );
   offlineMode.value = settingsBox.get('offlineMode', defaultValue: false);
-  automaticOfflineMode.value = settingsBox.get(
-    'automaticOfflineMode',
-    defaultValue: true,
-  );
-  automaticOfflineModeApplied.value = settingsBox.get(
-    'automaticOfflineModeApplied',
-    defaultValue: false,
-  );
   predictiveBack.value = settingsBox.get('predictiveBack', defaultValue: true);
   sponsorBlockSupport.value = settingsBox.get(
     'sponsorBlockSupport',
