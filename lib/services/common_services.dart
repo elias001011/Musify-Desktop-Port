@@ -51,6 +51,13 @@ ValueNotifier<List> userOfflineSongs = ValueNotifier<List>(
   Hive.box('userNoBackup').get('offlineSongs', defaultValue: []),
 );
 
+final currentLikedSongsLength =
+    ValueNotifier<int>(userLikedSongsList.value.length);
+final currentRecentlyPlayedLength =
+    ValueNotifier<int>(userRecentlyPlayed.value.length);
+final currentOfflineSongsLength =
+    ValueNotifier<int>(userOfflineSongs.value.length);
+
 dynamic nextRecommendedSong;
 
 final recentlyPlayedVersion = ValueNotifier<int>(0);
@@ -63,15 +70,15 @@ String? lastFetchedLyrics;
 void refreshUserSongsFromStorage() {
   final userBox = Hive.box('user');
 
-  userLikedSongsList = userBox.get('likedSongs', defaultValue: []);
-  userRecentlyPlayed = userBox.get('recentlyPlayedSongs', defaultValue: []);
-  userOfflineSongs = Hive.box(
+  userLikedSongsList.value = userBox.get('likedSongs', defaultValue: []);
+  userRecentlyPlayed.value = userBox.get('recentlyPlayedSongs', defaultValue: []);
+  userOfflineSongs.value = Hive.box(
     'userNoBackup',
   ).get('offlineSongs', defaultValue: []);
 
-  currentLikedSongsLength.value = userLikedSongsList.length;
-  currentRecentlyPlayedLength.value = userRecentlyPlayed.length;
-  currentOfflineSongsLength.value = userOfflineSongs.length;
+  currentLikedSongsLength.value = userLikedSongsList.value.length;
+  currentRecentlyPlayedLength.value = userRecentlyPlayed.value.length;
+  currentOfflineSongsLength.value = userOfflineSongs.value.length;
   recentlyPlayedVersion.value++;
 }
 

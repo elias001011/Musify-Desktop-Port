@@ -47,6 +47,8 @@ final userCustomPlaylists = ValueNotifier<List<Map>>(
 final userLikedPlaylists = ValueNotifier<List<Map>>(
   List<Map>.from(Hive.box('user').get('likedPlaylists', defaultValue: [])),
 );
+final currentLikedPlaylistsLength =
+    ValueNotifier<int>(userLikedPlaylists.value.length);
 final userPlaylistFolders = ValueNotifier<List<Map>>(
   List<Map>.from(Hive.box('user').get('playlistFolders', defaultValue: [])),
 );
@@ -110,7 +112,7 @@ void refreshPlaylistsFromStorage() {
   userCustomPlaylists.value = List<Map>.from(
     userBox.get('customPlaylists', defaultValue: []),
   );
-  userLikedPlaylists = List<Map>.from(
+  userLikedPlaylists.value = List<Map>.from(
     userBox.get('likedPlaylists', defaultValue: []),
   );
   userPlaylistFolders.value = List<Map>.from(
@@ -119,7 +121,7 @@ void refreshPlaylistsFromStorage() {
   pinnedPlaylistIds.value = List<String>.from(
     userBox.get('pinnedPlaylistIds', defaultValue: <String>[]),
   );
-  currentLikedPlaylistsLength.value = userLikedPlaylists.length;
+  currentLikedPlaylistsLength.value = userLikedPlaylists.value.length;
 }
 
 Future<List<dynamic>> getUserPlaylists() async {
