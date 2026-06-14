@@ -177,7 +177,7 @@ class OfflinePlaylistService {
 
         offlinePlaylists.value = updatedPlaylists;
         unawaited(
-          addOrUpdateData(
+          addOrUpdateData<List>(
             'userNoBackup',
             'offlinePlaylists',
             offlinePlaylists.value,
@@ -290,15 +290,15 @@ class OfflinePlaylistService {
               });
 
           // Also check if song is in user's liked songs or OTHER custom playlists
-          final isInLikedSongs = userLikedSongsList.any(
+          final isInLikedSongs = userLikedSongsList.value.any(
             (s) => s['ytid'] == songId,
           );
           final isInOtherCustomPlaylists = getUserCustomPlaylists()
               .where((p) => p['ytid']?.toString() != normalizedPlaylistId)
               .any((p) {
-            final customPlaylistSongs = p['list'] as List<dynamic>? ?? [];
-            return customPlaylistSongs.any((s) => s['ytid'] == songId);
-          });
+                final customPlaylistSongs = p['list'] as List<dynamic>? ?? [];
+                return customPlaylistSongs.any((s) => s['ytid'] == songId);
+              });
 
           // Only remove if not used elsewhere
           if (!isUsedInOtherPlaylists &&
@@ -322,7 +322,7 @@ class OfflinePlaylistService {
         );
       offlinePlaylists.value = updatedPlaylists;
       unawaited(
-        addOrUpdateData(
+        addOrUpdateData<List>(
           'userNoBackup',
           'offlinePlaylists',
           offlinePlaylists.value,
@@ -374,8 +374,7 @@ class OfflinePlaylistService {
 
       await FilePaths.ensureDirectoriesExist();
 
-      userOfflineSongs.clear();
-      currentOfflineSongsLength.value = 0;
+      userOfflineSongs.value = [];
 
       offlinePlaylists.value = [];
 
@@ -385,8 +384,8 @@ class OfflinePlaylistService {
       downloadProgressNotifiers.clear();
       activeDownloads.clear();
 
-      unawaited(addOrUpdateData('userNoBackup', 'offlineSongs', []));
-      unawaited(addOrUpdateData('userNoBackup', 'offlinePlaylists', []));
+      unawaited(addOrUpdateData<List>('userNoBackup', 'offlineSongs', []));
+      unawaited(addOrUpdateData<List>('userNoBackup', 'offlinePlaylists', []));
 
       logger.log('All downloads deleted successfully');
     } catch (e, stackTrace) {
@@ -412,20 +411,6 @@ class OfflinePlaylistService {
         stackTrace: stackTrace,
       );
     }
-  }
-
-  Map<String, dynamic> getDownloadStatus(String playlistId) {
-    final isDownloaded = isPlaylistDownloaded(playlistId);
-    final isDownloading = isPlaylistDownloading(playlistId);
-    final progress = downloadProgressNotifiers.containsKey(playlistId)
-        ? downloadProgressNotifiers[playlistId]!.value
-        : null;
-
-    return {
-      'isDownloaded': isDownloaded,
-      'isDownloading': isDownloading,
-      'progress': progress,
-    };
   }
 
   Future<void> _processDownloadQueue(
@@ -496,13 +481,6 @@ class DownloadProgress {
     if (total <= 0) return 0;
     final totalProcessed = completed + failed;
     return totalProcessed > total ? 1.0 : totalProcessed / total;
-  }
-
-  bool get isComplete => completed + failed >= total;
-
-  double get successRate {
-    final totalProcessed = completed + failed;
-    return totalProcessed > 0 ? completed / totalProcessed : 0.0;
   }
 
   @override

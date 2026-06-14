@@ -76,9 +76,14 @@ class _PlaylistPageState extends State<PlaylistPage> {
   _originalPlaylistList; // Keep original order separately
 
   late final playlistLikeStatus = ValueNotifier<bool>(
-    isPlaylistAlreadyLiked(widget.playlistId),
+    isPlaylistAlreadyLiked(_resolvedPlaylistId),
   );
   bool playlistOfflineStatus = false;
+
+  String? get _resolvedPlaylistId =>
+      _playlist?['ytid']?.toString() ??
+      widget.playlistData?['ytid']?.toString() ??
+      widget.playlistId;
 
   // Sorting
   late PlaylistSortType _sortType = PlaylistSortType.values.firstWhere(
@@ -101,15 +106,25 @@ class _PlaylistPageState extends State<PlaylistPage> {
     super.initState();
     _searchController = TextEditingController();
     _searchFocusNode = FocusNode();
+    userLikedPlaylists.addListener(_syncPlaylistLikeStatus);
     _initializePlaylist();
   }
 
   @override
   void dispose() {
+    userLikedPlaylists.removeListener(_syncPlaylistLikeStatus);
+    playlistLikeStatus.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
     _searchQueryNotifier.dispose();
     super.dispose();
+  }
+
+  void _syncPlaylistLikeStatus() {
+    final newStatus = isPlaylistAlreadyLiked(_resolvedPlaylistId);
+    if (playlistLikeStatus.value != newStatus) {
+      playlistLikeStatus.value = newStatus;
+    }
   }
 
   Future<void> _initializePlaylist() async {
@@ -140,6 +155,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
       if (_playlist != null && _playlist['list'] != null) {
         _originalPlaylistList = List<dynamic>.from(_playlist['list'] as List);
         _sortPlaylist(_sortType);
+        _syncPlaylistLikeStatus();
         if (mounted) {
           setState(() {});
         }
@@ -303,7 +319,11 @@ class _PlaylistPageState extends State<PlaylistPage> {
             onSelected: (type) {
               setState(() {
                 _sortType = type;
-                addOrUpdateData('settings', 'playlistSortType', type.name);
+                addOrUpdateData<String>(
+                  'settings',
+                  'playlistSortType',
+                  type.name,
+                );
                 playlistSortSetting = type.name;
                 _sortPlaylist(type);
               });
@@ -465,7 +485,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
             updatedPlaylists[rootIndex] = updatedPlaylist;
             userCustomPlaylists.value = updatedPlaylists;
             unawaited(
-              addOrUpdateData(
+              addOrUpdateData<List>(
                 'user',
                 'customPlaylists',
                 userCustomPlaylists.value,
@@ -489,7 +509,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
             }
             userPlaylistFolders.value = updatedFolders;
             unawaited(
-              addOrUpdateData(
+              addOrUpdateData<List>(
                 'user',
                 'playlistFolders',
                 userPlaylistFolders.value,
@@ -515,10 +535,10 @@ class _PlaylistPageState extends State<PlaylistPage> {
       return const SizedBox.shrink();
     }
 
-    return ValueListenableBuilder<int>(
-      valueListenable: currentOfflineSongsLength,
+    return ValueListenableBuilder<List>(
+      valueListenable: userOfflineSongs,
       builder: (context, _, __) {
-        return ValueListenableBuilder<List<dynamic>>(
+        return ValueListenableBuilder<List>(
           valueListenable: offlinePlaylistService.offlinePlaylists,
           builder: (context, offlinePlaylists, _) {
             final playlistSongs = _playlist?['list'] as List? ?? [];

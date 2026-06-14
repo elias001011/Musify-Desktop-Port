@@ -104,6 +104,22 @@ class _SongBarState extends State<SongBar> {
     _songLikeStatus = ValueNotifier(isSongAlreadyLiked(_ytid));
     final isOffline = isSongAlreadyOffline(_ytid);
     _songOfflineStatus = ValueNotifier(isOffline);
+    userLikedSongsList.addListener(_syncLikeStatus);
+    userOfflineSongs.addListener(_syncOfflineStatus);
+  }
+
+  void _syncLikeStatus() {
+    final newStatus = isSongAlreadyLiked(_ytid);
+    if (_songLikeStatus.value != newStatus) {
+      _songLikeStatus.value = newStatus;
+    }
+  }
+
+  void _syncOfflineStatus() {
+    final newStatus = isSongAlreadyOffline(_ytid);
+    if (_songOfflineStatus.value != newStatus) {
+      _songOfflineStatus.value = newStatus;
+    }
   }
 
   @override
@@ -124,6 +140,8 @@ class _SongBarState extends State<SongBar> {
 
   @override
   void dispose() {
+    userLikedSongsList.removeListener(_syncLikeStatus);
+    userOfflineSongs.removeListener(_syncOfflineStatus);
     _songLikeStatus.dispose();
     _songOfflineStatus.dispose();
     super.dispose();
@@ -204,19 +222,19 @@ class _SongBarState extends State<SongBar> {
         widget.showMusicDuration && widget.song['duration'] != null;
 
     return ValueListenableBuilder<bool>(
-      valueListenable: _songLikeStatus,
-      builder: (_, isLiked, __) {
-        return ValueListenableBuilder<bool>(
-          valueListenable: _songOfflineStatus,
-          builder: (_, isOffline, __) {
-            if (isOffline && _artworkPath != null) {
-              return _OfflineArtwork(
-                artworkPath: _artworkPath,
-                size: size,
-                colorScheme: colorScheme,
-              );
-            }
+      valueListenable: _songOfflineStatus,
+      builder: (_, isOffline, __) {
+        if (isOffline && _artworkPath != null) {
+          return _OfflineArtwork(
+            artworkPath: _artworkPath,
+            size: size,
+            colorScheme: colorScheme,
+          );
+        }
 
+        return ValueListenableBuilder<bool>(
+          valueListenable: _songLikeStatus,
+          builder: (_, isLiked, __) {
             return _OnlineArtwork(
               lowResImageUrl: _lowResImageUrl,
               size: size,

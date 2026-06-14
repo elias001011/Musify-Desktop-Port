@@ -100,7 +100,11 @@ class _MusifyState extends State<Musify> {
         if (systemColorStatus != null &&
             useSystemColor.value != systemColorStatus) {
           useSystemColor.value = systemColorStatus;
-          addOrUpdateData('settings', 'useSystemColor', systemColorStatus);
+          addOrUpdateData<bool>(
+            'settings',
+            'useSystemColor',
+            systemColorStatus,
+          );
         }
         primaryColorSetting = newAccentColor;
       }
@@ -356,7 +360,7 @@ void handleIncomingLink(Uri? uri) async {
               playlist,
             ];
             unawaited(
-              addOrUpdateData(
+              addOrUpdateData<List>(
                 'user',
                 'customPlaylists',
                 userCustomPlaylists.value,
