@@ -442,7 +442,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
     try {
       await equalizer.setEnabled(enabled);
       equalizerEnabled.value = enabled;
-      unawaited(addOrUpdateData('settings', 'equalizerEnabled', enabled));
+      unawaited(addOrUpdateData<bool>('settings', 'equalizerEnabled', enabled));
     } catch (e, stackTrace) {
       logger.log(
         'Failed to set equalizer enabled state',
@@ -470,7 +470,9 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
       final gains = params.bands.map((band) => band.gain).toList();
       equalizerBandGains.value = gains;
-      unawaited(addOrUpdateData('settings', 'equalizerBandGains', gains));
+      unawaited(
+        addOrUpdateData<List<double>>('settings', 'equalizerBandGains', gains),
+      );
     } catch (e, stackTrace) {
       logger.log(
         'Failed to set equalizer band gain',
@@ -494,7 +496,9 @@ class MusifyAudioHandler extends BaseAudioHandler {
       }
       final gains = List<double>.filled(params.bands.length, 0);
       equalizerBandGains.value = gains;
-      unawaited(addOrUpdateData('settings', 'equalizerBandGains', gains));
+      unawaited(
+        addOrUpdateData<List<double>>('settings', 'equalizerBandGains', gains),
+      );
     } catch (e, stackTrace) {
       logger.log(
         'Failed to reset equalizer bands',
@@ -525,78 +529,78 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
     _isUpdatingState = true;
 
-    Future.microtask(() {
-      try {
-        final now = DateTime.now();
-        final currentPosition = audioPlayer.position;
-        final isPlaying = audioPlayer.playing;
-        final currentState = playbackState.valueOrNull;
-        final newProcessingState =
-            _processingStateMap[audioPlayer.processingState] ??
-            AudioProcessingState.idle;
-        final bufferedPosition = audioPlayer.bufferedPosition;
+    try {
+      final now = DateTime.now();
+      final currentPosition = audioPlayer.position;
+      final isPlaying = audioPlayer.playing;
+      final currentState = playbackState.valueOrNull;
+      final newProcessingState =
+          _processingStateMap[audioPlayer.processingState] ??
+          AudioProcessingState.idle;
+      final bufferedPosition = audioPlayer.bufferedPosition;
 
-        final shouldEmitProgressTick =
-            currentState != null &&
-            isPlaying &&
-            now.difference(currentState.updateTime) >= _playbackStateHeartbeat;
-        final hasBufferedPositionChange =
-            currentState == null ||
-            (bufferedPosition - currentState.bufferedPosition).abs() >=
-                const Duration(seconds: 1);
+      final shouldEmitProgressTick =
+          currentState != null &&
+          isPlaying &&
+          now.difference(currentState.updateTime) >= _playbackStateHeartbeat;
+      final hasBufferedPositionChange =
+          currentState == null ||
+          (bufferedPosition - currentState.bufferedPosition).abs() >=
+              const Duration(seconds: 1);
 
-        final shouldUpdate =
-            currentState == null ||
-            currentState.playing != isPlaying ||
-            currentState.processingState != newProcessingState ||
-            currentState.queueIndex != _currentQueueIndex ||
-            currentState.speed != audioPlayer.speed ||
-            shouldEmitProgressTick ||
-            hasBufferedPositionChange ||
-            (_hasSignificantPositionChange(
-              currentPosition,
-              currentState.updatePosition,
-              currentState.updateTime,
-              now,
-              currentState.speed,
-            ));
+      final shouldUpdate =
+          currentState == null ||
+          currentState.playing != isPlaying ||
+          currentState.processingState != newProcessingState ||
+          currentState.queueIndex != _currentQueueIndex ||
+          currentState.speed != audioPlayer.speed ||
+          shouldEmitProgressTick ||
+          hasBufferedPositionChange ||
+          (_hasSignificantPositionChange(
+            currentPosition,
+            currentState.updatePosition,
+            currentState.updateTime,
+            now,
+            currentState.speed,
+          ));
 
-        if (shouldUpdate) {
-          playbackState.add(
-            PlaybackState(
-              controls: isPlaying ? _playingControls : _pausedControls,
-              systemActions: const {
-                MediaAction.seek,
-                MediaAction.seekForward,
-                MediaAction.seekBackward,
-              },
-              androidCompactActionIndices: const [0, 1, 3],
-              processingState: newProcessingState,
-              playing: isPlaying,
-              updatePosition: currentPosition,
-              bufferedPosition: bufferedPosition,
-              speed: audioPlayer.speed,
-              queueIndex: _currentQueueIndex < _queueList.length
-                  ? _currentQueueIndex
-                  : null,
-              updateTime: now,
-            ),
-          );
-        }
-      } catch (e, stackTrace) {
-        logger.log(
-          'Error updating playback state',
-          error: e,
-          stackTrace: stackTrace,
+      if (shouldUpdate) {
+        playbackState.add(
+          PlaybackState(
+            controls: isPlaying ? _playingControls : _pausedControls,
+            systemActions: const {
+              MediaAction.seek,
+              MediaAction.seekForward,
+              MediaAction.seekBackward,
+            },
+            androidCompactActionIndices: const [0, 1, 3],
+            processingState: newProcessingState,
+            playing: isPlaying,
+            updatePosition: currentPosition,
+            bufferedPosition: bufferedPosition,
+            speed: audioPlayer.speed,
+            queueIndex:
+                _currentQueueIndex >= 0 &&
+                    _currentQueueIndex < _queueList.length
+                ? _currentQueueIndex
+                : null,
+            updateTime: now,
+          ),
         );
-      } finally {
-        _isUpdatingState = false;
-        if (_pendingPlaybackStateUpdate) {
-          _pendingPlaybackStateUpdate = false;
-          _updatePlaybackState();
-        }
       }
-    });
+    } catch (e, stackTrace) {
+      logger.log(
+        'Error updating playback state',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    } finally {
+      _isUpdatingState = false;
+      if (_pendingPlaybackStateUpdate) {
+        _pendingPlaybackStateUpdate = false;
+        _updatePlaybackState();
+      }
+    }
   }
 
   void _handleProcessingStateChange(ProcessingState state) {
@@ -672,7 +676,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
       // Determine what to play next based on queue position and repeat mode
       if (repeatNotifier.value == AudioServiceRepeatMode.one) {
         // Repeat single song - play current song again
-        await _playFromQueue(_currentQueueIndex);
+        await playAgain();
       } else {
         // For all other cases (next song, repeat all, auto-play), skipToNext handles it
         await skipToNext();
@@ -804,6 +808,13 @@ class MusifyAudioHandler extends BaseAudioHandler {
       }
 
       final insertIndex = _queueList.length;
+      final shouldPlayInsertedSong =
+          playNextSongAutomatically.value &&
+          !sleepTimerExpired &&
+          _currentLoadingIndex == -1 &&
+          audioPlayer.processingState == ProcessingState.completed &&
+          _queueList.isNotEmpty &&
+          _currentQueueIndex == _queueList.length - 1;
       final queueSong = _queueEntryIds.createSong(song);
       queueSong['isAutoPicked'] = true;
       _queueList.insert(insertIndex, queueSong);
@@ -815,7 +826,9 @@ class MusifyAudioHandler extends BaseAudioHandler {
       _updateQueueMediaItems();
       _cleanupOldPreloadedSongs();
 
-      if (!audioPlayer.playing && _queueList.length == 1) {
+      if (shouldPlayInsertedSong) {
+        await _playFromQueue(insertIndex);
+      } else if (!audioPlayer.playing && _queueList.length == 1) {
         await _playFromQueue(0);
       }
     } catch (e, stackTrace) {
@@ -1310,8 +1323,6 @@ class MusifyAudioHandler extends BaseAudioHandler {
     }
   }
 
-  List<Map> get currentQueue => List.unmodifiable(_queueList);
-  List<Map> get playHistory => List.unmodifiable(_historyList);
   Stream<List<Map>> get queueAsMapStream => _queueMapStream.stream;
   int get currentQueueIndex => _currentQueueIndex;
   Map? get currentSong =>
@@ -1365,9 +1376,9 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
     for (final source in [
       _queueList,
-      userRecentlyPlayed,
-      userOfflineSongs,
-      userLikedSongsList,
+      userRecentlyPlayed.value,
+      userOfflineSongs.value,
+      userLikedSongsList.value,
     ]) {
       final song = _findSongInList(source, ytid);
       if (song != null) return song;
@@ -1392,9 +1403,9 @@ class MusifyAudioHandler extends BaseAudioHandler {
       return mediaItemToMap(activeMediaItem);
     }
 
-    return _firstPlayableSong(userRecentlyPlayed) ??
-        _firstPlayableSong(userOfflineSongs) ??
-        _firstPlayableSong(userLikedSongsList);
+    return _firstPlayableSong(userRecentlyPlayed.value) ??
+        _firstPlayableSong(userOfflineSongs.value) ??
+        _firstPlayableSong(userLikedSongsList.value);
   }
 
   Map<String, dynamic>? _normaliseResumableSong(Map song) {
@@ -1778,7 +1789,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
     logger.log('Offline audio file not found: $audioPath');
 
-    final offlineSong = userOfflineSongs.firstWhere(
+    final offlineSong = userOfflineSongs.value.firstWhere(
       (s) => s['ytid'] == song['ytid'],
       orElse: () => <String, dynamic>{},
     );
@@ -1834,7 +1845,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
       if (!isOffline) {
         final cacheKey =
             'song_${song['ytid']}_${audioQualitySetting.value}_url';
-        unawaited(addOrUpdateData('cache', cacheKey, songUrl));
+        unawaited(addOrUpdateData<String>('cache', cacheKey, songUrl));
       }
 
       _updatePlaybackState();
@@ -2116,10 +2127,11 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
   Future<void> playAgain() async {
     try {
+      // Seek back to start
       await audioPlayer.seek(Duration.zero);
       // Track the replay as a new listen
       if (currentSong != null) {
-        await updateRecentlyPlayed(currentSong!['ytid']);
+        unawaited(updateRecentlyPlayed(currentSong!['ytid']));
       }
     } catch (e, stackTrace) {
       logger.log('Error playing again', error: e, stackTrace: stackTrace);
@@ -2275,28 +2287,6 @@ class MusifyAudioHandler extends BaseAudioHandler {
         stackTrace: stackTrace,
       );
     }
-  }
-
-  void changeSponsorBlockStatus() {
-    sponsorBlockSupport.value = !sponsorBlockSupport.value;
-    unawaited(
-      addOrUpdateData(
-        'settings',
-        'sponsorBlockSupport',
-        sponsorBlockSupport.value,
-      ),
-    );
-  }
-
-  void changeAutoPlayNextStatus() {
-    playNextSongAutomatically.value = !playNextSongAutomatically.value;
-    unawaited(
-      addOrUpdateData(
-        'settings',
-        'playNextSongAutomatically',
-        playNextSongAutomatically.value,
-      ),
-    );
   }
 
   @override

@@ -62,7 +62,7 @@ class _LibraryPageState extends State<LibraryPage> {
           userCustomPlaylists.value.isNotEmpty;
       final hasOfflinePlaylists =
           offlinePlaylistService.offlinePlaylists.value.isNotEmpty;
-      final hasOfflineSongs = currentOfflineSongsLength.value > 0;
+      final hasOfflineSongs = userOfflineSongs.value.isNotEmpty;
 
       if (!hasUserContent && !hasOfflinePlaylists && !hasOfflineSongs) {
         final colorScheme = Theme.of(context).colorScheme;
@@ -120,7 +120,7 @@ class _LibraryPageState extends State<LibraryPage> {
           userCustomPlaylists,
           userPlaylistFolders,
           offlinePlaylistService.offlinePlaylists,
-          currentLikedPlaylistsLength,
+          userLikedPlaylists,
           onlinePlaylists,
           userPlaylists,
         ]),
@@ -270,11 +270,20 @@ class _LibraryPageState extends State<LibraryPage> {
       );
 
       if (hasFolders) {
-        slivers.add(_buildFolderSliverList(folders, hasCustomPlaylists));
+        slivers.add(
+          _buildFolderSliverList(
+            folders,
+            hasItemsBefore: !isOffline,
+            hasItemsAfter: hasCustomPlaylists,
+          ),
+        );
       }
       if (hasCustomPlaylists) {
         slivers.add(
-          _buildSliverPlaylistList(playlistsNotInFolders, hasItemsBefore: true),
+          _buildSliverPlaylistList(
+            playlistsNotInFolders,
+            hasItemsBefore: !isOffline || hasFolders,
+          ),
         );
       }
     }
@@ -337,7 +346,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   List<Widget> _buildLikedPlaylistsSlivers(Color primaryColor) {
-    if (userLikedPlaylists.isEmpty) return [];
+    if (userLikedPlaylists.value.isEmpty) return [];
     return [
       SliverToBoxAdapter(
         child: SectionHeader(
@@ -345,7 +354,7 @@ class _LibraryPageState extends State<LibraryPage> {
           icon: FluentIcons.heart_24_filled,
         ),
       ),
-      _buildSliverPlaylistList(userLikedPlaylists),
+      _buildSliverPlaylistList(userLikedPlaylists.value),
     ];
   }
 
@@ -361,12 +370,13 @@ class _LibraryPageState extends State<LibraryPage> {
         itemCount: playlists.length,
         itemBuilder: (BuildContext context, index) {
           final playlist = playlists[index];
-          final isLastItem = index == playlists.length - 1;
-          final borderRadius = (hasItemsBefore && index == 0)
-              ? (isLastItem ? commonCustomBarRadiusLast : BorderRadius.zero)
-              : (hasItemsAfter && isLastItem)
-              ? BorderRadius.zero
-              : getItemBorderRadius(index, playlists.length);
+          final borderRadius = getItemBorderRadius(
+            index,
+            playlists.length,
+            hasItemsBefore: hasItemsBefore,
+            hasItemsAfter: hasItemsAfter,
+          );
+
           return PlaylistBar(
             key: listItemKey('library_playlist', index, playlist),
             playlist['title'],
@@ -394,15 +404,22 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
-  Widget _buildFolderSliverList(List folders, bool hasPlaylistsAfter) {
+  Widget _buildFolderSliverList(
+    List folders, {
+    bool hasItemsBefore = false,
+    bool hasItemsAfter = false,
+  }) {
     return SliverList.builder(
       itemCount: folders.length,
       itemBuilder: (BuildContext context, index) {
         final folder = folders[index];
-        final isLastFolder = index == folders.length - 1;
-        final borderRadius = isLastFolder && !hasPlaylistsAfter
-            ? commonCustomBarRadiusLast
-            : BorderRadius.zero;
+        final borderRadius = getItemBorderRadius(
+          index,
+          folders.length,
+          hasItemsBefore: hasItemsBefore,
+          hasItemsAfter: hasItemsAfter,
+        );
+
         return PlaylistBar(
           folder['name'],
           playlistData: folder,
@@ -427,12 +444,12 @@ class _LibraryPageState extends State<LibraryPage> {
       padding: hasItemsAfter ? EdgeInsets.zero : commonListViewBottomPadding,
       itemBuilder: (BuildContext context, index) {
         final playlist = playlists[index];
-        final isLastItem = index == playlists.length - 1;
-        final borderRadius = (hasItemsBefore && index == 0)
-            ? (isLastItem ? commonCustomBarRadiusLast : BorderRadius.zero)
-            : (hasItemsAfter && isLastItem)
-            ? BorderRadius.zero
-            : getItemBorderRadius(index, playlists.length);
+        final borderRadius = getItemBorderRadius(
+          index,
+          playlists.length,
+          hasItemsBefore: hasItemsBefore,
+          hasItemsAfter: hasItemsAfter,
+        );
         return PlaylistBar(
           key: listItemKey('library_playlist', index, playlist),
           playlist['title'],
