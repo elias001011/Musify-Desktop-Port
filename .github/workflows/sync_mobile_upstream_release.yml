@@ -160,6 +160,7 @@ jobs:
           fi
 
           gh workflow run mobile_release.yml \
+            --repo elias001011/Musify-Desktop-Port \
             --ref refs/heads/mobile-cloud-sync \
             -f version="${{ steps.upstream.outputs.version }}" \
             -f source_ref="refs/heads/mobile-cloud-sync" \
