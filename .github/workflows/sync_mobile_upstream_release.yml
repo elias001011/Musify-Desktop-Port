@@ -85,12 +85,35 @@ jobs:
           git remote add upstream https://github.com/gokadzev/Musify.git || git remote set-url upstream https://github.com/gokadzev/Musify.git
           git fetch upstream --no-tags --prune "+refs/tags/${{ steps.upstream.outputs.tag }}:refs/tags/${{ steps.upstream.outputs.tag }}"
 
-      - name: Merge upstream release
+      - name: Merge upstream release with auto-conflict resolution
         if: steps.existing.outputs.exists != 'true'
         shell: bash
         run: |
           upstream_tag="${{ steps.upstream.outputs.tag }}"
-          git merge --no-edit "refs/tags/${upstream_tag}"
+          
+          echo "Attempting standard merge..."
+          if git merge --no-edit "refs/tags/${upstream_tag}"; then
+            echo "✅ Merge succeeded without conflicts"
+            exit 0
+          fi
+          
+          echo "⚠️  Conflicts detected; attempting -X ours strategy..."
+          git merge --abort
+          if git merge --no-edit -X ours "refs/tags/${upstream_tag}"; then
+            echo "✅ Merge succeeded with -X ours strategy (preserved Musify Cloud changes)"
+            exit 0
+          fi
+          
+          echo "⚠️  -X ours failed; attempting -X theirs strategy..."
+          git merge --abort
+          if git merge --no-edit -X theirs "refs/tags/${upstream_tag}"; then
+            echo "✅ Merge succeeded with -X theirs strategy (accepted upstream changes)"
+            exit 0
+          fi
+          
+          echo "❌ All merge strategies failed"
+          git merge --abort
+          exit 1
 
       - name: Set up Java
         if: steps.existing.outputs.exists != 'true'
