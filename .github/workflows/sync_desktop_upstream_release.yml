@@ -1,0 +1,136 @@
+name: Sync Desktop Upstream Release
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sync-desktop
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Sync Upstream Release to Desktop
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: refs/heads/master
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+      - name: Detect upstream release
+        id: upstream
+        shell: bash
+        run: |
+          git remote add upstream https://github.com/gokadzev/Musify.git || git remote set-url upstream https://github.com/gokadzev/Musify.git
+          git fetch upstream --no-tags --prune "refs/tags/*:refs/tags/upstream-*"
+          
+          latest_tag=$(git tag -l 'upstream-*' --sort=-version:refname | head -1 | sed 's/^upstream-//')
+          echo "tag=${latest_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if release exists
+        id: existing
+        shell: bash
+        run: |
+          tag="desktop-v${{ steps.upstream.outputs.tag }}"
+          if git rev-list "$tag" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release $tag already exists locally"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Release $tag does not exist; will sync"
+          fi
+
+      - name: Add upstream remote
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          git remote add upstream https://github.com/gokadzev/Musify.git || git remote set-url upstream https://github.com/gokadzev/Musify.git
+          git fetch upstream --no-tags --prune "refs/tags/${{ steps.upstream.outputs.tag }}:refs/tags/${{ steps.upstream.outputs.tag }}"
+
+      - name: Merge upstream release with auto-conflict resolution
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          upstream_tag="${{ steps.upstream.outputs.tag }}"
+          
+          echo "Attempting standard merge..."
+          if git merge --no-edit "refs/tags/${upstream_tag}"; then
+            echo "✅ Merge succeeded without conflicts"
+            exit 0
+          fi
+          
+          echo "⚠️  Conflicts detected; attempting -X ours strategy..."
+          git merge --abort
+          if git merge --no-edit -X ours "refs/tags/${upstream_tag}"; then
+            echo "✅ Merge succeeded with -X ours strategy (preserved desktop changes)"
+            exit 0
+          fi
+          
+          echo "⚠️  -X ours failed; attempting -X theirs strategy..."
+          git merge --abort
+          if git merge --no-edit -X theirs "refs/tags/${upstream_tag}"; then
+            echo "✅ Merge succeeded with -X theirs strategy (accepted upstream changes)"
+            exit 0
+          fi
+          
+          echo "❌ All merge strategies failed"
+          git merge --abort
+          exit 1
+
+      - name: Validate merged state
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          if [[ -f pubspec.yaml ]]; then
+            echo "Validating pubspec.yaml..."
+            if ! grep -q '^version:' pubspec.yaml; then
+              echo "❌ pubspec.yaml missing version field"
+              exit 1
+            fi
+            echo "✅ pubspec.yaml validated"
+          fi
+
+      - name: Push merged branch
+        if: steps.existing.outputs.exists != 'true'
+        run: git push origin HEAD:refs/heads/master
+
+      - name: Dispatch desktop release workflow
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version="${{ steps.upstream.outputs.tag }}"
+          gh workflow run desktop_release.yml \
+            --ref refs/heads/master \
+            -f version="${version}" \
+            -f source_ref="refs/heads/master" \
+            -f repair_existing_release=false
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[SYNC FAILED] Desktop upstream sync failed for ${{ steps.upstream.outputs.tag }}`,
+              body: `The automatic sync workflow failed to merge upstream ${{ steps.upstream.outputs.tag }} into the desktop master branch.
+
+Please resolve conflicts manually and push to master. See \`docs/SYNC_GUIDE.md\` for detailed conflict resolution procedures.
+
+Job: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            })
