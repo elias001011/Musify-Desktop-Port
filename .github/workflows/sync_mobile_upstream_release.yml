@@ -149,25 +149,40 @@ jobs:
         run: git push origin HEAD:refs/heads/mobile-cloud-sync
 
       - name: Dispatch mobile release build
+        id: dispatch
         if: steps.existing.outputs.exists != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          repair="false"
-          if [[ "${{ steps.existing.outputs.exists }}" == "incomplete" ]]; then
-            repair="true"
-          fi
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repair = '${{ steps.existing.outputs.exists }}' === 'incomplete' ? 'true' : 'false'
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'mobile_release.yml',
+              ref: 'refs/heads/mobile-cloud-sync',
+              inputs: {
+                version: '${{ steps.upstream.outputs.version }}',
+                source_ref: 'refs/heads/mobile-cloud-sync',
+                repair_existing_release: repair
+              }
+            })
 
-          gh workflow run mobile_release.yml \
-            --repo elias001011/Musify-Desktop-Port \
-            --ref refs/heads/mobile-cloud-sync \
-            -f version="${{ steps.upstream.outputs.version }}" \
-            -f source_ref="refs/heads/mobile-cloud-sync" \
-            -f repair_existing_release="$repair"
+      - name: Report mobile release dispatch failure
+        if: steps.dispatch.outcome != 'success' && steps.existing.outputs.exists != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repair = '${{ steps.existing.outputs.exists }}' === 'incomplete' ? 'true' : 'false'
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '[SYNC WARN] Mobile release dispatch failed for ${{ steps.upstream.outputs.version }}',
+              body: 'The mobile sync completed and pushed to mobile-cloud-sync, but dispatching mobile_release.yml failed. Please inspect the release workflow manually.\n\nSync run: ' + context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId
+            })
 
       - name: Open sync failure issue
-        if: ${{ failure() && steps.existing.outputs.exists != 'true' }}
+        if: ${{ failure() && steps.existing.outputs.exists != 'true' && steps.dispatch.outcome != 'failure' }}
         env:
           GH_TOKEN: ${{ github.token }}
           UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}

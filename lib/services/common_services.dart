@@ -57,6 +57,8 @@ final currentRecentlyPlayedLength =
     ValueNotifier<int>(userRecentlyPlayed.value.length);
 final currentOfflineSongsLength =
     ValueNotifier<int>(userOfflineSongs.value.length);
+final recentlyPlayedVersion =
+    ValueNotifier<int>(userRecentlyPlayed.value.length);
 
 dynamic nextRecommendedSong;
 
