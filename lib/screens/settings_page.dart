@@ -31,7 +31,9 @@ import 'package:musify/services/backed_up_state_manager.dart';
 import 'package:musify/services/cloud_sync_manager.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/data_manager.dart';
+import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/playlist_download_service.dart';
+import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/services/router_service.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/services/update_manager.dart';
@@ -162,6 +164,20 @@ class SettingsPage extends StatelessWidget {
                   addOrUpdateData<bool>('settings', 'useProxy', value);
                   showToast(context, context.l10n!.settingChangedMsg);
                 },
+              ),
+            );
+          },
+        ),
+        ValueListenableBuilder<bool>(
+          valueListenable: wrappedEnabled,
+          builder: (_, value, __) {
+            return CustomBar(
+              context.l10n!.listeningStats,
+              FluentIcons.clock_24_regular,
+              description: context.l10n!.listeningStatsDescription,
+              trailing: Switch(
+                value: value,
+                onChanged: (value) => _toggleWrapped(context, value),
               ),
             );
           },
@@ -432,6 +448,24 @@ class SettingsPage extends StatelessWidget {
           ),
         ),
         CustomBar(
+          context.l10n!.clearListeningStats,
+          FluentIcons.clock_24_regular,
+          onTap: () => _showConfirmationDialog(
+            context: context,
+            confirmationMessage: context.l10n!.clearListeningStatsQuestion,
+            submitMessage: context.l10n!.delete,
+            isDangerous: true,
+            onSubmit: () async {
+              audioHandler.resetListeningStatsSession(flushStats: false);
+              await listeningStatsService.clearStats();
+              audioHandler.startListeningStatsSessionIfNeeded();
+              if (context.mounted) {
+                showToast(context, '${context.l10n!.listeningStatsCleared}!');
+              }
+            },
+          ),
+        ),
+        CustomBar(
           context.l10n!.deleteDownloads,
           FluentIcons.delete_24_regular,
           onTap: () => _showConfirmationDialog(
@@ -468,6 +502,23 @@ class SettingsPage extends StatelessWidget {
                 refreshBackedUpStateFromStorage();
                 await CloudSyncManager.instance.rebindStorageListeners();
                 CloudSyncManager.instance.markBackedUpStateChanged();
+
+                reloadSongLibraryStateFromStorage();
+                reloadPlaylistLibraryStateFromStorage();
+                reloadSearchHistoryFromStorage();
+                // The restored settings box may carry a different
+                // wrappedEnabled value than the one already loaded into this
+                // ValueNotifier; without resyncing it here, recording silently
+                // keeps following the pre-restore value until the next cold
+                // start, when it would suddenly flip without explanation.
+                wrappedEnabled.value =
+                    await getData(
+                          'settings',
+                          'wrappedEnabled',
+                          defaultValue: true,
+                        )
+                        as bool;
+                listeningStatsService.reload();
               }
               if (context.mounted) {
                 showToast(
@@ -510,75 +561,69 @@ class SettingsPage extends StatelessWidget {
           title: context.l10n!.becomeSponsor,
           icon: FluentIcons.heart_24_filled,
         ),
-        Padding(
-          padding: commonBarPadding,
-          child: Card(
-            margin: const EdgeInsets.only(bottom: 3),
-            elevation: 0,
-            shape: RoundedRectangleBorder(
+        Card(
+          margin: const EdgeInsets.only(bottom: 3),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(15)),
+            child: Material(
+              color: colorScheme.primaryContainer,
               borderRadius: BorderRadius.circular(15),
-            ),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
+              child: InkWell(
                 borderRadius: BorderRadius.circular(15),
-              ),
-              child: Material(
-                color: colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(15),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(15),
-                  onTap: () =>
-                      launchURL(Uri.parse('https://ko-fi.com/gokadzev')),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 12,
-                      horizontal: 16,
-                    ),
-                    child: SizedBox(
-                      height: 45,
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: colorScheme.onPrimaryContainer.withValues(
-                                alpha: 0.15,
-                              ),
-                              borderRadius: BorderRadius.circular(12),
+                onTap: () => launchURL(Uri.parse('https://ko-fi.com/gokadzev')),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                    horizontal: 16,
+                  ),
+                  child: SizedBox(
+                    height: 45,
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: colorScheme.onPrimaryContainer.withValues(
+                              alpha: 0.15,
                             ),
-                            child: Icon(
-                              FluentIcons.heart_24_regular,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            FluentIcons.heart_24_regular,
+                            color: colorScheme.onPrimaryContainer,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Text(
+                            context.l10n!.sponsorProject,
+                            style: TextStyle(
                               color: colorScheme.onPrimaryContainer,
-                              size: 24,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Text(
-                              context.l10n!.sponsorProject,
-                              style: TextStyle(
-                                color: colorScheme.onPrimaryContainer,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: colorScheme.onPrimaryContainer.withValues(
+                              alpha: 0.1,
                             ),
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: colorScheme.onPrimaryContainer.withValues(
-                                alpha: 0.1,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              FluentIcons.arrow_right_24_regular,
-                              color: colorScheme.onPrimaryContainer,
-                              size: 16,
-                            ),
+                          child: Icon(
+                            FluentIcons.arrow_right_24_regular,
+                            color: colorScheme.onPrimaryContainer,
+                            size: 16,
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -830,6 +875,26 @@ class SettingsPage extends StatelessWidget {
         : const CupertinoPageTransitionsBuilder();
     Musify.updateAppState(context);
     showToast(context, context.l10n!.settingChangedMsg);
+  }
+
+  Future<void> _toggleWrapped(BuildContext context, bool value) async {
+    if (!value) {
+      audioHandler.resetListeningStatsSession(
+        countCurrentTick: true,
+        flushStats: false,
+      );
+      await listeningStatsService.flush();
+    }
+
+    await addOrUpdateData<bool>('settings', 'wrappedEnabled', value);
+    wrappedEnabled.value = value;
+    listeningStatsService.reload();
+    if (value) {
+      audioHandler.startListeningStatsSessionIfNeeded();
+    }
+    if (context.mounted) {
+      showToast(context, context.l10n!.settingChangedMsg);
+    }
   }
 
   void _toggleOfflineMode(BuildContext context, bool value) {
