@@ -30,6 +30,7 @@ import 'package:musify/main.dart';
 import 'package:musify/models/position_data.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/data_manager.dart';
+import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/map_utils.dart';
 import 'package:musify/utilities/mediaitem.dart';
@@ -75,6 +76,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
   Timer? _sleepTimer;
   Timer? _debounceTimer;
   bool sleepTimerExpired = false;
+  bool sleepTimerEndOfSong = false;
 
   final List<Map> _queueList = [];
   final List<Map> _originalQueueList = [];
@@ -149,19 +151,22 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
   Stream<PlaybackState> get playbackStateStream => _playbackStateStream;
 
-  static const _playingControls = [
-    MediaControl.skipToPrevious,
-    MediaControl.pause,
-    MediaControl.stop,
-    MediaControl.skipToNext,
-  ];
+  List<MediaControl> _controls(bool playing) {
+    final hasMultipleTracks = _queueList.length > 1;
 
-  static const _pausedControls = [
-    MediaControl.skipToPrevious,
-    MediaControl.play,
-    MediaControl.stop,
-    MediaControl.skipToNext,
-  ];
+    return [
+      if (hasMultipleTracks)
+        MediaControl.skipToPrevious
+      else
+        MediaControl.rewind,
+      if (playing) MediaControl.pause else MediaControl.play,
+      MediaControl.stop,
+      if (hasMultipleTracks)
+        MediaControl.skipToNext
+      else
+        MediaControl.fastForward,
+    ];
+  }
 
   final _processingStateMap = {
     ProcessingState.idle: AudioProcessingState.idle,
@@ -210,6 +215,10 @@ class MusifyAudioHandler extends BaseAudioHandler {
         .throttleTime(const Duration(milliseconds: 100))
         .listen(
           (state) {
+            listeningStatsService.handlePlayerStateForListeningStats(
+              state,
+              currentSong: currentSong,
+            );
             if (state.processingState == ProcessingState.idle &&
                 !state.playing &&
                 _lastError != null) {
@@ -302,6 +311,11 @@ class MusifyAudioHandler extends BaseAudioHandler {
         mediaItem.add(currentMediaItem.copyWith(duration: duration));
       }
 
+      listeningStatsService.updateListeningSessionDuration(
+        currentSongYtid,
+        duration,
+      );
+
       final existingQueue = queue.valueOrNull;
       if (existingQueue != null && queueIndex < existingQueue.length) {
         final queueItem = existingQueue[queueIndex];
@@ -327,6 +341,23 @@ class MusifyAudioHandler extends BaseAudioHandler {
         stackTrace: stackTrace,
       );
     }
+  }
+
+  void resetListeningStatsSession({
+    bool countCurrentTick = false,
+    bool flushStats = true,
+  }) {
+    listeningStatsService.finishListeningSession(
+      countCurrentTick: countCurrentTick,
+      flushStats: flushStats,
+    );
+  }
+
+  void startListeningStatsSessionIfNeeded() {
+    listeningStatsService.startListeningSessionIfNeeded(
+      currentSong: currentSong,
+      isPlaying: audioPlayer.playing,
+    );
   }
 
   Future<void> _initialize() async {
@@ -567,7 +598,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
       if (shouldUpdate) {
         playbackState.add(
           PlaybackState(
-            controls: isPlaying ? _playingControls : _pausedControls,
+            controls: _controls(isPlaying),
             systemActions: const {
               MediaAction.seek,
               MediaAction.seekForward,
@@ -606,6 +637,19 @@ class MusifyAudioHandler extends BaseAudioHandler {
   void _handleProcessingStateChange(ProcessingState state) {
     try {
       if (state == ProcessingState.completed) {
+        if (sleepTimerEndOfSong) {
+          sleepTimerExpired = true;
+          sleepTimerEndOfSong = false;
+          stop();
+          sleepTimerNotifier.value = null;
+          return;
+        }
+
+        listeningStatsService.finishListeningSession(
+          countCurrentTick: true,
+          wasPlaying: true,
+        );
+
         if (!sleepTimerExpired && !_completionEventPending) {
           _completionEventPending = true;
 
@@ -633,6 +677,13 @@ class MusifyAudioHandler extends BaseAudioHandler {
       } else if (state == ProcessingState.ready) {
         _completionEventPending = false;
         _completionHandlerLoadStarted = false;
+
+        // Clear the expired flag so future song completions are not
+        // blocked after a sleep timer fired in a previous session.
+        // Do NOT touch sleepTimerEndOfSong here — 'ready' fires not
+        // only for new songs but also on buffering recovery within the
+        // same song, which would cancel an active "end of song" timer.
+        sleepTimerExpired = false;
       }
     } catch (e, stackTrace) {
       logger.log(
@@ -664,6 +715,8 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
     if (_canRetryPlayback()) {
       Future.delayed(_errorRetryDelay, skipToNext);
+    } else {
+      _lastError = null;
     }
   }
 
@@ -726,7 +779,6 @@ class MusifyAudioHandler extends BaseAudioHandler {
             final songToAdd = nextRecommendedSong;
             nextRecommendedSong = null;
             await _insertRecommendedSong(songToAdd);
-            logger.log('Background song added: "${songToAdd['title']}"');
           }
         } catch (e, stackTrace) {
           logger.log(
@@ -1073,13 +1125,25 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
   void clearQueue() {
     try {
+      final currentSong = _currentQueueIndex >= 0 &&
+              _currentQueueIndex < _queueList.length
+          ? cloneMap(_queueList[_currentQueueIndex])
+          : null;
+
       _queueList.clear();
       _originalQueueList.clear();
+
+      if (currentSong != null) {
+        _queueList.add(currentSong);
+        _originalQueueList.add(cloneMap(currentSong));
+      }
+
       _currentQueueIndex = 0;
       _currentLoadingIndex = -1;
       _currentLoadingTransitionId = -1;
       _resetPreloadingState();
       _updateQueueMediaItems();
+      _updatePlaybackState();
     } catch (e, stackTrace) {
       logger.log('Error clearing queue', error: e, stackTrace: stackTrace);
     }
@@ -1186,6 +1250,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
     try {
       final previousQueueIndex = _currentQueueIndex;
+      final previousMediaItem = mediaItem.valueOrNull;
       _currentQueueIndex = index;
 
       final currentSong = _queueList[_currentQueueIndex];
@@ -1218,6 +1283,10 @@ class MusifyAudioHandler extends BaseAudioHandler {
           }
         } else {
           _currentQueueIndex = previousQueueIndex;
+          if (previousMediaItem != null) {
+            mediaItem.add(previousMediaItem);
+          }
+          _updatePlaybackState();
           _handlePlaybackError();
         }
       }
@@ -1484,7 +1553,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
     queue.add([item]);
     playbackState.add(
       PlaybackState(
-        controls: _pausedControls,
+        controls: _controls(false),
         systemActions: const {
           MediaAction.seek,
           MediaAction.seekForward,
@@ -1533,7 +1602,20 @@ class MusifyAudioHandler extends BaseAudioHandler {
           return;
         }
       }
-      await audioPlayer.play();
+      // Do NOT await play(): its future only completes when playback pauses/
+      // stops/finishes (just_audio semantics), which would defer the resume
+      // below until the song ended - losing the whole session.
+      unawaited(
+        audioPlayer.play().catchError((Object e, StackTrace stackTrace) {
+          logger.log(
+            'Error starting playback',
+            error: e,
+            stackTrace: stackTrace,
+          );
+          _lastError = e.toString();
+        }),
+      );
+      listeningStatsService.resumeListeningSession(currentSong: currentSong);
     } catch (e, stackTrace) {
       logger.log('Error in play()', error: e, stackTrace: stackTrace);
       _lastError = e.toString();
@@ -1543,6 +1625,10 @@ class MusifyAudioHandler extends BaseAudioHandler {
   @override
   Future<void> pause() async {
     try {
+      listeningStatsService.recordListeningSessionProgress(
+        wasPlaying: audioPlayer.playing,
+      );
+      unawaited(listeningStatsService.flush());
       await audioPlayer.pause();
     } catch (e, stackTrace) {
       logger.log('Error in pause()', error: e, stackTrace: stackTrace);
@@ -1563,10 +1649,14 @@ class MusifyAudioHandler extends BaseAudioHandler {
     _completionEventPending = false;
     _currentLoadingIndex = -1;
     _currentLoadingTransitionId = -1;
+    _lastError = null;
+    _consecutiveErrors = 0;
     try {
+      listeningStatsService.finishListeningSession(
+        countCurrentTick: true,
+        wasPlaying: audioPlayer.playing,
+      );
       await audioPlayer.stop();
-      _lastError = null;
-      _consecutiveErrors = 0;
       _resetPreloadingState();
     } catch (e, stackTrace) {
       logger.log('Error in stop()', error: e, stackTrace: stackTrace);
@@ -1594,19 +1684,32 @@ class MusifyAudioHandler extends BaseAudioHandler {
   @override
   Future<void> seek(Duration position) async {
     try {
+      listeningStatsService.recordListeningSessionProgress(
+        wasPlaying: audioPlayer.playing,
+      );
       await audioPlayer.seek(position);
+      unawaited(listeningStatsService.flush());
     } catch (e, stackTrace) {
       logger.log('Error in seek()', error: e, stackTrace: stackTrace);
     }
   }
 
   @override
-  Future<void> fastForward() =>
-      seek(Duration(seconds: audioPlayer.position.inSeconds + 15));
+  Future<void> fastForward() {
+    final target = audioPlayer.position + const Duration(seconds: 15);
+    final trackDuration = audioPlayer.duration;
+    final clamped = (trackDuration != null && target > trackDuration)
+        ? trackDuration
+        : target;
+    return seek(clamped);
+  }
 
   @override
-  Future<void> rewind() =>
-      seek(Duration(seconds: audioPlayer.position.inSeconds - 15));
+  Future<void> rewind() {
+    final target = audioPlayer.position - const Duration(seconds: 15);
+    final clamped = target < Duration.zero ? Duration.zero : target;
+    return seek(clamped);
+  }
 
   Future<bool> _resolveOfflineAndSetPaths(Map songData) async {
     try {
@@ -1663,7 +1766,12 @@ class MusifyAudioHandler extends BaseAudioHandler {
       }
 
       _lastError = null;
-      if (audioPlayer.playing) await audioPlayer.pause();
+      if (audioPlayer.playing) {
+        listeningStatsService.recordListeningSessionProgress(
+          wasPlaying: audioPlayer.playing,
+        );
+        await audioPlayer.pause();
+      }
 
       final playback = await _resolvePlaybackSource(songData);
 
@@ -1822,6 +1930,11 @@ class MusifyAudioHandler extends BaseAudioHandler {
         return false;
       }
 
+      // Snapshot the pre-swap playing state now: by the time we're committed
+      // to this transition (below), audioPlayer.playing reflects the new
+      // source, not whatever session we're about to finish.
+      final wasPlayingBeforeSwap = audioPlayer.playing;
+
       await audioPlayer
           .setAudioSource(audioSource)
           .timeout(_songTransitionTimeout);
@@ -1838,8 +1951,21 @@ class MusifyAudioHandler extends BaseAudioHandler {
         _updateCurrentMediaItemWithDuration(audioPlayer.duration!);
       }
 
-      await audioPlayer.play();
-
+      // Finish the old session and start the new one as one atomic pair, only
+      // after every abort path above is cleared. Finishing before the staleness
+      // re-check let a stale transition kill a newer transition's session.
+      // Do this before awaiting play() so Wrapped starts counting from the
+      // first moments of the new track, not after the async handoff.
+      listeningStatsService
+        ..finishListeningSession(
+          countCurrentTick: true,
+          wasPlaying: wasPlayingBeforeSwap,
+        )
+        ..startListeningSession(song, duration: audioPlayer.duration);
+      await audioPlayer.play().catchError((Object e, StackTrace stackTrace) {
+        logger.log('Error starting playback', error: e, stackTrace: stackTrace);
+        _lastError = e.toString();
+      });
       unawaited(updateRecentlyPlayed(song['ytid'], songFallback: song));
 
       if (!isOffline) {
@@ -2127,11 +2253,18 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
   Future<void> playAgain() async {
     try {
-      // Seek back to start
+      listeningStatsService.finishListeningSession(
+        countCurrentTick: true,
+        wasPlaying: audioPlayer.playing,
+      );
       await audioPlayer.seek(Duration.zero);
-      // Track the replay as a new listen
-      if (currentSong != null) {
-        unawaited(updateRecentlyPlayed(currentSong!['ytid']));
+      final song = currentSong;
+      if (song != null) {
+        listeningStatsService.startListeningSession(
+          song,
+          duration: audioPlayer.duration,
+        );
+        unawaited(updateRecentlyPlayed(song['ytid'], songFallback: song));
       }
     } catch (e, stackTrace) {
       logger.log('Error playing again', error: e, stackTrace: stackTrace);
@@ -2266,8 +2399,8 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
       _sleepTimer = Timer(duration, () async {
         sleepTimerExpired = true;
-        await pause();
-        sleepTimerNotifier.value = Duration.zero;
+        await stop();
+        sleepTimerNotifier.value = null;
       });
     } catch (e, stackTrace) {
       logger.log('Error setting sleep timer', error: e, stackTrace: stackTrace);
@@ -2279,10 +2412,26 @@ class MusifyAudioHandler extends BaseAudioHandler {
       _sleepTimer?.cancel();
       _sleepTimer = null;
       sleepTimerExpired = false;
+      sleepTimerEndOfSong = false;
       sleepTimerNotifier.value = Duration.zero;
     } catch (e, stackTrace) {
       logger.log(
         'Error canceling sleep timer',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> setSleepTimerEndOfSong() async {
+    try {
+      _sleepTimer?.cancel();
+      sleepTimerExpired = false;
+      sleepTimerEndOfSong = true;
+      sleepTimerNotifier.value = const Duration(milliseconds: -1);
+    } catch (e, stackTrace) {
+      logger.log(
+        'Error setting sleep timer end of song',
         error: e,
         stackTrace: stackTrace,
       );

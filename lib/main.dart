@@ -37,6 +37,7 @@ import 'package:musify/services/audio_service.dart';
 import 'package:musify/services/cloud_sync_manager.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/io_service.dart';
+import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/logger_service.dart';
 import 'package:musify/services/playlist_sharing.dart';
 import 'package:musify/services/playlists_manager.dart';
@@ -87,7 +88,7 @@ class Musify extends StatefulWidget {
   _MusifyState createState() => _MusifyState();
 }
 
-class _MusifyState extends State<Musify> {
+class _MusifyState extends State<Musify> with WidgetsBindingObserver {
   void changeSettings({
     ThemeMode? newThemeMode,
     Locale? newLocale,
@@ -120,6 +121,8 @@ class _MusifyState extends State<Musify> {
   @override
   void initState() {
     super.initState();
+
+    WidgetsBinding.instance.addObserver(this);
 
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
@@ -201,7 +204,25 @@ class _MusifyState extends State<Musify> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Persist listening stats when the app leaves the foreground. This is the
+    // reliable moment to snapshot and flush: unlike widget dispose, these
+    // callbacks are delivered before the OS suspends or terminates the process.
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      listeningStatsService.recordListeningSessionProgress(
+        wasPlaying: audioHandler.audioPlayer.playing,
+      );
+      unawaited(listeningStatsService.flush());
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     offlineMode.removeListener(_onOfflineModeChanged);
     appStateReloadSignal.removeListener(_onBackedUpStateReloaded);
 

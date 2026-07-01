@@ -24,6 +24,12 @@ import 'package:musify/main.dart';
 import 'package:musify/models/position_data.dart';
 import 'package:musify/utilities/formatter.dart';
 
+PositionData _positionData = PositionData(
+  Duration.zero,
+  Duration.zero,
+  Duration.zero,
+);
+
 class PositionSlider extends StatefulWidget {
   const PositionSlider({super.key});
 
@@ -37,72 +43,64 @@ class _PositionSliderState extends State<PositionSlider> {
 
   @override
   Widget build(BuildContext context) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
-
     return StreamBuilder<PositionData>(
       stream: audioHandler.positionDataStream,
       builder: (context, snapshot) {
-        final hasData = snapshot.hasData && snapshot.data != null;
-        final positionData = hasData
-            ? snapshot.data!
-            : PositionData(Duration.zero, Duration.zero, Duration.zero);
+        if (snapshot.data != null && snapshot.data!.position.inSeconds > 0) {
+          _positionData = snapshot.data!;
+        }
 
-        final maxDuration = positionData.duration.inSeconds > 0
-            ? positionData.duration.inSeconds.toDouble()
+        final maxDuration = _positionData.duration.inSeconds > 0
+            ? _positionData.duration.inSeconds.toDouble()
             : 1.0;
 
         final currentValue = _isDragging
             ? _dragValue
-            : positionData.position.inSeconds.toDouble();
+            : _positionData.position.inSeconds.toDouble();
 
         return Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Slider(
               value: currentValue.clamp(0.0, maxDuration),
-              onChanged: hasData
-                  ? (value) {
-                      setState(() {
-                        _isDragging = true;
-                        _dragValue = value;
-                      });
-                    }
-                  : null,
-              onChangeEnd: hasData
-                  ? (value) {
-                      audioHandler.seek(Duration(seconds: value.toInt()));
-                      setState(() {
-                        _isDragging = false;
-                      });
-                    }
-                  : null,
+              onChanged: (value) {
+                setState(() {
+                  _isDragging = true;
+                  _dragValue = value;
+                });
+              },
+              onChangeEnd: (value) {
+                audioHandler.seek(Duration(seconds: value.toInt()));
+                setState(() {
+                  _isDragging = false;
+                });
+              },
               max: maxDuration,
               semanticFormatterCallback: (value) =>
                   formatDuration(value.toInt()),
             ),
-            _buildPositionRow(context, primaryColor, positionData),
+            _buildPositionRow(context, _positionData),
           ],
         );
       },
     );
   }
 
-  Widget _buildPositionRow(
-    BuildContext context,
-    Color fontColor,
-    PositionData positionData,
-  ) {
-    final positionText = formatDuration(positionData.position.inSeconds);
+  static const _textStyle = TextStyle(fontSize: 15);
+
+  Widget _buildPositionRow(BuildContext context, PositionData positionData) {
+    final positionText = formatDuration(
+      _isDragging ? _dragValue.toInt() : positionData.position.inSeconds,
+    );
     final durationText = formatDuration(positionData.duration.inSeconds);
-    final textStyle = TextStyle(fontSize: 15, color: fontColor);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 22),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(positionText, style: textStyle),
-          Text(durationText, style: textStyle),
+          Text(positionText, style: _textStyle),
+          Text(durationText, style: _textStyle),
         ],
       ),
     );
