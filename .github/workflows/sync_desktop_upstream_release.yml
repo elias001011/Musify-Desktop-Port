@@ -37,11 +37,19 @@ jobs:
           git remote add upstream https://github.com/gokadzev/Musify.git || git remote set-url upstream https://github.com/gokadzev/Musify.git
           git fetch upstream --no-tags --prune "refs/tags/*:refs/tags/upstream-*"
           
-          latest_tag=$(git tag -l 'upstream-*' --sort=-version:refname | head -1 | sed 's/^upstream-//')
-          echo "tag=${latest_tag}" >> "$GITHUB_OUTPUT"
+          # Filter only version tags (e.g., 10.1.0), not branch names like "master"
+          latest_tag=$(git tag -l 'upstream-*' --sort=-version:refname | grep -E 'upstream-[0-9]' | head -1 | sed 's/^upstream-//')
+          
+          if [[ -z "$latest_tag" ]]; then
+            echo "No version tags found; skipping sync"
+            echo "tag=SKIP" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${latest_tag}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Check if release exists
         id: existing
+        if: steps.upstream.outputs.tag != 'SKIP'
         shell: bash
         run: |
           tag="desktop-v${{ steps.upstream.outputs.tag }}"
@@ -54,13 +62,13 @@ jobs:
           fi
 
       - name: Add upstream remote
-        if: steps.existing.outputs.exists != 'true'
+        if: steps.upstream.outputs.tag != 'SKIP' && steps.existing.outputs.exists != 'true'
         run: |
           git remote add upstream https://github.com/gokadzev/Musify.git || git remote set-url upstream https://github.com/gokadzev/Musify.git
           git fetch upstream --no-tags --prune "refs/tags/${{ steps.upstream.outputs.tag }}:refs/tags/${{ steps.upstream.outputs.tag }}"
 
       - name: Merge upstream release with auto-conflict resolution
-        if: steps.existing.outputs.exists != 'true'
+        if: steps.upstream.outputs.tag != 'SKIP' && steps.existing.outputs.exists != 'true'
         shell: bash
         run: |
           upstream_tag="${{ steps.upstream.outputs.tag }}"
@@ -90,7 +98,7 @@ jobs:
           exit 1
 
       - name: Validate merged state
-        if: steps.existing.outputs.exists != 'true'
+        if: steps.upstream.outputs.tag != 'SKIP' && steps.existing.outputs.exists != 'true'
         shell: bash
         run: |
           if [[ -f pubspec.yaml ]]; then
@@ -103,11 +111,11 @@ jobs:
           fi
 
       - name: Push merged branch
-        if: steps.existing.outputs.exists != 'true'
+        if: steps.upstream.outputs.tag != 'SKIP' && steps.existing.outputs.exists != 'true'
         run: git push origin HEAD:refs/heads/master
 
       - name: Dispatch desktop release workflow
-        if: steps.existing.outputs.exists != 'true'
+        if: steps.upstream.outputs.tag != 'SKIP' && steps.existing.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -120,17 +128,13 @@ jobs:
             -f repair_existing_release=false
 
       - name: Create issue on failure
-        if: failure()
+        if: failure() && steps.upstream.outputs.tag != 'SKIP'
         uses: actions/github-script@v7
         with:
           script: |
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `[SYNC FAILED] Desktop upstream sync failed for ${{ steps.upstream.outputs.tag }}`,
-              body: `The automatic sync workflow failed to merge upstream ${{ steps.upstream.outputs.tag }} into the desktop master branch.
-
-Please resolve conflicts manually and push to master. See \`docs/SYNC_GUIDE.md\` for detailed conflict resolution procedures.
-
-Job: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+              title: '[SYNC FAILED] Desktop upstream sync failed for ${{ steps.upstream.outputs.tag }}',
+              body: 'The automatic sync workflow failed to merge upstream ${{ steps.upstream.outputs.tag }} into the desktop master branch.\n\nPlease resolve conflicts manually and push to master. See docs/SYNC_GUIDE.md for detailed conflict resolution procedures.\n\nJob: ' + context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId
             })
