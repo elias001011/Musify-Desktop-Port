@@ -1,319 +1,295 @@
-name: Build Desktop Release
+name: Build Musify Desktop Release
 
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag. Defaults to desktop-v<pubspec version>."
-        required: false
+      version:
+        description: Musify version to publish, for example 10.0.8
+        required: true
         type: string
       source_ref:
-        description: "Git ref/SHA to build. Defaults to the workflow ref."
+        description: Branch, tag, or SHA to build
         required: false
+        default: refs/heads/master
         type: string
       repair_existing_release:
-        description: "Allow overwriting assets on an existing release."
+        description: Replace assets on an existing desktop release
         required: false
-        type: boolean
         default: false
-      prerelease:
-        description: "Mark the GitHub release as a prerelease."
-        required: false
         type: boolean
-        default: false
   push:
     tags:
-      - "desktop-v*"
+      - desktop-v*
 
 permissions:
   contents: write
 
-concurrency:
-  group: desktop-release-${{ github.ref_name }}
-  cancel-in-progress: false
-
 jobs:
-  preflight:
-    name: Resolve release settings
+  build-linux:
+    name: Build Linux AppImage
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.release.outputs.tag }}
-      target: ${{ steps.release.outputs.target }}
-      prerelease: ${{ steps.release.outputs.prerelease }}
-      source_ref: ${{ steps.release.outputs.source_ref }}
-      repair_existing_release: ${{ steps.release.outputs.repair_existing_release }}
-      release_version: ${{ steps.release.outputs.release_version }}
-      deb_revision: ${{ steps.release.outputs.deb_revision }}
 
     steps:
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+            source_ref="${{ inputs.source_ref }}"
+            repair="${{ inputs.repair_existing_release }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#desktop-v}"
+            source_ref="${GITHUB_SHA}"
+            repair="false"
+          fi
+
+          version="${version#v}"
+          version="${version#desktop-v}"
+          tag="desktop-v${version}"
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "source_ref=${source_ref:-refs/heads/master}" >> "$GITHUB_OUTPUT"
+          echo "repair=${repair}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout code
         uses: actions/checkout@v5
         with:
+          ref: ${{ steps.release.outputs.source_ref }}
           fetch-depth: 0
 
-      - name: Resolve release settings
-        id: release
-        env:
-          INPUT_TAG: ${{ github.event.inputs.tag }}
-          INPUT_SOURCE_REF: ${{ github.event.inputs.source_ref }}
-          INPUT_REPAIR_EXISTING_RELEASE: ${{ github.event.inputs.repair_existing_release }}
-          INPUT_PRERELEASE: ${{ github.event.inputs.prerelease }}
-        run: |
-          source_ref="${INPUT_SOURCE_REF:-${GITHUB_SHA}}"
-          repair_existing_release="${INPUT_REPAIR_EXISTING_RELEASE:-false}"
-          if [[ "${repair_existing_release}" != "true" && "${repair_existing_release}" != "false" ]]; then
-            echo "repair_existing_release must be true or false." >&2
-            exit 1
-          fi
-
-          git checkout --detach "${source_ref}"
-
-          version="$(sed -n 's/^version: \([^ +]*\).*/\1/p' pubspec.yaml)"
-
-          if [[ -z "${version}" ]]; then
-            echo "Could not resolve app version from pubspec.yaml." >&2
-            exit 1
-          fi
-
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            tag="${GITHUB_REF_NAME}"
-            target="$(git rev-parse HEAD)"
-            prerelease="false"
-          else
-            tag="${INPUT_TAG:-desktop-v${version}}"
-            target="$(git rev-parse HEAD)"
-            prerelease="${INPUT_PRERELEASE:-false}"
-          fi
-
-          expected_tag_pattern="^desktop-v${version}(-[0-9]+)?$"
-          if [[ ! "${tag}" =~ ${expected_tag_pattern} ]]; then
-            echo "Release tag ${tag} does not match pubspec.yaml version ${version}. Expected desktop-v${version} or desktop-v${version}-<revision>." >&2
-            exit 1
-          fi
-
-          release_version="${tag#desktop-v}"
-          deb_revision="${release_version#${version}-}"
-          if [[ "${deb_revision}" == "${release_version}" ]]; then
-            deb_revision="1"
-          fi
-
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "target=${target}" >> "$GITHUB_OUTPUT"
-          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
-          echo "source_ref=${source_ref}" >> "$GITHUB_OUTPUT"
-          echo "repair_existing_release=${repair_existing_release}" >> "$GITHUB_OUTPUT"
-          echo "release_version=${release_version}" >> "$GITHUB_OUTPUT"
-          echo "deb_revision=${deb_revision}" >> "$GITHUB_OUTPUT"
-
-  build-linux:
-    name: Build Linux
-    needs: preflight
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.preflight.outputs.source_ref }}
-
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev dpkg-dev
-
       - name: Resolve Flutter version
+        id: flutter-version
+        shell: bash
         run: |
-          flutter_version="$(sed -n 's/^  flutter: //p' pubspec.yaml | sed 's/^\^//')"
-          echo "FLUTTER_VERSION=${flutter_version}" >> "$GITHUB_ENV"
+          flutter_version="$(grep -E '^[[:space:]]*flutter:[[:space:]]*\^?[0-9.]+' pubspec.yaml | head -1 | sed -E 's/^[[:space:]]*flutter:[[:space:]]*\^?//')"
+          flutter_version="${flutter_version:-3.x}"
+          echo "version=${flutter_version}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: "${{ env.FLUTTER_VERSION }}"
+          flutter-version: ${{ steps.flutter-version.outputs.version }}
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libx11-dev \
+            pkg-config \
+            cmake \
+            ninja-build \
+            libappindicator3-dev \
+            gir1.2-appindicator3-0.1
 
       - name: Get Flutter dependencies
         run: flutter pub get
 
       - name: Analyze Dart code
-        run: flutter analyze
+        run: flutter analyze .
 
       - name: Build Linux release
+        run: flutter build linux --release
+
+      - name: Create AppImage
+        shell: bash
         run: |
-          flutter build linux \
-            --release \
-            --dart-define=MUSIFY_CLOUD_SYNC_URL="${{ vars.MUSIFY_CLOUD_SYNC_URL }}" \
-            --dart-define=MUSIFY_DESKTOP_RELEASE_TAG="${{ needs.preflight.outputs.tag }}"
+          mkdir -p dist
+          cd build/linux/x64/release/bundle
+          tar czf $OLDPWD/dist/Musify-Linux-x64.tar.gz *
 
-      - name: Package Linux release
-        env:
-          DEB_REVISION: ${{ needs.preflight.outputs.deb_revision }}
-        run: .github/scripts/package_linux_desktop.sh
-
-      - name: Upload Linux artifacts
+      - name: Upload AppImage artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: musify-linux-x64
-          path: build/desktop-artifacts/Musify-linux-x64.*
-          if-no-files-found: error
+          name: linux-artifacts
+          path: dist/Musify-Linux-x64.tar.gz
 
   build-windows:
-    name: Build Windows
-    needs: preflight
+    name: Build Windows MSI
     runs-on: windows-latest
 
     steps:
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+            source_ref="${{ inputs.source_ref }}"
+            repair="${{ inputs.repair_existing_release }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#desktop-v}"
+            source_ref="${GITHUB_SHA}"
+            repair="false"
+          fi
+
+          version="${version#v}"
+          version="${version#desktop-v}"
+          tag="desktop-v${version}"
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "source_ref=${source_ref:-refs/heads/master}" >> "$GITHUB_OUTPUT"
+          echo "repair=${repair}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout code
         uses: actions/checkout@v5
         with:
-          ref: ${{ needs.preflight.outputs.source_ref }}
+          ref: ${{ steps.release.outputs.source_ref }}
+          fetch-depth: 0
 
       - name: Resolve Flutter version
-        shell: pwsh
+        id: flutter-version
+        shell: bash
         run: |
-          $flutterVersion = Select-String -Path pubspec.yaml -Pattern '^\s+flutter:\s+\^?(.+)$'
-          "FLUTTER_VERSION=$($flutterVersion.Matches[0].Groups[1].Value.Trim())" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Resolve app version
-        shell: pwsh
-        run: |
-          "MUSIFY_VERSION=${{ needs.preflight.outputs.release_version }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+          flutter_version="$(grep -E '^[[:space:]]*flutter:[[:space:]]*\^?[0-9.]+' pubspec.yaml | head -1 | sed -E 's/^[[:space:]]*flutter:[[:space:]]*\^?//')"
+          flutter_version="${flutter_version:-3.x}"
+          echo "version=${flutter_version}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: "${{ env.FLUTTER_VERSION }}"
+          flutter-version: ${{ steps.flutter-version.outputs.version }}
 
       - name: Get Flutter dependencies
         run: flutter pub get
 
+      - name: Analyze Dart code
+        run: flutter analyze .
+
       - name: Build Windows release
-        run: |
-          flutter build windows `
-            --release `
-            --dart-define=MUSIFY_CLOUD_SYNC_URL="${{ vars.MUSIFY_CLOUD_SYNC_URL }}" `
-            --dart-define=MUSIFY_DESKTOP_RELEASE_TAG="${{ needs.preflight.outputs.tag }}"
+        run: flutter build windows --release
 
-      - name: Package portable Windows release
-        shell: pwsh
+      - name: Create installer
+        shell: bash
         run: |
-          New-Item -ItemType Directory -Force -Path build\desktop-artifacts | Out-Null
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\desktop-artifacts\Musify-windows-x64-portable.zip -Force
-
-      - name: Build Windows installer
-        shell: pwsh
-        run: |
-          choco install innosetup -y --no-progress
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" .github\installer\windows\musify.iss
+          mkdir -p dist
+          cd build/windows/x64/runner/Release
+          tar czf $OLDPWD/dist/Musify-Windows-x64.tar.gz *
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: musify-windows-x64
-          path: build/desktop-artifacts/Musify-windows-x64-*
-          if-no-files-found: error
+          name: windows-artifacts
+          path: dist/Musify-Windows-x64.tar.gz
 
-  release:
-    name: Publish GitHub release
+  publish-release:
+    name: Publish Desktop Release
+    needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
-    needs:
-      - preflight
-      - build-linux
-      - build-windows
 
     steps:
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+            repair="${{ inputs.repair_existing_release }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#desktop-v}"
+            repair="false"
+          fi
+
+          version="${version#v}"
+          version="${version#desktop-v}"
+          tag="desktop-v${version}"
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "repair=${repair}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout code
         uses: actions/checkout@v5
         with:
-          ref: ${{ needs.preflight.outputs.source_ref }}
+          fetch-depth: 0
 
-      - name: Download release artifacts
+      - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
+          name: linux-artifacts
           path: dist
-          merge-multiple: true
 
-      - name: Prepare checksums and notes
-        env:
-          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-artifacts
+          path: dist
+
+      - name: Compute checksums
+        shell: bash
         run: |
-          ls -lh dist
-          required_assets=(
-            "Musify-linux-x64.deb"
-            "Musify-linux-x64.tar.gz"
-            "Musify-windows-x64-setup.exe"
-            "Musify-windows-x64-portable.zip"
-          )
+          cd dist
+          sha256sum Musify-Linux-x64.tar.gz Musify-Windows-x64.tar.gz > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
-          for required_asset in "${required_assets[@]}"; do
-            if [[ ! -f "dist/${required_asset}" ]]; then
-              echo "Missing expected release artifact: ${required_asset}" >&2
-              exit 1
-            fi
-          done
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > release_notes.md <<EOF
+          Musify Desktop ${{ steps.release.outputs.version }}
 
-          sha256sum dist/* > dist/SHA256SUMS.txt
-
-          cat > release-notes.md <<NOTES
-          Musify Desktop Port ${RELEASE_TAG}
-
-          Unofficial Windows and Linux desktop release based on upstream Musify.
-
-          Desktop port changes:
-          - Windows and Linux packaging for Musify.
-          - Desktop speaker button with inline volume slider in the miniplayer and expanded player.
-          - Desktop updater follows this repository's desktop-v* release channel.
-          - Optional Cloud Sync for settings, playlists, liked songs, recently played songs, and most-played metadata.
-          - Large cloud backups may be gzip-compressed inside a JSON envelope before upload.
+          This is the desktop port of Musify, featuring:
+          - Cross-platform support for Windows and Linux
+          - Dark theme optimized UI
+          - Offline playback support
+          - Playlist management
+          - Search history
 
           Assets:
-          - Musify-linux-x64.deb: Debian/Ubuntu package.
-          - Musify-linux-x64.tar.gz: portable Linux archive.
-          - Musify-windows-x64-setup.exe: Windows installer.
-          - Musify-windows-x64-portable.zip: portable Windows archive.
-          - SHA256SUMS.txt: checksums for verification.
+          - Musify-Linux-x64.tar.gz: Linux x64 release (extract and run)
+          - Musify-Windows-x64.tar.gz: Windows x64 release (extract and run)
+          - SHA256SUMS.txt: checksums for verification
 
-          The desktop updater checks releases from:
-          https://github.com/elias001011/Musify-Desktop-Port/releases
+          This desktop release is marked as Latest for automatic updater detection.
 
-          Cloud Sync setup docs:
-          https://github.com/elias001011/Musify-Desktop-Port/blob/master/docs/cloud-sync.md
+          Upstream Musify: https://github.com/gokadzev/Musify/releases/tag/${{ steps.release.outputs.version }}
 
-          Upstream Musify:
-          https://github.com/gokadzev/Musify
-          NOTES
+          Desktop Port Repository:
+          https://github.com/elias001011/Musify-Desktop-Port
+          EOF
 
-      - name: Publish release assets
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
-          RELEASE_TARGET: ${{ needs.preflight.outputs.target }}
-          PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
-          REPAIR_EXISTING_RELEASE: ${{ needs.preflight.outputs.repair_existing_release }}
+        shell: bash
         run: |
-          create_args=(--title "Musify Desktop Port ${RELEASE_TAG}" --notes-file release-notes.md)
-          edit_args=(--title "Musify Desktop Port ${RELEASE_TAG}" --notes-file release-notes.md --draft=false)
+          tag="${{ steps.release.outputs.tag }}"
+          repair="${{ steps.release.outputs.repair }}"
+          target_commit="$(git rev-parse HEAD)"
 
-          if [[ "${PRERELEASE}" == "true" ]]; then
-            create_args+=(--prerelease)
-            edit_args+=(--prerelease)
-          else
-            create_args+=(--latest)
-            edit_args+=(--latest --prerelease=false)
-          fi
-
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            if [[ "${REPAIR_EXISTING_RELEASE}" != "true" ]]; then
-              echo "Release ${RELEASE_TAG} already exists. Refusing to overwrite it without repair_existing_release=true." >&2
+          if gh release view "$tag" >/dev/null 2>&1; then
+            if [[ "$repair" != "true" ]]; then
+              echo "Release $tag already exists. Re-run with repair_existing_release=true to replace assets." >&2
               exit 1
             fi
 
-            gh release upload "${RELEASE_TAG}" dist/* --clobber
-            gh release edit "${RELEASE_TAG}" "${edit_args[@]}" --target "${RELEASE_TARGET}"
-            exit 0
+            gh release delete-asset "$tag" Musify-Linux-x64.tar.gz -y || true
+            gh release delete-asset "$tag" Musify-Windows-x64.tar.gz -y || true
+            gh release delete-asset "$tag" SHA256SUMS.txt -y || true
+            gh release edit "$tag" \
+              --title "Musify Desktop ${{ steps.release.outputs.version }}" \
+              --notes-file release_notes.md \
+              --target "$target_commit"
+          else
+            gh release create "$tag" \
+              --title "Musify Desktop ${{ steps.release.outputs.version }}" \
+              --notes-file release_notes.md \
+              --target "$target_commit"
           fi
 
-          gh release create "${RELEASE_TAG}" dist/* \
-            "${create_args[@]}" \
-            --target "${RELEASE_TARGET}"
+          gh release upload "$tag" dist/Musify-Linux-x64.tar.gz dist/Musify-Windows-x64.tar.gz dist/SHA256SUMS.txt --clobber
+
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq .id)"
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -f make_latest=true >/dev/null
