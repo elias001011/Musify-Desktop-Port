@@ -12,6 +12,7 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   sync:
@@ -122,6 +123,7 @@ jobs:
         run: |
           version="${{ steps.upstream.outputs.tag }}"
           gh workflow run desktop_release.yml \
+            --repo elias001011/Musify-Desktop-Port \
             --ref refs/heads/master \
             -f version="${version}" \
             -f source_ref="refs/heads/master" \
