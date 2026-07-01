@@ -77,7 +77,6 @@ void refreshUserSongsFromStorage() {
   currentLikedSongsLength.value = userLikedSongsList.value.length;
   currentRecentlyPlayedLength.value = userRecentlyPlayed.value.length;
   currentOfflineSongsLength.value = userOfflineSongs.value.length;
-  recentlyPlayedVersion.value++;
 }
 
 // Timeouts and durations used across manifest fetching and cache validation.
