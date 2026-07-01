@@ -127,10 +127,6 @@ jobs:
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `[SYNC FAILED] Desktop upstream sync failed for ${{ steps.upstream.outputs.tag }}`,
-              body: `The automatic sync workflow failed to merge upstream ${{ steps.upstream.outputs.tag }} into the desktop master branch.
-
-Please resolve conflicts manually and push to master. See \`docs/SYNC_GUIDE.md\` for detailed conflict resolution procedures.
-
-Job: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+              title: '[SYNC FAILED] Desktop upstream sync failed for ${{ steps.upstream.outputs.tag }}',
+              body: 'The automatic sync workflow failed to merge upstream ${{ steps.upstream.outputs.tag }} into the desktop master branch.\n\nPlease resolve conflicts manually and push to master. See docs/SYNC_GUIDE.md for detailed conflict resolution procedures.\n\nJob: ' + context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId
             })
