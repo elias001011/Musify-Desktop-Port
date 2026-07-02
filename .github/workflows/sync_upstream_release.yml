@@ -11,7 +11,8 @@ on:
         required: false
         default: "true"
   schedule:
-    - cron: "23 */6 * * *"
+    # Run once a week on Sunday at 03:23
+    - cron: "23 3 * * 0"
 
 permissions:
   actions: write
@@ -33,7 +34,7 @@ jobs:
         with:
           ref: refs/heads/master
           fetch-depth: 0
-          fetch-tags: false
+          fetch-tags: true
 
       - name: Configure git
         run: |

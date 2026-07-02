@@ -8,7 +8,8 @@ on:
         required: false
         type: string
   schedule:
-    - cron: "17 */6 * * *"
+    # Run once a week on Sunday at 03:17
+    - cron: "17 3 * * 0"
 
 permissions:
   actions: write
@@ -30,7 +31,7 @@ jobs:
         with:
           ref: refs/heads/mobile-cloud-sync
           fetch-depth: 0
-          fetch-tags: false
+          fetch-tags: true
 
       - name: Configure git
         run: |

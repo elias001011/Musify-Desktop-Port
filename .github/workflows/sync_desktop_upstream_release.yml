@@ -2,8 +2,8 @@ name: Sync Desktop Upstream Release
 
 on:
   schedule:
-    # Run every 6 hours
-    - cron: "17 */6 * * *"
+    # Run once a week on Sunday at 03:17
+    - cron: "17 3 * * 0"
   workflow_dispatch:
 
 concurrency:
@@ -25,6 +25,7 @@ jobs:
         with:
           ref: refs/heads/master
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Configure git
         run: |
