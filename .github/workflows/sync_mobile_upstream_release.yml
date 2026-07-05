@@ -116,6 +116,17 @@ jobs:
           channel: stable
           flutter-version: ${{ steps.flutter-version.outputs.version }}
 
+      - name: Refresh generated version
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          chmod +x update.sh
+          ./update.sh
+          if ! git diff --quiet lib/constants/version.dart; then
+            git add lib/constants/version.dart
+            git commit -m "chore: refresh version constant for ${{ steps.upstream.outputs.tag }}"
+          fi
+
       - name: Validate merged source
         if: steps.existing.outputs.exists != 'true'
         run: |
