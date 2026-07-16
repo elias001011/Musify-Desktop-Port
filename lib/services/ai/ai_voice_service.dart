@@ -34,6 +34,10 @@ class AiVoiceService {
   final ValueNotifier<bool> isSpeaking = ValueNotifier(false);
   final ValueNotifier<String> liveTranscript = ValueNotifier('');
 
+  /// Id of the chat message currently being read aloud, if any - lets the
+  /// chat UI animate only the bubble that's actually speaking.
+  final ValueNotifier<String?> speakingMessageId = ValueNotifier(null);
+
   String get _groqApiKey {
     final keys = aiProviders.value['groq']?['apiKeys'] as List?;
     return (keys != null && keys.isNotEmpty) ? keys.first.toString() : '';
@@ -150,9 +154,10 @@ class AiVoiceService {
   /// Linux desktop today).
   bool get canSpeak => _groqApiKey.isNotEmpty || !Platform.isLinux;
 
-  Future<void> speak(String text) async {
+  Future<void> speak(String text, {String? messageId}) async {
     if (text.trim().isEmpty) return;
     await stopSpeaking();
+    speakingMessageId.value = messageId;
 
     if (_groqApiKey.isNotEmpty && await _speakWithGroq(text)) {
       return;
@@ -160,19 +165,25 @@ class AiVoiceService {
 
     if (Platform.isLinux) {
       logger.log('Musify IA: no TTS available (no Groq key, Linux desktop).');
+      speakingMessageId.value = null;
       return;
     }
 
     try {
       isSpeaking.value = true;
       _nativeTts
-        ..setCompletionHandler(() => isSpeaking.value = false)
-        ..setCancelHandler(() => isSpeaking.value = false);
+        ..setCompletionHandler(_onSpeakingDone)
+        ..setCancelHandler(_onSpeakingDone);
       await _nativeTts.speak(text);
     } catch (e, stackTrace) {
-      isSpeaking.value = false;
+      _onSpeakingDone();
       logger.log('Native TTS failed', error: e, stackTrace: stackTrace);
     }
+  }
+
+  void _onSpeakingDone() {
+    isSpeaking.value = false;
+    speakingMessageId.value = null;
   }
 
   Future<bool> _speakWithGroq(String text) async {
@@ -210,19 +221,19 @@ class AiVoiceService {
             .firstWhere(
               (state) => state.processingState == ProcessingState.completed,
             )
-            .then((_) => isSpeaking.value = false),
+            .then((_) => _onSpeakingDone()),
       );
       await _ttsPlayer.play();
       return true;
     } catch (e, stackTrace) {
-      isSpeaking.value = false;
+      _onSpeakingDone();
       logger.log('Groq TTS failed', error: e, stackTrace: stackTrace);
       return false;
     }
   }
 
   Future<void> stopSpeaking() async {
-    isSpeaking.value = false;
+    _onSpeakingDone();
     try {
       await _ttsPlayer.stop();
     } catch (_) {}

@@ -234,6 +234,18 @@ final List<AiToolSpec> aiToolSpecs = [
       'required': ['action', 'type', 'id'],
     },
   ),
+  const AiToolSpec(
+    name: 'get_lyrics',
+    description: 'Get the lyrics for a song by title and artist.',
+    parameters: {
+      'type': 'object',
+      'properties': {
+        'title': {'type': 'string'},
+        'artist': {'type': 'string'},
+      },
+      'required': ['title'],
+    },
+  ),
 ];
 
 Future<AiToolResult> executeAiTool(
@@ -261,6 +273,8 @@ Future<AiToolResult> executeAiTool(
       return _editPlaylist(args);
     case 'offline_control':
       return _offlineControl(args);
+    case 'get_lyrics':
+      return _getLyrics(args);
     default:
       return AiToolResult({'error': 'Unknown tool: $name'});
   }
@@ -654,4 +668,15 @@ Future<AiToolResult> _offlineControl(Map<String, dynamic> args) async {
       },
     );
   }
+}
+
+Future<AiToolResult> _getLyrics(Map<String, dynamic> args) async {
+  final title = (args['title'] ?? '').toString();
+  final artist = args['artist']?.toString();
+  if (title.trim().isEmpty) {
+    return const AiToolResult({'error': 'title is required'});
+  }
+
+  final lyrics = await getSongLyrics(artist, title);
+  return AiToolResult({'lyrics': lyrics ?? 'Letra não encontrada.'});
 }

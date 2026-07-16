@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:musify/services/ai/ai_chat_store.dart';
 import 'package:musify/services/ai/ai_dj_service.dart';
 import 'package:musify/services/ai/ai_voice_service.dart';
+import 'package:musify/widgets/ai_dj/ai_attachment_picker.dart';
 import 'package:musify/widgets/ai_dj/ai_message_bubble.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';
 
@@ -28,6 +29,7 @@ class _AiChatPageState extends State<AiChatPage> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
   bool _sending = false;
+  Map<String, dynamic>? _pendingAttachment;
 
   @override
   void dispose() {
@@ -196,48 +198,105 @@ class _AiChatPageState extends State<AiChatPage> {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            ValueListenableBuilder<bool>(
-              valueListenable: AiVoiceService.instance.isRecording,
-              builder: (context, recording, _) {
-                return IconButton(
-                  icon: Icon(
-                    recording
-                        ? FluentIcons.record_stop_24_filled
-                        : FluentIcons.mic_24_regular,
-                    color: recording
-                        ? Theme.of(context).colorScheme.error
-                        : null,
-                  ),
-                  onPressed: _sending ? null : _toggleRecording,
-                );
-              },
-            ),
-            Expanded(
-              child: TextField(
-                controller: _inputController,
-                minLines: 1,
-                maxLines: 4,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _send(),
-                decoration: const InputDecoration(
-                  hintText: 'Mensagem...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(24)),
+            if (_pendingAttachment != null) _buildAttachmentPreview(context),
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(FluentIcons.add_circle_24_regular),
+                  onPressed: _sending ? null : _pickAttachment,
+                ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: AiVoiceService.instance.isRecording,
+                  builder: (context, recording, _) {
+                    return IconButton(
+                      icon: Icon(
+                        recording
+                            ? FluentIcons.record_stop_24_filled
+                            : FluentIcons.mic_24_regular,
+                        color: recording
+                            ? Theme.of(context).colorScheme.error
+                            : null,
+                      ),
+                      onPressed: _sending ? null : _toggleRecording,
+                    );
+                  },
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _inputController,
+                    minLines: 1,
+                    maxLines: 4,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _send(),
+                    decoration: const InputDecoration(
+                      hintText: 'Mensagem...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(24)),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 4),
-            IconButton.filled(
-              icon: const Icon(FluentIcons.send_24_filled),
-              onPressed: _sending ? null : _send,
+                const SizedBox(width: 4),
+                IconButton.filled(
+                  icon: const Icon(FluentIcons.send_24_filled),
+                  onPressed: _sending ? null : _send,
+                ),
+              ],
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildAttachmentPreview(BuildContext context) {
+    final attachment = _pendingAttachment!;
+    final item = attachment['item'] as Map? ?? {};
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              FluentIcons.attach_24_regular,
+              size: 16,
+              color: colorScheme.primary,
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                (item['title'] ?? '').toString(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            IconButton(
+              icon: const Icon(FluentIcons.dismiss_circle_24_regular, size: 18),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => setState(() => _pendingAttachment = null),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAttachment() async {
+    final picked = await showAiAttachmentPicker(context);
+    if (picked != null) {
+      setState(() => _pendingAttachment = picked);
+    }
   }
 
   Future<void> _toggleRecording() async {
@@ -260,12 +319,20 @@ class _AiChatPageState extends State<AiChatPage> {
 
   Future<void> _send() async {
     final text = _inputController.text.trim();
-    if (text.isEmpty || _sending) return;
+    final attachment = _pendingAttachment;
+    if ((text.isEmpty && attachment == null) || _sending) return;
 
     _inputController.clear();
-    setState(() => _sending = true);
+    setState(() {
+      _sending = true;
+      _pendingAttachment = null;
+    });
     try {
-      await AiDjService.instance.sendMessage(widget.chatId, text);
+      await AiDjService.instance.sendMessage(
+        widget.chatId,
+        text.isEmpty ? 'Sobre isso:' : text,
+        attachment: attachment,
+      );
     } finally {
       if (mounted) setState(() => _sending = false);
     }

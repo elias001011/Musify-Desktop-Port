@@ -34,7 +34,11 @@ class AiDjService {
 
   final _store = AiChatStore.instance;
 
-  Future<void> sendMessage(String chatId, String userText) async {
+  Future<void> sendMessage(
+    String chatId,
+    String userText, {
+    Map<String, dynamic>? attachment,
+  }) async {
     final isFirstMessage = _store.getMessages(chatId).isEmpty;
 
     await _store.appendMessage(chatId, {
@@ -42,6 +46,7 @@ class AiDjService {
       'role': 'user',
       'content': userText,
       'createdAt': DateTime.now().millisecondsSinceEpoch,
+      if (attachment != null) 'attachment': attachment,
     });
 
     if (isFirstMessage) {
@@ -206,12 +211,12 @@ class AiDjService {
   List<AiMessage> _expandStoredMessage(Map message) {
     final role = message['role'];
     if (role == 'user') {
-      return [
-        AiMessage(
-          role: AiRole.user,
-          content: (message['content'] ?? '').toString(),
-        ),
-      ];
+      final attachment = message['attachment'] as Map?;
+      var content = (message['content'] ?? '').toString();
+      if (attachment != null) {
+        content = '${_describeAttachment(attachment)}\n$content';
+      }
+      return [AiMessage(role: AiRole.user, content: content)];
     }
 
     if (role == 'assistant') {
@@ -260,6 +265,15 @@ class AiDjService {
     return const [];
   }
 
+  /// Turns a user-picked attachment (from the "+" picker) into a grounded,
+  /// machine-readable reference the model can quote back verbatim in a
+  /// tool call instead of having to search for the item again.
+  String _describeAttachment(Map attachment) {
+    final type = attachment['itemType'];
+    final item = Map<String, dynamic>.from(attachment['item'] as Map? ?? {});
+    return '[Attached $type: ${jsonEncode(item)}]';
+  }
+
   String _buildSystemPrompt() {
     return '''
 You are ${aiName.value}, the built-in AI DJ assistant inside the Musify music player app. You are an experimental feature.
@@ -273,6 +287,8 @@ You can hold a conversation about music, but your real value is taking action in
 - When creating a playlist, if the user did not explicitly say to save/persist it, call `create_playlist` with temporary=true. Only pass temporary=false when the user clearly asked to save it permanently.
 - When creating or renaming a playlist, if you already have a good song/album/artist image from a `search` result, pass it as the `image` (or `newImage`) argument so the playlist doesn't end up without a cover.
 - For "play what's similar to what's playing", "add to queue based on what's playing now", etc., use `get_library_index` to see `nowPlaying`, then `search` for similar songs.
+- The user can attach a song/playlist/album/artist to their message using the "+" button. When a message starts with "[Attached <type>: {...json...}]", that JSON is the exact, already-resolved item the user means - use its ytid directly in the relevant tool instead of searching for it again. If they just say "favorite this", "add this to queue", "what are the lyrics of this" etc. right after attaching something, "this" refers to that attachment.
+- Use `get_lyrics` when asked for a song's lyrics.
 - Keep replies short and conversational; the UI already shows a card for whatever action you took, so do not describe the raw data back to the user in detail.
 ''';
   }

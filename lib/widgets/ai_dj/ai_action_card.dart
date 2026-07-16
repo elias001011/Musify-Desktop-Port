@@ -9,6 +9,11 @@ import 'package:musify/utilities/flutter_toast.dart';
 /// Renders whatever action Musify IA just took (search results, a song it
 /// started playing, a playlist it built, a like/offline toggle, ...) right
 /// below its chat bubble, so the user sees the effect instead of just text.
+///
+/// Single-item results (now playing, a playlist) use a big vertical card -
+/// square art on top, title/subtitle below - modeled after how Spotify
+/// renders a shared song in chat. Multi-item results (search, queue) use
+/// compact rows instead, since a dozen full-size cards would be unusable.
 class AiActionCard extends StatelessWidget {
   const AiActionCard({required this.actionCard, super.key});
 
@@ -25,10 +30,10 @@ class AiActionCard extends StatelessWidget {
           emptyLabel: 'Nada encontrado.',
         );
       case 'now_playing':
-        return _buildSongRow(
+        return _buildSongCard(
           context,
           Map<String, dynamic>.from(actionCard['song'] as Map? ?? {}),
-          label: 'Tocando agora',
+          badge: 'Tocando agora',
         );
       case 'queue':
         return _buildSongList(
@@ -41,10 +46,10 @@ class AiActionCard extends StatelessWidget {
         final nowPlaying = actionCard['nowPlaying'] as Map?;
         return nowPlaying == null
             ? const SizedBox.shrink()
-            : _buildSongRow(
+            : _buildSongCard(
                 context,
                 Map<String, dynamic>.from(nowPlaying),
-                label: 'Tocando agora',
+                badge: 'Tocando agora',
               );
       case 'like':
         return _buildChip(
@@ -102,66 +107,27 @@ class AiActionCard extends StatelessWidget {
     );
   }
 
-  Widget _buildSongRow(
+  Widget _buildSongCard(
     BuildContext context,
     Map<String, dynamic> song, {
-    String? label,
+    String? badge,
   }) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(top: 6),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => audioHandler.playSong({
-          'id': 0,
-          'ytid': song['ytid'],
-          'title': song['title'],
-          'artist': song['artist'] ?? '',
-          'image': song['image'],
-          'lowResImage': song['image'],
-          'highResImage': song['image'],
-          'duration': song['duration'],
-        }),
-        child: Row(
-          children: [
-            _thumbnail(song['image']?.toString()),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (label != null)
-                    Text(
-                      label,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: colorScheme.primary,
-                      ),
-                    ),
-                  Text(
-                    (song['title'] ?? '').toString(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  Text(
-                    (song['artist'] ?? '').toString(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            const Icon(FluentIcons.play_circle_24_filled),
-          ],
-        ),
-      ),
+    return primaryCard(
+      context,
+      image: song['image']?.toString(),
+      title: (song['title'] ?? '').toString(),
+      subtitle: 'Música${song['artist'] != null ? ' · ${song['artist']}' : ''}',
+      badge: badge,
+      onTap: () => audioHandler.playSong({
+        'id': 0,
+        'ytid': song['ytid'],
+        'title': song['title'],
+        'artist': song['artist'] ?? '',
+        'image': song['image'],
+        'lowResImage': song['image'],
+        'highResImage': song['image'],
+        'duration': song['duration'],
+      }),
     );
   }
 
@@ -182,10 +148,11 @@ class AiActionCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.all(8),
-      constraints: const BoxConstraints(maxHeight: 260),
+      constraints: const BoxConstraints(maxHeight: 280),
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -210,13 +177,13 @@ class AiActionCard extends StatelessWidget {
                 final isSong =
                     item.containsKey('ytid') && item.containsKey('duration');
                 return ListTile(
-                  dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: _thumbnail(item['image']?.toString()),
+                  leading: thumbnail(item['image']?.toString(), size: 52),
                   title: Text(
                     (item['title'] ?? '').toString(),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   subtitle: item['artist'] == null
                       ? null
@@ -245,31 +212,118 @@ class AiActionCard extends StatelessWidget {
       ),
     );
   }
+}
 
-  static Widget _thumbnail(String? url) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: url == null || url.isEmpty
-          ? Container(
-              width: 44,
-              height: 44,
-              color: Colors.black12,
-              child: const Icon(FluentIcons.music_note_1_24_regular),
-            )
-          : CachedNetworkImage(
-              imageUrl: url,
-              width: 44,
-              height: 44,
-              fit: BoxFit.cover,
-              errorWidget: (context, url, error) => Container(
-                width: 44,
-                height: 44,
-                color: Colors.black12,
-                child: const Icon(FluentIcons.music_note_1_24_regular),
+/// Shared "big vertical card" used for a single song/playlist/album/artist:
+/// square art on top, title + subtitle below, all inside a bordered rounded
+/// container - modeled after Spotify's shared-song chat card.
+Widget primaryCard(
+  BuildContext context, {
+  required String? image,
+  required String title,
+  required String subtitle,
+  String? badge,
+  VoidCallback? onTap,
+  IconData trailingIcon = FluentIcons.play_circle_24_filled,
+}) {
+  final colorScheme = Theme.of(context).colorScheme;
+  return Container(
+    margin: const EdgeInsets.only(top: 6),
+    constraints: const BoxConstraints(maxWidth: 230),
+    decoration: BoxDecoration(
+      color: colorScheme.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: colorScheme.outlineVariant),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(aspectRatio: 1, child: thumbnail(image, size: null)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 10, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (badge != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 2),
+                            child: Text(
+                              badge,
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(color: colorScheme.primary),
+                            ),
+                          ),
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (onTap != null) ...[
+                    const SizedBox(width: 8),
+                    Icon(trailingIcon, color: colorScheme.primary),
+                  ],
+                ],
               ),
             ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// [size] null makes it fill its parent (used inside [primaryCard]'s
+/// AspectRatio); otherwise renders a fixed square thumbnail for list rows.
+Widget thumbnail(String? url, {double? size = 44}) {
+  final placeholder = Container(
+    width: size,
+    height: size,
+    color: Colors.black12,
+    child: Icon(
+      FluentIcons.music_note_1_24_regular,
+      size: size == null ? 40 : null,
+    ),
+  );
+
+  Widget image;
+  if (url == null || url.isEmpty) {
+    image = placeholder;
+  } else {
+    image = CachedNetworkImage(
+      imageUrl: url,
+      width: size,
+      height: size,
+      fit: BoxFit.cover,
+      errorWidget: (context, url, error) => placeholder,
     );
   }
+
+  return size == null
+      ? image
+      : ClipRRect(borderRadius: BorderRadius.circular(8), child: image);
 }
 
 class _TempPlaylistCard extends StatefulWidget {
@@ -285,58 +339,33 @@ class _TempPlaylistCardState extends State<_TempPlaylistCard> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final songs = (widget.actionCard['songs'] as List? ?? []).cast<Map>();
     final name = (widget.actionCard['name'] ?? 'Playlist').toString();
     final image = widget.actionCard['image']?.toString();
 
-    return Container(
-      margin: const EdgeInsets.only(top: 6),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              AiActionCard._thumbnail(image),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      name,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    Text(
-                      '${songs.length} música(s) · temporária',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        primaryCard(
+          context,
+          image: image,
+          title: name,
+          subtitle: 'Playlist · ${songs.length} música(s) · temporária',
+        ),
+        const SizedBox(height: 6),
+        if (_saved)
+          const Padding(
+            padding: EdgeInsets.only(left: 4),
+            child: Text('Salva na biblioteca ✓'),
+          )
+        else
+          FilledButton.tonalIcon(
+            icon: const Icon(FluentIcons.save_24_regular),
+            label: const Text('Salvar na biblioteca'),
+            onPressed: () => _save(context, name, image, songs),
           ),
-          const SizedBox(height: 8),
-          if (_saved)
-            const Text('Salva na biblioteca ✓')
-          else
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.tonalIcon(
-                icon: const Icon(FluentIcons.save_24_regular),
-                label: const Text('Salvar na biblioteca'),
-                onPressed: () => _save(context, name, image, songs),
-              ),
-            ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -376,46 +405,18 @@ class _PlaylistCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final songs = (actionCard['songs'] as List? ?? []).cast<Map>();
     final name = (actionCard['title'] ?? 'Playlist').toString();
     final ytid = actionCard['ytid']?.toString();
     final image = actionCard['image']?.toString();
 
-    return Container(
-      margin: const EdgeInsets.only(top: 6),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: ytid == null ? null : () => context.push('/home/playlist/$ytid'),
-        child: Row(
-          children: [
-            AiActionCard._thumbnail(image),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    name,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  Text(
-                    '${songs.length} música(s) · salva na biblioteca',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            const Icon(FluentIcons.chevron_right_24_regular),
-          ],
-        ),
-      ),
+    return primaryCard(
+      context,
+      image: image,
+      title: name,
+      subtitle: 'Playlist · ${songs.length} música(s)',
+      trailingIcon: FluentIcons.chevron_right_24_regular,
+      onTap: ytid == null ? null : () => context.push('/home/playlist/$ytid'),
     );
   }
 }
