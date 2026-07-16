@@ -52,10 +52,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                   'Ativar Musify IA',
                   FluentIcons.sparkle_24_regular,
                   borderRadius: commonCustomBarRadiusFirst,
-                  trailing: Switch(
-                    value: enabled,
-                    onChanged: (value) => setAiEnabled(value),
-                  ),
+                  trailing: Switch(value: enabled, onChanged: setAiEnabled),
                 );
               },
             ),
@@ -97,9 +94,8 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: order.length,
-                      onReorder: (oldIndex, newIndex) {
+                      onReorderItem: (oldIndex, newIndex) {
                         final updated = List<String>.from(order);
-                        if (newIndex > oldIndex) newIndex--;
                         final item = updated.removeAt(oldIndex);
                         updated.insert(newIndex, item);
                         updateAiProviderOrder(updated);

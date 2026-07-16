@@ -129,8 +129,8 @@ const defaultAiProviderOrder = ['groq', 'gemini', 'openrouter'];
 
 const defaultAiProviderConfig = {
   'groq': {'model': 'llama-3.3-70b-versatile'},
-  'gemini': {'model': 'gemini-2.0-flash'},
-  'openrouter': {'model': 'openrouter/auto'},
+  'gemini': {'model': 'gemini-3.1-flash-lite'},
+  'openrouter': {'model': 'openrouter/free'},
 };
 
 final aiEnabled = ValueNotifier<bool>(

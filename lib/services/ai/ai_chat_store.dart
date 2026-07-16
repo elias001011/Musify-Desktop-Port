@@ -10,9 +10,9 @@ import 'package:hive/hive.dart';
 /// The actual messages for a chat are stored separately in
 /// `ai_chat_messages`, keyed by chat id.
 class AiChatStore {
-  AiChatStore._internal() : chats = ValueNotifier<List<Map>>(_readIndex());
-
   factory AiChatStore() => instance;
+
+  AiChatStore._internal() : chats = ValueNotifier<List<Map>>(_readIndex());
 
   static final AiChatStore instance = AiChatStore._internal();
 
@@ -37,10 +37,7 @@ class AiChatStore {
     ).get('chats', defaultValue: <dynamic>[]);
     final list = List<Map>.from(
       (raw as List).map((e) => Map<String, dynamic>.from(e as Map)),
-    );
-    list.sort(
-      (a, b) => (b['updatedAt'] as int).compareTo(a['updatedAt'] as int),
-    );
+    )..sort((a, b) => (b['updatedAt'] as int).compareTo(a['updatedAt'] as int));
     return list;
   }
 

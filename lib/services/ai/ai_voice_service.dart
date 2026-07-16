@@ -88,10 +88,7 @@ class AiVoiceService {
       final dir = await getTemporaryDirectory();
       _recordingPath =
           '${dir.path}/musify_ia_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      await _recorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc),
-        path: _recordingPath!,
-      );
+      await _recorder.start(const RecordConfig(), path: _recordingPath!);
       _usingGroqRecording = true;
       isRecording.value = true;
       return true;
@@ -168,8 +165,9 @@ class AiVoiceService {
 
     try {
       isSpeaking.value = true;
-      _nativeTts.setCompletionHandler(() => isSpeaking.value = false);
-      _nativeTts.setCancelHandler(() => isSpeaking.value = false);
+      _nativeTts
+        ..setCompletionHandler(() => isSpeaking.value = false)
+        ..setCancelHandler(() => isSpeaking.value = false);
       await _nativeTts.speak(text);
     } catch (e, stackTrace) {
       isSpeaking.value = false;

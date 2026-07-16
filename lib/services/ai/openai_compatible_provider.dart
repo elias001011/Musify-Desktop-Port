@@ -95,7 +95,7 @@ abstract class OpenAiCompatibleProvider implements AiProvider {
     if (rawToolCalls != null) {
       for (final raw in rawToolCalls) {
         final function = (raw as Map)['function'] as Map;
-        Map<String, dynamic> arguments = {};
+        var arguments = <String, dynamic>{};
         try {
           final rawArgs = function['arguments'];
           if (rawArgs is String && rawArgs.trim().isNotEmpty) {

@@ -98,7 +98,7 @@ class AiDjService {
       'content': lastError == null
           ? 'Nenhum provedor de IA está configurado. Configure ao menos '
                 'uma chave em Configurações > ${aiName.value}.'
-          : 'Não consegui responder agora (${lastError}). Verifique as '
+          : 'Não consegui responder agora ($lastError). Verifique as '
                 'chaves/modelos configurados em Configurações > '
                 '${aiName.value}.',
       'createdAt': DateTime.now().millisecondsSinceEpoch,

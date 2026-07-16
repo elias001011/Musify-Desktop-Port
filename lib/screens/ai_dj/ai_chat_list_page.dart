@@ -142,7 +142,7 @@ class AiChatListPage extends StatelessWidget {
     );
   }
 
-  Future<void> _createAndOpenChat(BuildContext context) async {
+  void _createAndOpenChat(BuildContext context) {
     final chat = AiChatStore.instance.createChat();
     context.push('${AiChatPage.routePath}/${chat['id']}');
   }

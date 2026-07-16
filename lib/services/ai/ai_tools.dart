@@ -54,8 +54,8 @@ final List<AiToolSpec> aiToolSpecs = [
   const AiToolSpec(
     name: 'get_library_index',
     description:
-        "Get a compact overview of everything the user has saved: custom "
-        "playlists, liked playlists/albums, liked artists, liked songs "
+        'Get a compact overview of everything the user has saved: custom '
+        'playlists, liked playlists/albums, liked artists, liked songs '
         "count, offline songs/playlists, current queue length and what's "
         'playing now. Call this before acting on "my playlist"/"my '
         'library" style requests.',
@@ -79,7 +79,7 @@ final List<AiToolSpec> aiToolSpecs = [
       'required': ['id'],
     },
   ),
-  AiToolSpec(
+  const AiToolSpec(
     name: 'play_song',
     description: 'Start playing a song immediately.',
     parameters: {
@@ -88,7 +88,7 @@ final List<AiToolSpec> aiToolSpecs = [
       'required': ['song'],
     },
   ),
-  AiToolSpec(
+  const AiToolSpec(
     name: 'queue_action',
     description:
         'Inspect or modify the play queue: view it, add a song to the end '
@@ -122,7 +122,7 @@ final List<AiToolSpec> aiToolSpecs = [
       'required': ['action'],
     },
   ),
-  AiToolSpec(
+  const AiToolSpec(
     name: 'like_item',
     description:
         'Like or unlike a song, playlist, album or artist so it shows up '
@@ -140,14 +140,14 @@ final List<AiToolSpec> aiToolSpecs = [
           'type': 'object',
           'description':
               'The full object from a search/library result. Required the '
-              "first time an item is liked (so Musify knows its title/"
+              'first time an item is liked (so Musify knows its title/'
               'image/etc), optional when unliking.',
         },
       },
       'required': ['type', 'id', 'liked'],
     },
   ),
-  AiToolSpec(
+  const AiToolSpec(
     name: 'create_playlist',
     description:
         "Create a playlist. If the user didn't explicitly ask for it to "
@@ -157,7 +157,7 @@ final List<AiToolSpec> aiToolSpecs = [
         'only when the user clearly asked for a permanent/saved playlist. '
         'You may set image to the image/thumbnail url of a song, album or '
         'artist you already found via search, to use it as the cover '
-        "instead of leaving the playlist without one.",
+        'instead of leaving the playlist without one.',
     parameters: {
       'type': 'object',
       'properties': {
@@ -173,7 +173,7 @@ final List<AiToolSpec> aiToolSpecs = [
       'required': ['name'],
     },
   ),
-  AiToolSpec(
+  const AiToolSpec(
     name: 'edit_playlist',
     description:
         'Edit one of the user\'s own custom playlists: add songs, remove '
@@ -364,7 +364,7 @@ Future<AiToolResult> _getLibraryItem(Map<String, dynamic> args) async {
     return AiToolResult({'error': 'No library item found with id $id'});
   }
 
-  List songs = (playlist['list'] as List?) ?? [];
+  var songs = (playlist['list'] as List?) ?? [];
   if (songs.isEmpty) {
     songs = await getSongsFromPlaylist(id, playlistImage: playlist['image']);
   }
