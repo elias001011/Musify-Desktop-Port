@@ -151,16 +151,19 @@ List<String> _readAiProviderOrder() {
   return List<String>.from(defaultAiProviderOrder);
 }
 
-Map<String, Map<String, String>> _readAiProviders() {
+Map<String, Map<String, Object>> _readAiProviders() {
   final raw = Hive.box(
     'settings',
   ).get('aiProviders', defaultValue: <dynamic, dynamic>{});
-  final result = <String, Map<String, String>>{};
+  final result = <String, Map<String, Object>>{};
   for (final providerId in defaultAiProviderOrder) {
     final defaults = defaultAiProviderConfig[providerId]!;
     final stored = (raw is Map ? raw[providerId] : null) as Map?;
+    final rawKeys = stored?['apiKeys'];
     result[providerId] = {
-      'apiKey': (stored?['apiKey'] ?? '').toString(),
+      'apiKeys': rawKeys is List
+          ? rawKeys.map((k) => k.toString()).where((k) => k.isNotEmpty).toList()
+          : <String>[],
       'model': (stored?['model'] ?? defaults['model']).toString(),
     };
   }
@@ -169,26 +172,44 @@ Map<String, Map<String, String>> _readAiProviders() {
 
 final aiProviderOrder = ValueNotifier<List<String>>(_readAiProviderOrder());
 
-final aiProviders = ValueNotifier<Map<String, Map<String, String>>>(
+/// Each provider config is `{'apiKeys': List<String>, 'model': String}`.
+/// Multiple keys let the same provider rotate to the next key (e.g. on a
+/// rate limit) before Musify IA gives up on it and falls back to the next
+/// provider in [aiProviderOrder].
+final aiProviders = ValueNotifier<Map<String, Map<String, Object>>>(
   _readAiProviders(),
 );
 
-Future<void> updateAiProviderConfig(
-  String providerId, {
-  String? apiKey,
-  String? model,
-}) async {
-  final updated = Map<String, Map<String, String>>.from(
-    aiProviders.value.map((k, v) => MapEntry(k, Map<String, String>.from(v))),
+Map<String, Map<String, Object>> _cloneAiProviders() {
+  return aiProviders.value.map(
+    (key, value) => MapEntry(key, {
+      'apiKeys': List<String>.from(value['apiKeys']! as List),
+      'model': value['model']!,
+    }),
   );
-  final current = updated[providerId] ?? {'apiKey': '', 'model': ''};
+}
+
+Future<void> _persistAiProviders() async {
+  await Hive.box('settings').put('aiProviders', aiProviders.value);
+}
+
+Future<void> setAiProviderModel(String providerId, String model) async {
+  final updated = _cloneAiProviders();
+  final current = updated[providerId] ?? {'apiKeys': <String>[], 'model': ''};
+  updated[providerId] = {...current, 'model': model};
+  aiProviders.value = updated;
+  await _persistAiProviders();
+}
+
+Future<void> setAiProviderKeys(String providerId, List<String> keys) async {
+  final updated = _cloneAiProviders();
+  final current = updated[providerId] ?? {'apiKeys': <String>[], 'model': ''};
   updated[providerId] = {
-    'apiKey': apiKey ?? current['apiKey'] ?? '',
-    'model': model ?? current['model'] ?? '',
+    ...current,
+    'apiKeys': keys.map((k) => k.trim()).where((k) => k.isNotEmpty).toList(),
   };
   aiProviders.value = updated;
-  final settingsBox = Hive.box('settings');
-  await settingsBox.put('aiProviders', updated);
+  await _persistAiProviders();
 }
 
 Future<void> updateAiProviderOrder(List<String> order) async {

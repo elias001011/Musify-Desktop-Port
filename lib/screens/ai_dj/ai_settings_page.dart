@@ -90,7 +90,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
             ValueListenableBuilder<List<String>>(
               valueListenable: aiProviderOrder,
               builder: (context, order, _) {
-                return ValueListenableBuilder<Map<String, Map<String, String>>>(
+                return ValueListenableBuilder<Map<String, Map<String, Object>>>(
                   valueListenable: aiProviders,
                   builder: (context, providers, __) {
                     return ReorderableListView.builder(
@@ -107,7 +107,9 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                       itemBuilder: (context, index) {
                         final providerId = order[index];
                         final config = providers[providerId];
-                        final hasKey = (config?['apiKey'] ?? '').isNotEmpty;
+                        final keyCount =
+                            (config?['apiKeys'] as List?)?.length ?? 0;
+                        final hasKey = keyCount > 0;
                         return CustomBar(
                           key: ValueKey(providerId),
                           _providerLabels[providerId] ?? providerId,
@@ -116,6 +118,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                               : FluentIcons.warning_24_regular,
                           description: hasKey
                               ? '${index == 0 ? "Padrão · " : ""}${config?['model'] ?? ''}'
+                                    ' · $keyCount chave(s)'
                               : 'Sem chave configurada',
                           borderRadius: index == 0
                               ? commonCustomBarRadiusFirst
@@ -171,39 +174,81 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     BuildContext context,
     String providerId,
   ) async {
-    final config = aiProviders.value[providerId] ?? {'apiKey': '', 'model': ''};
-    final apiKeyController = TextEditingController(text: config['apiKey']);
-    final modelController = TextEditingController(text: config['model']);
-    var obscureKey = true;
+    final config =
+        aiProviders.value[providerId] ?? {'apiKeys': <String>[], 'model': ''};
+    final existingKeys = (config['apiKeys'] as List?)?.cast<String>() ?? [];
+    final keyControllers = [
+      for (final key in existingKeys) TextEditingController(text: key),
+      if (existingKeys.isEmpty) TextEditingController(),
+    ];
+    final modelController = TextEditingController(
+      text: config['model']?.toString(),
+    );
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            String firstNonEmptyKey() {
+              for (final controller in keyControllers) {
+                if (controller.text.trim().isNotEmpty) {
+                  return controller.text.trim();
+                }
+              }
+              return '';
+            }
+
             return AlertDialog(
               title: Text(_providerLabels[providerId] ?? providerId),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    TextField(
-                      controller: apiKeyController,
-                      obscureText: obscureKey,
-                      decoration: InputDecoration(
-                        labelText: 'Chave de API',
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            obscureKey
-                                ? FluentIcons.eye_24_regular
-                                : FluentIcons.eye_off_24_regular,
-                          ),
-                          onPressed: () =>
-                              setDialogState(() => obscureKey = !obscureKey),
+                    Text(
+                      'Chaves de API - a primeira é usada primeiro; se '
+                      'falhar (ex: limite atingido), a próxima é tentada '
+                      'antes de cair pro próximo provedor.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    for (var i = 0; i < keyControllers.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: keyControllers[i],
+                                obscureText: true,
+                                decoration: InputDecoration(
+                                  labelText: 'Chave ${i + 1}',
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(FluentIcons.delete_24_regular),
+                              onPressed: keyControllers.length == 1
+                                  ? null
+                                  : () => setDialogState(
+                                      () => keyControllers.removeAt(i),
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        icon: const Icon(FluentIcons.add_24_regular),
+                        label: const Text('Adicionar chave'),
+                        onPressed: () => setDialogState(
+                          () => keyControllers.add(TextEditingController()),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     TextField(
                       controller: modelController,
                       decoration: const InputDecoration(labelText: 'Modelo'),
@@ -218,7 +263,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                           try {
                             final models = await fetchProviderModels(
                               providerId,
-                              apiKeyController.text.trim(),
+                              firstNonEmptyKey(),
                             );
                             if (!context.mounted) return;
                             final picked = await _showModelPicker(
@@ -249,11 +294,11 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                 ),
                 FilledButton(
                   onPressed: () {
-                    updateAiProviderConfig(
+                    setAiProviderKeys(
                       providerId,
-                      apiKey: apiKeyController.text.trim(),
-                      model: modelController.text.trim(),
+                      keyControllers.map((c) => c.text.trim()).toList(),
                     );
+                    setAiProviderModel(providerId, modelController.text.trim());
                     Navigator.pop(dialogContext);
                   },
                   child: const Text('Salvar'),

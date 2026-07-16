@@ -34,7 +34,10 @@ class AiVoiceService {
   final ValueNotifier<bool> isSpeaking = ValueNotifier(false);
   final ValueNotifier<String> liveTranscript = ValueNotifier('');
 
-  String get _groqApiKey => aiProviders.value['groq']?['apiKey'] ?? '';
+  String get _groqApiKey {
+    final keys = aiProviders.value['groq']?['apiKeys'] as List?;
+    return (keys != null && keys.isNotEmpty) ? keys.first.toString() : '';
+  }
 
   Future<void> startListening() async {
     if (isRecording.value) return;

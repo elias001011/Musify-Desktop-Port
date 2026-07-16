@@ -57,32 +57,38 @@ class AiDjService {
       final config = aiProviders.value[providerId];
       if (provider == null || config == null) continue;
 
-      final apiKey = config['apiKey'] ?? '';
-      final model = config['model'] ?? '';
-      if (apiKey.isEmpty || model.isEmpty) continue;
+      final apiKeys = (config['apiKeys'] as List?)?.cast<String>() ?? const [];
+      final model = (config['model'] ?? '').toString();
+      if (apiKeys.isEmpty || model.isEmpty) continue;
 
-      try {
-        await _runProviderTurn(
-          chatId: chatId,
-          provider: provider,
-          apiKey: apiKey,
-          model: model,
-          systemPrompt: systemPrompt,
-          history: history,
-        );
-        return;
-      } on AiProviderException catch (e) {
-        logger.log('Musify IA provider ${provider.id} failed', error: e);
-        lastError = e.message;
-        if (!e.retryable) break;
-        history = _recentHistory(chatId);
-      } catch (e, stackTrace) {
-        logger.log(
-          'Musify IA provider ${provider.id} crashed',
-          error: e,
-          stackTrace: stackTrace,
-        );
-        lastError = e.toString();
+      // Rotate through every configured key for this provider (e.g. to
+      // work around a rate-limited key) before giving up on it and
+      // falling back to the next provider in aiProviderOrder.
+      for (final apiKey in apiKeys) {
+        try {
+          await _runProviderTurn(
+            chatId: chatId,
+            provider: provider,
+            apiKey: apiKey,
+            model: model,
+            systemPrompt: systemPrompt,
+            history: history,
+          );
+          return;
+        } on AiProviderException catch (e) {
+          logger.log('Musify IA provider ${provider.id} failed', error: e);
+          lastError = e.message;
+          history = _recentHistory(chatId);
+          if (!e.retryable) break;
+        } catch (e, stackTrace) {
+          logger.log(
+            'Musify IA provider ${provider.id} crashed',
+            error: e,
+            stackTrace: stackTrace,
+          );
+          lastError = e.toString();
+          history = _recentHistory(chatId);
+        }
       }
     }
 
