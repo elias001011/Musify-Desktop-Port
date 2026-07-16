@@ -123,6 +123,79 @@ final cloudSyncEnabled = ValueNotifier<bool>(
   Hive.box('settings').get('cloudSyncEnabled', defaultValue: false),
 );
 
+// Musify IA (experimental AI DJ) settings
+
+const defaultAiProviderOrder = ['groq', 'gemini', 'openrouter'];
+
+const defaultAiProviderConfig = {
+  'groq': {'model': 'llama-3.3-70b-versatile'},
+  'gemini': {'model': 'gemini-2.0-flash'},
+  'openrouter': {'model': 'openrouter/auto'},
+};
+
+final aiEnabled = ValueNotifier<bool>(
+  Hive.box('settings').get('aiEnabled', defaultValue: false),
+);
+
+final aiName = ValueNotifier<String>(
+  Hive.box('settings').get('aiName', defaultValue: 'Musify IA'),
+);
+
+List<String> _readAiProviderOrder() {
+  final raw = Hive.box(
+    'settings',
+  ).get('aiProviderOrder', defaultValue: defaultAiProviderOrder);
+  if (raw is List) {
+    return raw.map((value) => value.toString()).toList();
+  }
+  return List<String>.from(defaultAiProviderOrder);
+}
+
+Map<String, Map<String, String>> _readAiProviders() {
+  final raw = Hive.box(
+    'settings',
+  ).get('aiProviders', defaultValue: <dynamic, dynamic>{});
+  final result = <String, Map<String, String>>{};
+  for (final providerId in defaultAiProviderOrder) {
+    final defaults = defaultAiProviderConfig[providerId]!;
+    final stored = (raw is Map ? raw[providerId] : null) as Map?;
+    result[providerId] = {
+      'apiKey': (stored?['apiKey'] ?? '').toString(),
+      'model': (stored?['model'] ?? defaults['model']).toString(),
+    };
+  }
+  return result;
+}
+
+final aiProviderOrder = ValueNotifier<List<String>>(_readAiProviderOrder());
+
+final aiProviders = ValueNotifier<Map<String, Map<String, String>>>(
+  _readAiProviders(),
+);
+
+Future<void> updateAiProviderConfig(
+  String providerId, {
+  String? apiKey,
+  String? model,
+}) async {
+  final updated = Map<String, Map<String, String>>.from(
+    aiProviders.value.map((k, v) => MapEntry(k, Map<String, String>.from(v))),
+  );
+  final current = updated[providerId] ?? {'apiKey': '', 'model': ''};
+  updated[providerId] = {
+    'apiKey': apiKey ?? current['apiKey'] ?? '',
+    'model': model ?? current['model'] ?? '',
+  };
+  aiProviders.value = updated;
+  final settingsBox = Hive.box('settings');
+  await settingsBox.put('aiProviders', updated);
+}
+
+Future<void> updateAiProviderOrder(List<String> order) async {
+  aiProviderOrder.value = order;
+  await Hive.box('settings').put('aiProviderOrder', order);
+}
+
 final cloudSyncAutomatic = ValueNotifier<bool>(
   Hive.box('settings').get('cloudSyncAutomatic', defaultValue: true),
 );
@@ -230,4 +303,19 @@ void refreshSettingsFromStorage() {
       .toString()
       .isNotEmpty;
   cloudSyncLastSyncedAt.value = _readDateTimeSetting('cloudSyncLastSyncedAt');
+  aiEnabled.value = settingsBox.get('aiEnabled', defaultValue: false);
+  aiName.value = settingsBox.get('aiName', defaultValue: 'Musify IA');
+  aiProviderOrder.value = _readAiProviderOrder();
+  aiProviders.value = _readAiProviders();
+}
+
+Future<void> setAiEnabled(bool value) async {
+  aiEnabled.value = value;
+  await Hive.box('settings').put('aiEnabled', value);
+}
+
+Future<void> setAiName(String value) async {
+  final trimmed = value.trim();
+  aiName.value = trimmed.isEmpty ? 'Musify IA' : trimmed;
+  await Hive.box('settings').put('aiName', aiName.value);
 }

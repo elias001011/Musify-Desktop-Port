@@ -76,89 +76,103 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
           }
           _previousOfflineMode = isOfflineMode;
 
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final isLargeScreen = MediaQuery.of(context).size.width >= 600;
-              final items = _getNavigationItems(isOfflineMode);
+          return ValueListenableBuilder<bool>(
+            valueListenable: aiEnabled,
+            builder: (context, isAiEnabled, _) {
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final isLargeScreen =
+                      MediaQuery.of(context).size.width >= 600;
+                  final items = _getNavigationItems(isOfflineMode, isAiEnabled);
 
-              return Scaffold(
-                body: SafeArea(
-                  child: Row(
-                    children: [
-                      if (isLargeScreen)
-                        NavigationRail(
-                          labelType: NavigationRailLabelType.selected,
-                          destinations: items
-                              .map(
-                                (item) => NavigationRailDestination(
-                                  icon: Icon(item.icon),
-                                  selectedIcon: Icon(item.selectedIcon),
-                                  label: Text(item.label),
-                                ),
-                              )
-                              .toList(),
-                          selectedIndex: _getCurrentIndex(items, isOfflineMode),
-                          onDestinationSelected: (index) =>
-                              _onTabTapped(index, items),
-                        ),
-                      Expanded(
-                        child: StreamBuilder<bool>(
-                          initialData: audioHandler.mediaItem.value != null,
-                          stream: _miniPlayerVisibilityStream,
-                          builder: (context, snapshot) {
-                            final mediaQuery = MediaQuery.of(context);
-                            final isMiniPlayerVisible = snapshot.data ?? false;
-                            final bottomPadding = !isMiniPlayerVisible
-                                ? mediaQuery.padding.bottom
-                                : mediaQuery.padding.bottom +
-                                      miniPlayerTotalHeight;
-
-                            return Stack(
-                              alignment: Alignment.bottomCenter,
-                              children: [
-                                MediaQuery(
-                                  data: mediaQuery.copyWith(
-                                    padding: mediaQuery.padding.copyWith(
-                                      bottom: bottomPadding,
+                  return Scaffold(
+                    body: SafeArea(
+                      child: Row(
+                        children: [
+                          if (isLargeScreen)
+                            NavigationRail(
+                              labelType: NavigationRailLabelType.selected,
+                              destinations: items
+                                  .map(
+                                    (item) => NavigationRailDestination(
+                                      icon: Icon(item.icon),
+                                      selectedIcon: Icon(item.selectedIcon),
+                                      label: Text(item.label),
                                     ),
-                                  ),
-                                  child: widget.child,
-                                ),
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 8,
-                                  ),
-                                  child: MiniPlayer(),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                bottomNavigationBar: !isLargeScreen
-                    ? NavigationBar(
-                        selectedIndex: _getCurrentIndex(items, isOfflineMode),
-                        labelBehavior: languageSetting == const Locale('en', '')
-                            ? NavigationDestinationLabelBehavior
-                                  .onlyShowSelected
-                            : NavigationDestinationLabelBehavior.alwaysHide,
-                        onDestinationSelected: (index) =>
-                            _onTabTapped(index, items),
-                        destinations: items
-                            .map(
-                              (item) => NavigationDestination(
-                                icon: Icon(item.icon),
-                                selectedIcon: Icon(item.selectedIcon),
-                                label: item.label,
+                                  )
+                                  .toList(),
+                              selectedIndex: _getCurrentIndex(
+                                items,
+                                isOfflineMode,
                               ),
-                            )
-                            .toList(),
-                      )
-                    : null,
+                              onDestinationSelected: (index) =>
+                                  _onTabTapped(index, items),
+                            ),
+                          Expanded(
+                            child: StreamBuilder<bool>(
+                              initialData: audioHandler.mediaItem.value != null,
+                              stream: _miniPlayerVisibilityStream,
+                              builder: (context, snapshot) {
+                                final mediaQuery = MediaQuery.of(context);
+                                final isMiniPlayerVisible =
+                                    snapshot.data ?? false;
+                                final bottomPadding = !isMiniPlayerVisible
+                                    ? mediaQuery.padding.bottom
+                                    : mediaQuery.padding.bottom +
+                                          miniPlayerTotalHeight;
+
+                                return Stack(
+                                  alignment: Alignment.bottomCenter,
+                                  children: [
+                                    MediaQuery(
+                                      data: mediaQuery.copyWith(
+                                        padding: mediaQuery.padding.copyWith(
+                                          bottom: bottomPadding,
+                                        ),
+                                      ),
+                                      child: widget.child,
+                                    ),
+                                    const Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 8,
+                                      ),
+                                      child: MiniPlayer(),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    bottomNavigationBar: !isLargeScreen
+                        ? NavigationBar(
+                            selectedIndex: _getCurrentIndex(
+                              items,
+                              isOfflineMode,
+                            ),
+                            labelBehavior:
+                                languageSetting == const Locale('en', '')
+                                ? NavigationDestinationLabelBehavior
+                                      .onlyShowSelected
+                                : NavigationDestinationLabelBehavior.alwaysHide,
+                            onDestinationSelected: (index) =>
+                                _onTabTapped(index, items),
+                            destinations: items
+                                .map(
+                                  (item) => NavigationDestination(
+                                    icon: Icon(item.icon),
+                                    selectedIcon: Icon(item.selectedIcon),
+                                    label: item.label,
+                                  ),
+                                )
+                                .toList(),
+                          )
+                        : null,
+                  );
+                },
               );
             },
           );
@@ -167,7 +181,10 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
     );
   }
 
-  List<_NavigationItem> _getNavigationItems(bool isOfflineMode) {
+  List<_NavigationItem> _getNavigationItems(
+    bool isOfflineMode,
+    bool isAiEnabled,
+  ) {
     final items = <_NavigationItem>[
       _NavigationItem(
         icon: FluentIcons.home_24_regular,
@@ -207,6 +224,20 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
         shellIndex: 3,
       ),
     ]);
+
+    // Musify IA is an experimental feature: only show the tab once the
+    // user has explicitly turned it on in settings.
+    if (isAiEnabled && !isOfflineMode) {
+      items.add(
+        const _NavigationItem(
+          icon: FluentIcons.bot_24_regular,
+          selectedIcon: FluentIcons.bot_24_filled,
+          label: 'Musify IA',
+          route: '/musify-ia',
+          shellIndex: 4,
+        ),
+      );
+    }
 
     return items;
   }

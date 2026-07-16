@@ -48,8 +48,9 @@ final userCustomPlaylists = ValueNotifier<List<Map>>(
 final userLikedPlaylists = ValueNotifier<List<Map>>(
   List<Map>.from(Hive.box('user').get('likedPlaylists', defaultValue: [])),
 );
-final currentLikedPlaylistsLength =
-    ValueNotifier<int>(userLikedPlaylists.value.length);
+final currentLikedPlaylistsLength = ValueNotifier<int>(
+  userLikedPlaylists.value.length,
+);
 final userPlaylistFolders = ValueNotifier<List<Map>>(
   List<Map>.from(Hive.box('user').get('playlistFolders', defaultValue: [])),
 );
@@ -1311,6 +1312,77 @@ Future<void> renameSongInPlaylist(
     );
     rethrow;
   }
+}
+
+/// Applies an edited custom-playlist map (title/image/song list) wherever
+/// it currently lives (root list or inside a folder), persists it, and
+/// keeps any offline copy's metadata in sync. Shared by the playlist edit
+/// dialog and the Musify IA `edit_playlist` tool.
+Future<Map> updateCustomPlaylistMeta(Map updatedPlaylist) async {
+  final playlistId = updatedPlaylist['ytid'];
+
+  final rootIndex = userCustomPlaylists.value.indexWhere(
+    (p) => p['ytid'] == playlistId,
+  );
+
+  if (rootIndex != -1) {
+    final updatedPlaylists = List<Map>.from(userCustomPlaylists.value);
+    updatedPlaylists[rootIndex] = updatedPlaylist;
+    userCustomPlaylists.value = updatedPlaylists;
+    await addOrUpdateData<List>(
+      'user',
+      'customPlaylists',
+      userCustomPlaylists.value,
+    );
+  } else {
+    final updatedFolders = List<Map>.from(userPlaylistFolders.value);
+    for (final folder in updatedFolders) {
+      final folderPlaylists = List<Map>.from(
+        folder['playlists'] as List? ?? [],
+      );
+      final fi = folderPlaylists.indexWhere((p) => p['ytid'] == playlistId);
+      if (fi != -1) {
+        folderPlaylists[fi] = updatedPlaylist;
+        folder['playlists'] = folderPlaylists;
+        break;
+      }
+    }
+    userPlaylistFolders.value = updatedFolders;
+    await addOrUpdateData<List>(
+      'user',
+      'playlistFolders',
+      userPlaylistFolders.value,
+    );
+  }
+
+  await syncOfflinePlaylistMetadata(updatedPlaylist);
+  return updatedPlaylist;
+}
+
+/// Reorders a song within a custom playlist's song list in place.
+Future<bool> reorderSongInCustomPlaylist(
+  String playlistId,
+  int oldIndex,
+  int newIndex,
+) async {
+  final found = _findCustomPlaylist(playlistId);
+  final customPlaylist = found?.playlist;
+  if (customPlaylist == null) return false;
+
+  final songs = List<dynamic>.from(customPlaylist['list'] as List? ?? []);
+  if (oldIndex < 0 ||
+      oldIndex >= songs.length ||
+      newIndex < 0 ||
+      newIndex >= songs.length) {
+    return false;
+  }
+
+  final song = songs.removeAt(oldIndex);
+  songs.insert(newIndex, song);
+  customPlaylist['list'] = songs;
+
+  await updateCustomPlaylistMeta(customPlaylist);
+  return true;
 }
 
 Future<void> updatePlaylistLikeStatus(

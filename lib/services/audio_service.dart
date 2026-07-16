@@ -1104,8 +1104,8 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
   void clearQueue() {
     try {
-      final currentSong = _currentQueueIndex >= 0 &&
-              _currentQueueIndex < _queueList.length
+      final currentSong =
+          _currentQueueIndex >= 0 && _currentQueueIndex < _queueList.length
           ? cloneMap(_queueList[_currentQueueIndex])
           : null;
 
@@ -1372,6 +1372,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
   }
 
   Stream<List<Map>> get queueAsMapStream => _queueMapStream.stream;
+  List<Map> get currentQueueList => List<Map>.from(_queueList);
   int get currentQueueIndex => _currentQueueIndex;
   Map? get currentSong =>
       _currentQueueIndex >= 0 && _currentQueueIndex < _queueList.length

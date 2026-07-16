@@ -273,6 +273,12 @@ class SettingsPage extends StatelessWidget {
           },
         ),
 
+        CustomBar(
+          'Musify IA',
+          FluentIcons.bot_24_regular,
+          description: 'Assistente de IA (experimental)',
+          onTap: () => context.push('/settings/musify-ia'),
+        ),
         _buildCloudSyncSection(context),
         _buildToolsSection(context),
         _buildSponsorSection(context),

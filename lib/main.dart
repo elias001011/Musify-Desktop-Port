@@ -295,6 +295,8 @@ Future<void> initialisation() async {
       Hive.openBox('user'),
       Hive.openBox('userNoBackup'),
       Hive.openBox('cache'),
+      Hive.openBox('ai_chat_index'),
+      Hive.openBox('ai_chat_messages'),
     ]);
 
     await CloudSyncManager.instance.initialise();

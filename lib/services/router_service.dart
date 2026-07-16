@@ -24,6 +24,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:musify/constants/version.dart';
 import 'package:musify/screens/about_page.dart';
+import 'package:musify/screens/ai_dj/ai_chat_list_page.dart';
+import 'package:musify/screens/ai_dj/ai_chat_page.dart';
+import 'package:musify/screens/ai_dj/ai_settings_page.dart';
 import 'package:musify/screens/artist_page.dart';
 import 'package:musify/screens/bottom_navigation_page.dart';
 import 'package:musify/screens/equalizer_page.dart';
@@ -110,6 +113,8 @@ class NavigationManager {
       GlobalKey<NavigatorState>();
   static final GlobalKey<NavigatorState> settingsTabNavigatorKey =
       GlobalKey<NavigatorState>();
+  static final GlobalKey<NavigatorState> aiTabNavigatorKey =
+      GlobalKey<NavigatorState>();
 
   BuildContext get context {
     final ctx = router.routerDelegate.navigatorKey.currentContext;
@@ -131,6 +136,7 @@ class NavigationManager {
   static const String settingsPath = '/settings';
   static const String searchPath = '/search';
   static const String libraryPath = '/library';
+  static const String aiPath = '/musify-ia';
 
   /// Refresh the router configuration when offline mode changes
   static void refreshRouter() {
@@ -306,6 +312,34 @@ class NavigationManager {
                 path: 'equalizer',
                 pageBuilder: (context, state) =>
                     _pushPage(child: const EqualizerPage(), state: state),
+              ),
+              GoRoute(
+                path: 'musify-ia',
+                pageBuilder: (context, state) =>
+                    _pushPage(child: const AiSettingsPage(), state: state),
+              ),
+            ],
+          ),
+        ],
+      ),
+      // Branch 4: Musify IA
+      StatefulShellBranch(
+        navigatorKey: aiTabNavigatorKey,
+        routes: [
+          GoRoute(
+            path: aiPath,
+            pageBuilder: (context, state) {
+              return getPage(child: const AiChatListPage(), state: state);
+            },
+            routes: [
+              GoRoute(
+                path: 'chat/:chatId',
+                pageBuilder: (context, state) => _pushPage(
+                  child: AiChatPage(
+                    chatId: state.pathParameters['chatId'] ?? '',
+                  ),
+                  state: state,
+                ),
               ),
             ],
           ),

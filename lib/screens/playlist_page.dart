@@ -526,50 +526,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
             'list': result['list'] ?? _playlist['list'],
           };
 
-          // Search root list first, then inside folders.
-          final rootIndex = userCustomPlaylists.value.indexWhere(
-            (p) => p['ytid'] == resolvedPlaylistYtid,
-          );
-
-          if (rootIndex != -1) {
-            final updatedPlaylists = List<Map>.from(userCustomPlaylists.value);
-            updatedPlaylists[rootIndex] = updatedPlaylist;
-            userCustomPlaylists.value = updatedPlaylists;
-            unawaited(
-              addOrUpdateData<List>(
-                'user',
-                'customPlaylists',
-                userCustomPlaylists.value,
-              ),
-            );
-          } else {
-            // Playlist lives inside a folder - update it there.
-            final updatedFolders = List<Map>.from(userPlaylistFolders.value);
-            for (final folder in updatedFolders) {
-              final folderPlaylists = List<Map>.from(
-                folder['playlists'] as List? ?? [],
-              );
-              final fi = folderPlaylists.indexWhere(
-                (p) => p['ytid'] == resolvedPlaylistYtid,
-              );
-              if (fi != -1) {
-                folderPlaylists[fi] = updatedPlaylist;
-                folder['playlists'] = folderPlaylists;
-                break;
-              }
-            }
-            userPlaylistFolders.value = updatedFolders;
-            unawaited(
-              addOrUpdateData<List>(
-                'user',
-                'playlistFolders',
-                userPlaylistFolders.value,
-              ),
-            );
-          }
-
-          // Update offline playlist if it exists
-          unawaited(syncOfflinePlaylistMetadata(updatedPlaylist));
+          unawaited(updateCustomPlaylistMeta(updatedPlaylist));
 
           setState(() => _playlist = updatedPlaylist);
           showToast(context, context.l10n!.playlistUpdated);
