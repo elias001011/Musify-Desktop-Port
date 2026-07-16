@@ -51,14 +51,18 @@ ValueNotifier<List> userOfflineSongs = ValueNotifier<List>(
   Hive.box('userNoBackup').get('offlineSongs', defaultValue: []),
 );
 
-final currentLikedSongsLength =
-    ValueNotifier<int>(userLikedSongsList.value.length);
-final currentRecentlyPlayedLength =
-    ValueNotifier<int>(userRecentlyPlayed.value.length);
-final currentOfflineSongsLength =
-    ValueNotifier<int>(userOfflineSongs.value.length);
-final recentlyPlayedVersion =
-    ValueNotifier<int>(userRecentlyPlayed.value.length);
+final currentLikedSongsLength = ValueNotifier<int>(
+  userLikedSongsList.value.length,
+);
+final currentRecentlyPlayedLength = ValueNotifier<int>(
+  userRecentlyPlayed.value.length,
+);
+final currentOfflineSongsLength = ValueNotifier<int>(
+  userOfflineSongs.value.length,
+);
+final recentlyPlayedVersion = ValueNotifier<int>(
+  userRecentlyPlayed.value.length,
+);
 
 dynamic nextRecommendedSong;
 
@@ -72,7 +76,10 @@ void refreshUserSongsFromStorage() {
   final userBox = Hive.box('user');
 
   userLikedSongsList.value = userBox.get('likedSongs', defaultValue: []);
-  userRecentlyPlayed.value = userBox.get('recentlyPlayedSongs', defaultValue: []);
+  userRecentlyPlayed.value = userBox.get(
+    'recentlyPlayedSongs',
+    defaultValue: [],
+  );
   userOfflineSongs.value = Hive.box(
     'userNoBackup',
   ).get('offlineSongs', defaultValue: []);
@@ -187,28 +194,39 @@ Future<List> getRecommendedSongs() async {
 Future<List> _getRecommendationsFromRecentlyPlayed() async {
   final recent = (List.from(
     userRecentlyPlayed.value,
-  )..shuffle()).take(3).toList();
+  )..shuffle()).take(5).toList();
 
-  final futures = recent.map((songData) async {
+  final scores = <String, double>{};
+  final songMap = <String, Map>{};
+
+  final futures = recent.asMap().entries.map((entry) async {
+    final seedIndex = entry.key;
+    final songData = entry.value;
     try {
       final song = await ytClient.videos.get(songData['ytid']);
-      final relatedSongs = await ytClient.videos.getRelatedVideos(song) ?? [];
-      return relatedSongs.take(3).map((s) => returnSongLayout(0, s)).toList();
-    } catch (e, stackTrace) {
+      final related = await ytClient.videos.getRelatedVideos(song) ?? [];
+      for (var i = 0; i < related.length && i < 8; i++) {
+        final s = returnSongLayout(0, related[i]);
+        final id = s['ytid'];
+        final positionWeight = 1.0 - (i / 8);
+        final recencyWeight = 1.0 - (seedIndex / recent.length);
+        scores[id] = (scores[id] ?? 0) + positionWeight * recencyWeight;
+        songMap[id] = s;
+      }
+    } catch (e, st) {
       logger.log(
-        'Error getting related videos for ${songData['ytid']}',
+        'related videos error for ${songData['ytid']}',
         error: e,
-        stackTrace: stackTrace,
+        stackTrace: st,
       );
-      return <Map>[];
     }
   }).toList();
 
-  final results = await Future.wait(futures);
-  // Limit to 15 items max for performance
-  final playlistSongs = results.expand((list) => list).take(15).toList()
-    ..shuffle();
-  return playlistSongs;
+  await Future.wait(futures);
+
+  final sorted = scores.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  return sorted.take(15).map((e) => songMap[e.key]!).toList();
 }
 
 Future<List> _getRecommendationsFromMixedSources() async {

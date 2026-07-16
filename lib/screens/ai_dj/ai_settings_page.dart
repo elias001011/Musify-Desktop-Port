@@ -2,6 +2,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/services/ai/ai_model_catalog.dart';
+import 'package:musify/services/ai/ai_tools.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/widgets/custom_bar.dart';
 import 'package:musify/widgets/mini_player_bottom_space.dart';
@@ -11,6 +12,21 @@ const _providerLabels = {
   'groq': 'Groq',
   'gemini': 'Gemini',
   'openrouter': 'OpenRouter',
+};
+
+const _toolLabels = {
+  'search': 'Buscar músicas/playlists/artistas',
+  'get_library_index': 'Ver resumo da biblioteca',
+  'get_library_item': 'Abrir item da biblioteca',
+  'play_song': 'Tocar música',
+  'queue_action': 'Ver/editar a fila',
+  'playback_control': 'Play/pause/pular',
+  'like_item': 'Curtir/descurtir',
+  'create_playlist': 'Criar playlist',
+  'edit_playlist': 'Editar playlist',
+  'offline_control': 'Baixar/remover offline',
+  'get_lyrics': 'Ver letra da música',
+  'get_wrapped_insights': 'Analisar seu Wrapped (gostos musicais)',
 };
 
 class AiSettingsPage extends StatefulWidget {
@@ -127,6 +143,63 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                       },
                     );
                   },
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+            const SectionHeader(
+              title: 'Ferramentas da IA',
+              icon: FluentIcons.wrench_24_regular,
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              child: Text(
+                'Desative o que não quiser que a IA seja capaz de fazer.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            ValueListenableBuilder<Map<String, bool>>(
+              valueListenable: aiToolsEnabled,
+              builder: (context, enabledMap, _) {
+                return Column(
+                  children: [
+                    for (var i = 0; i < aiToolSpecs.length; i++)
+                      CustomBar(
+                        _toolLabels[aiToolSpecs[i].name] ?? aiToolSpecs[i].name,
+                        FluentIcons.wrench_24_regular,
+                        borderRadius: i == 0
+                            ? commonCustomBarRadiusFirst
+                            : (i == aiToolSpecs.length - 1
+                                  ? commonCustomBarRadiusLast
+                                  : BorderRadius.zero),
+                        trailing: Switch(
+                          value: enabledMap[aiToolSpecs[i].name] != false,
+                          onChanged: (value) =>
+                              setAiToolEnabled(aiToolSpecs[i].name, value),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<bool>(
+              valueListenable: aiIncludeRecentlyPlayed,
+              builder: (context, value, _) {
+                return CustomBar(
+                  'Incluir músicas recentes automaticamente',
+                  FluentIcons.history_24_regular,
+                  description:
+                      'Não é uma tool: as últimas músicas ouvidas são '
+                      'enviadas direto no contexto, sem gastar uma chamada '
+                      'extra.',
+                  borderRadius: BorderRadius.circular(16),
+                  trailing: Switch(
+                    value: value,
+                    onChanged: setAiIncludeRecentlyPlayed,
+                  ),
                 );
               },
             ),

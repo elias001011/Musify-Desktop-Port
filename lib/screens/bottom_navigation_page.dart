@@ -247,9 +247,11 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
 
     final currentRoute = GoRouterState.of(context).matchedLocation;
 
-    // If we're switching to offline mode and currently on search tab
-    if (isOfflineMode && currentRoute.startsWith('/search')) {
-      // Navigate to home
+    // If we're switching to offline mode and currently on search or Musify
+    // IA (both need a live connection), navigate to home.
+    if (isOfflineMode &&
+        (currentRoute.startsWith('/search') ||
+            currentRoute.startsWith('/musify-ia'))) {
       widget.child.goBranch(0);
     }
   }

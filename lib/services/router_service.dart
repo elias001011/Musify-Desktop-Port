@@ -78,8 +78,16 @@ class NavigationManager {
         final currentPath = state.matchedLocation;
 
         if (isOffline &&
-            (currentPath == searchPath || currentPath == timeMachinePath)) {
-          // Redirect unavailable pages to home in offline mode
+            (currentPath == searchPath ||
+                currentPath == timeMachinePath ||
+                currentPath.startsWith(aiPath))) {
+          // Redirect unavailable pages to home in offline mode. Musify IA
+          // needs a live connection to its configured providers, so it's
+          // unavailable offline just like search.
+          return homePath;
+        }
+
+        if (!aiEnabled.value && currentPath.startsWith(aiPath)) {
           return homePath;
         }
 

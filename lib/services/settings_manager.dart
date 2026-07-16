@@ -217,6 +217,39 @@ Future<void> updateAiProviderOrder(List<String> order) async {
   await Hive.box('settings').put('aiProviderOrder', order);
 }
 
+Map<String, bool> _readAiToolsEnabled() {
+  final raw = Hive.box(
+    'settings',
+  ).get('aiToolsEnabled', defaultValue: <dynamic, dynamic>{});
+  if (raw is Map) {
+    return raw.map((k, v) => MapEntry(k.toString(), v != false));
+  }
+  return {};
+}
+
+/// Per-tool on/off switches for Musify IA. A tool absent from this map is
+/// treated as enabled - it only needs an entry once the user turns it off.
+final aiToolsEnabled = ValueNotifier<Map<String, bool>>(_readAiToolsEnabled());
+
+Future<void> setAiToolEnabled(String toolName, bool enabled) async {
+  final updated = Map<String, bool>.from(aiToolsEnabled.value);
+  updated[toolName] = enabled;
+  aiToolsEnabled.value = updated;
+  await Hive.box('settings').put('aiToolsEnabled', updated);
+}
+
+/// When on, the user's recently played songs are folded straight into the
+/// system prompt every turn instead of behind a tool call - cheaper and
+/// faster than making the model ask for them explicitly.
+final aiIncludeRecentlyPlayed = ValueNotifier<bool>(
+  Hive.box('settings').get('aiIncludeRecentlyPlayed', defaultValue: true),
+);
+
+Future<void> setAiIncludeRecentlyPlayed(bool value) async {
+  aiIncludeRecentlyPlayed.value = value;
+  await Hive.box('settings').put('aiIncludeRecentlyPlayed', value);
+}
+
 final cloudSyncAutomatic = ValueNotifier<bool>(
   Hive.box('settings').get('cloudSyncAutomatic', defaultValue: true),
 );
@@ -328,6 +361,11 @@ void refreshSettingsFromStorage() {
   aiName.value = settingsBox.get('aiName', defaultValue: 'Musify IA');
   aiProviderOrder.value = _readAiProviderOrder();
   aiProviders.value = _readAiProviders();
+  aiToolsEnabled.value = _readAiToolsEnabled();
+  aiIncludeRecentlyPlayed.value = settingsBox.get(
+    'aiIncludeRecentlyPlayed',
+    defaultValue: true,
+  );
 }
 
 Future<void> setAiEnabled(bool value) async {

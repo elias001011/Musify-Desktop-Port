@@ -1,9 +1,11 @@
 import 'package:musify/main.dart' show audioHandler;
 import 'package:musify/services/ai/ai_message.dart';
 import 'package:musify/services/common_services.dart';
+import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/playlist_download_service.dart';
 import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/services/router_service.dart';
+import 'package:musify/services/settings_manager.dart' show wrappedEnabled;
 
 /// The tool a Musify IA turn is allowed to call, and the dispatcher that
 /// routes a call into the app's existing services. Every tool returns
@@ -246,6 +248,15 @@ final List<AiToolSpec> aiToolSpecs = [
       'required': ['title'],
     },
   ),
+  const AiToolSpec(
+    name: 'get_wrapped_insights',
+    description:
+        "Get the user's actual listening habits from their Wrapped stats: "
+        'top songs, top artists and total minutes listened this year. Call '
+        'this before recommending music or describing the user\'s taste, so '
+        'you ground it in real data instead of guessing.',
+    parameters: {'type': 'object', 'properties': {}},
+  ),
 ];
 
 Future<AiToolResult> executeAiTool(
@@ -275,6 +286,8 @@ Future<AiToolResult> executeAiTool(
       return _offlineControl(args);
     case 'get_lyrics':
       return _getLyrics(args);
+    case 'get_wrapped_insights':
+      return _getWrappedInsights();
     default:
       return AiToolResult({'error': 'Unknown tool: $name'});
   }
@@ -679,4 +692,40 @@ Future<AiToolResult> _getLyrics(Map<String, dynamic> args) async {
 
   final lyrics = await getSongLyrics(artist, title);
   return AiToolResult({'lyrics': lyrics ?? 'Letra não encontrada.'});
+}
+
+Future<AiToolResult> _getWrappedInsights() async {
+  if (!wrappedEnabled.value) {
+    return const AiToolResult({
+      'error': 'Listening stats (Wrapped) are disabled in settings.',
+    });
+  }
+
+  final topSongs = listeningStatsService.yearTopSongs(limit: 15);
+  final artistSeconds = <String, int>{};
+  for (final song in topSongs) {
+    final artist = (song['artist'] ?? '').toString();
+    if (artist.isEmpty) continue;
+    final seconds = (song['seconds'] as num?)?.toInt() ?? 0;
+    artistSeconds[artist] = (artistSeconds[artist] ?? 0) + seconds;
+  }
+  final topArtists = artistSeconds.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+
+  return AiToolResult({
+    'yearTotalMinutes': (listeningStatsService.yearTotalSeconds / 60).round(),
+    'topSongs': topSongs
+        .map(
+          (s) => {
+            'title': s['title'],
+            'artist': s['artist'],
+            'minutes': ((s['seconds'] as num?) ?? 0) ~/ 60,
+          },
+        )
+        .toList(),
+    'topArtists': topArtists
+        .take(8)
+        .map((e) => {'artist': e.key, 'minutes': e.value ~/ 60})
+        .toList(),
+  });
 }

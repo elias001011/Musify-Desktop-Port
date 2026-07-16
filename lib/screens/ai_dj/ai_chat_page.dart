@@ -1,17 +1,25 @@
+import 'dart:math';
+
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:musify/main.dart' show audioHandler;
 import 'package:musify/services/ai/ai_chat_store.dart';
 import 'package:musify/services/ai/ai_dj_service.dart';
 import 'package:musify/services/ai/ai_voice_service.dart';
+import 'package:musify/services/common_services.dart' show getRecommendedSongs;
 import 'package:musify/widgets/ai_dj/ai_attachment_picker.dart';
 import 'package:musify/widgets/ai_dj/ai_message_bubble.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';
 
-const _suggestions = [
+const _suggestionPool = [
   'Adicione uma música na fila com base no que está tocando agora',
   'Monte uma playlist temporária para hoje',
   'O que tem na minha biblioteca?',
   'Toque algo parecido com o que está tocando',
+  'O que você acha do meu gosto musical?',
+  'Baixe minha playlist mais recente para ouvir offline',
+  'Qual a letra dessa música?',
+  'Curta a música que está tocando agora',
 ];
 
 class AiChatPage extends StatefulWidget {
@@ -30,6 +38,10 @@ class _AiChatPageState extends State<AiChatPage> {
   final _scrollController = ScrollController();
   bool _sending = false;
   Map<String, dynamic>? _pendingAttachment;
+  bool _startingMoots = false;
+  late final List<String> _dynamicSuggestions = (List<String>.from(
+    _suggestionPool,
+  )..shuffle(Random())).take(3).toList();
 
   @override
   void dispose() {
@@ -144,26 +156,72 @@ class _AiChatPageState extends State<AiChatPage> {
   }
 
   Widget _buildSuggestions(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return SizedBox(
       height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 8),
-        itemCount: _suggestions.length,
+        itemCount: _dynamicSuggestions.length + 1,
         separatorBuilder: (context, index) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
+          if (index == 0) {
+            return ActionChip(
+              avatar: _startingMoots
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                    )
+                  : Icon(
+                      FluentIcons.sparkle_24_filled,
+                      color: colorScheme.onPrimaryContainer,
+                      size: 18,
+                    ),
+              label: const Text('Moots'),
+              backgroundColor: colorScheme.primaryContainer,
+              labelStyle: TextStyle(
+                color: colorScheme.onPrimaryContainer,
+                fontWeight: FontWeight.w700,
+              ),
+              onPressed: _startingMoots ? null : _startMoots,
+            );
+          }
+
+          final suggestion = _dynamicSuggestions[index - 1];
           return ActionChip(
-            label: Text(_suggestions[index]),
+            label: Text(suggestion),
             onPressed: _sending
                 ? null
                 : () {
-                    _inputController.text = _suggestions[index];
+                    _inputController.text = suggestion;
                     _send();
                   },
           );
         },
       ),
     );
+  }
+
+  /// "Moots": a quick-mix that does not go through the AI at all - it just
+  /// hands the app's own recommendation algorithm a fresh dynamic queue,
+  /// like a "shuffle play" button.
+  Future<void> _startMoots() async {
+    setState(() => _startingMoots = true);
+    try {
+      final songs = await getRecommendedSongs();
+      if (songs.isNotEmpty) {
+        await audioHandler.addPlaylistToQueue(
+          List<Map>.from(songs),
+          replace: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _startingMoots = false);
+    }
   }
 
   Widget _buildSpeakingIndicator() {
