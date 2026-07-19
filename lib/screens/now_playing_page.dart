@@ -160,7 +160,6 @@ class _DesktopLayout extends StatelessWidget {
                     ),
                   ),
                 BottomActionsRow(
-                  audioId: metadata.extras?['ytid'],
                   metadata: metadata,
                   iconSize: adjustedMiniIconSize,
                   isLargeScreen: true,
@@ -204,6 +203,8 @@ class _MobileLayout extends StatelessWidget {
   }
 
   Widget _buildPortraitLayout(BuildContext context) {
+    final isLive = metadata.extras?['isLive'] ?? false;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
@@ -219,7 +220,7 @@ class _MobileLayout extends StatelessWidget {
               ),
             ),
           ),
-          if (!(metadata.extras?['isLive'] ?? false))
+          if (!isLive)
             Expanded(
               flex: 4,
               child: NowPlayingControls(
@@ -231,7 +232,6 @@ class _MobileLayout extends StatelessWidget {
               ),
             ),
           BottomActionsRow(
-            audioId: metadata.extras?['ytid'],
             metadata: metadata,
             iconSize: adjustedMiniIconSize,
             isLargeScreen: isLargeScreen,
@@ -244,6 +244,8 @@ class _MobileLayout extends StatelessWidget {
   }
 
   Widget _buildLandscapeLayout(BuildContext context) {
+    final isLive = metadata.extras?['isLive'] ?? false;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       child: Row(
@@ -264,7 +266,7 @@ class _MobileLayout extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (!(metadata.extras?['isLive'] ?? false))
+                if (!isLive)
                   Expanded(
                     child: NowPlayingControls(
                       size: size,
@@ -275,7 +277,6 @@ class _MobileLayout extends StatelessWidget {
                     ),
                   ),
                 BottomActionsRow(
-                  audioId: metadata.extras?['ytid'],
                   metadata: metadata,
                   iconSize: adjustedMiniIconSize,
                   isLargeScreen: isLargeScreen,

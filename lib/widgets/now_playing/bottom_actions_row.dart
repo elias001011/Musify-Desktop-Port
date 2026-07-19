@@ -36,13 +36,11 @@ import 'package:musify/widgets/queue_list_view.dart';
 class BottomActionsRow extends StatefulWidget {
   const BottomActionsRow({
     super.key,
-    required this.audioId,
     required this.metadata,
     required this.iconSize,
     required this.isLargeScreen,
     required this.lyricsController,
   });
-  final dynamic audioId;
   final MediaItem metadata;
   final double iconSize;
   final bool isLargeScreen;
@@ -55,27 +53,39 @@ class BottomActionsRow extends StatefulWidget {
 class _BottomActionsRowState extends State<BottomActionsRow> {
   late final ValueNotifier<bool> _songLikeStatus;
   late final ValueNotifier<bool> _songOfflineStatus;
+  late final String? audioId = widget.metadata.id;
+  late final bool isRadioStation = widget.metadata.extras?['isLive'] ?? false;
 
   @override
   void initState() {
     super.initState();
-    _songLikeStatus = ValueNotifier<bool>(isSongAlreadyLiked(widget.audioId));
-    _songOfflineStatus = ValueNotifier<bool>(
-      isSongAlreadyOffline(widget.audioId),
-    );
-    userLikedSongsList.addListener(_syncLikeStatus);
+    if (isRadioStation) {
+      _songLikeStatus = ValueNotifier<bool>(isRadioStationLiked(audioId ?? ''));
+      userLikedRadioStations.addListener(_syncRadioLikeStatus);
+    } else {
+      _songLikeStatus = ValueNotifier<bool>(isSongAlreadyLiked(audioId));
+      userLikedSongsList.addListener(_syncLikeStatus);
+    }
+    _songOfflineStatus = ValueNotifier<bool>(isSongAlreadyOffline(audioId));
     userOfflineSongs.addListener(_syncOfflineStatus);
   }
 
   void _syncLikeStatus() {
-    final newStatus = isSongAlreadyLiked(widget.audioId);
+    final newStatus = isSongAlreadyLiked(audioId);
+    if (_songLikeStatus.value != newStatus) {
+      _songLikeStatus.value = newStatus;
+    }
+  }
+
+  void _syncRadioLikeStatus() {
+    final newStatus = isRadioStationLiked(audioId ?? '');
     if (_songLikeStatus.value != newStatus) {
       _songLikeStatus.value = newStatus;
     }
   }
 
   void _syncOfflineStatus() {
-    final newStatus = isSongAlreadyOffline(widget.audioId);
+    final newStatus = isSongAlreadyOffline(audioId);
     if (_songOfflineStatus.value != newStatus) {
       _songOfflineStatus.value = newStatus;
     }
@@ -84,15 +94,23 @@ class _BottomActionsRowState extends State<BottomActionsRow> {
   @override
   void didUpdateWidget(BottomActionsRow oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.audioId != widget.audioId) {
-      _songLikeStatus.value = isSongAlreadyLiked(widget.audioId);
-      _songOfflineStatus.value = isSongAlreadyOffline(widget.audioId);
+    if (oldWidget.metadata.id != widget.metadata.id) {
+      if (isRadioStation) {
+        _songLikeStatus.value = isRadioStationLiked(audioId ?? '');
+      } else {
+        _songLikeStatus.value = isSongAlreadyLiked(audioId);
+      }
+      _songOfflineStatus.value = isSongAlreadyOffline(audioId);
     }
   }
 
   @override
   void dispose() {
-    userLikedSongsList.removeListener(_syncLikeStatus);
+    if (isRadioStation) {
+      userLikedRadioStations.removeListener(_syncRadioLikeStatus);
+    } else {
+      userLikedSongsList.removeListener(_syncLikeStatus);
+    }
     userOfflineSongs.removeListener(_syncOfflineStatus);
     _songLikeStatus.dispose();
     _songOfflineStatus.dispose();
@@ -133,7 +151,7 @@ class _BottomActionsRowState extends State<BottomActionsRow> {
             tooltip: l10n.makeOffline,
           ),
           _buildSleepTimerButton(context, colorScheme, responsiveIconSize),
-          if (!offlineMode.value)
+          if (!offlineMode.value && !isRadioStation)
             _buildSimpleActionButton(
               context: context,
               icon: FluentIcons.album_add_24_regular,
@@ -145,7 +163,7 @@ class _BottomActionsRowState extends State<BottomActionsRow> {
               ),
               tooltip: l10n.addToPlaylist,
             ),
-          if (queue.isNotEmpty && !widget.isLargeScreen)
+          if (queue.isNotEmpty && !isRadioStation && !widget.isLargeScreen)
             _buildSimpleActionButton(
               context: context,
               icon: FluentIcons.apps_list_24_filled,
@@ -158,14 +176,15 @@ class _BottomActionsRowState extends State<BottomActionsRow> {
               tooltip: l10n.queue,
             ),
           if (!offlineMode.value) ...[
-            _buildSimpleActionButton(
-              context: context,
-              icon: FluentIcons.text_quote_24_regular,
-              colorScheme: colorScheme,
-              size: responsiveIconSize,
-              onPressed: widget.lyricsController.flipcard,
-              tooltip: l10n.lyrics,
-            ),
+            if (!isRadioStation)
+              _buildSimpleActionButton(
+                context: context,
+                icon: FluentIcons.text_quote_24_regular,
+                colorScheme: colorScheme,
+                size: responsiveIconSize,
+                onPressed: widget.lyricsController.flipcard,
+                tooltip: l10n.lyrics,
+              ),
             _buildActionButton(
               context: context,
               icon: FluentIcons.heart_24_regular,
@@ -174,13 +193,31 @@ class _BottomActionsRowState extends State<BottomActionsRow> {
               size: responsiveIconSize,
               statusNotifier: _songLikeStatus,
               activeColor: colorScheme.primary,
-              onPressed: () {
-                updateSongLikeStatus(
-                  widget.audioId,
-                  !_songLikeStatus.value,
-                  songData: mediaItemToMap(widget.metadata),
-                );
-                _songLikeStatus.value = !_songLikeStatus.value;
+              onPressed: () async {
+                final id = audioId;
+                if (id == null) return;
+
+                final originalValue = _songLikeStatus.value;
+                _songLikeStatus.value = !originalValue;
+
+                try {
+                  if (isRadioStation) {
+                    if (originalValue) {
+                      await removeRadioStationFromLiked(id);
+                    } else {
+                      await addRadioStationToLiked(id);
+                    }
+                  } else {
+                    await updateSongLikeStatus(
+                      audioId,
+                      !originalValue,
+                      songData: mediaItemToMap(widget.metadata),
+                    );
+                  }
+                } catch (e) {
+                  _songLikeStatus.value = originalValue; // revert on failure
+                  logger.log('Error toggling like status', error: e);
+                }
               },
               tooltip: l10n.likedSongs,
             ),
@@ -310,7 +347,7 @@ class _BottomActionsRowState extends State<BottomActionsRow> {
 
 Future<void> _toggleOffline(
   ValueNotifier<bool> status,
-  dynamic audioId,
+  String? audioId,
   MediaItem metadata,
 ) async {
   final originalValue = status.value;
@@ -433,7 +470,10 @@ void _showSleepTimerDialog(BuildContext context) {
                         showToast(
                           context,
                           context.l10n!.sleepTimerSet,
-                          duration: const Duration(seconds: 1, milliseconds: 500),
+                          duration: const Duration(
+                            seconds: 1,
+                            milliseconds: 500,
+                          ),
                         );
                         Navigator.pop(context);
                       },
