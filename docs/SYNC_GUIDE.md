@@ -4,36 +4,43 @@ Internal documentation for synchronizing `gokadzev/Musify` upstream with our mai
 - **mobile-cloud-sync**: Musify Cloud (Android with Cloud Sync)
 - **master**: Musify Desktop Port (Windows/Linux)
 
-## Current Status (2026-06-30)
+## Current Status (2026-07-26)
 
 | Branch | Version | Remote | Sync Status |
 |--------|---------|--------|-------------|
-| mobile-cloud-sync | 10.1.0 | origin | ✅ Synced |
-| master | 10.1.0 | origin | ✅ Synced |
-| upstream (gokadzev/Musify) | 10.1.0 | reference | 📍 Current |
+| mobile-cloud-sync | 10.1.1 | origin | ✅ Synced |
+| master | 10.1.1 | origin | ✅ Synced |
+| upstream (gokadzev/Musify) | 10.1.1 | reference | 📍 Current |
 
 ## Automated Synchronization
 
 ### Mobile: `sync_mobile_upstream_release.yml`
-- **Schedule**: Every 6 hours (cron: `17 */6 * * *`)
+- **Schedule**: Weekly, Sunday 03:17 UTC (cron: `17 3 * * 0`)
 - **Branch**: mobile-cloud-sync
 - **Process**:
-  1. Fetch latest upstream release tag
-  2. Check if mobile-v* release already exists
-  3. If not, attempt merge with fallback strategies:
-     - `git merge --no-edit` (clean merge)
-     - `-X ours` (preserve Musify Cloud changes) ← Most common
-     - `-X theirs` (accept upstream changes)
-  4. Validate pubspec.yaml
-  5. Push to origin/mobile-cloud-sync
-  6. Automatically dispatch mobile_release.yml
-  7. Create issue if failed
+  1. Resolve the latest upstream release tag
+  2. Check if the matching mobile-v* release already exists
+  3. If not, `git merge --no-edit` the upstream tag — **conflicts abort the run**
+  4. Refresh `lib/constants/version.dart` (`update.sh`) and `pubspec.lock`
+  5. `flutter analyze` — the run stops here if the merged tree does not compile
+  6. Push to origin/mobile-cloud-sync
+  7. Dispatch mobile_release.yml against the exact validated commit
+  8. On failure: write the reason to the run summary, and try to open an issue
 
 ### Desktop: `sync_desktop_upstream_release.yml`
-- **Schedule**: Every 6 hours (cron: `17 */6 * * *`)
+- **Schedule**: Weekly, Sunday 03:17 UTC (cron: `17 3 * * 0`)
 - **Branch**: master
 - **Process**: Same as mobile sync but for desktop
   - Also dispatches desktop_release.yml on success
+
+### Why conflicts abort instead of auto-resolving
+
+Both workflows used to retry a failed merge with `-X ours` and then `-X theirs`.
+That made the sync step report success while producing a tree that either called
+a refactored upstream API or silently lost an upstream fix — exactly what broke
+the 10.1.1 desktop release build. Automatic resolution is gone; a conflict is a
+human's job. The `flutter analyze` gate is the backstop: nothing reaches a branch
+or a release build unless it analyzes clean.
 
 ## Expected Merge Conflicts & Resolution
 
@@ -117,6 +124,34 @@ void reloadSongLibraryStateFromStorage() {
 **✅ Resolution**: Accept `-X theirs` (upstream version)
 - Upstream always has latest tested dependency versions
 - Local adjustments (if needed) are minimal
+- Then run `flutter pub get` and commit the refreshed `pubspec.lock`: upstream can
+  add a dependency (10.1.1 added `share_plus`) without the lockfile conflicting
+
+### 4. `lib/main.dart` — `handleIncomingLink` (mobile only)
+**Conflict Pattern**: Upstream refactors the deep link handler; we only differ in
+the URI scheme.
+
+**✅ Resolution**: Take the upstream body, keep the `musifycloud` scheme. It has to
+match `android/app/src/main/AndroidManifest.xml` and the share URL built in
+`lib/screens/playlist_page.dart`.
+
+### 5. `lib/screens/library_page.dart` — library shortcuts (mobile only)
+**Conflict Pattern**: Upstream appends new shortcut bars (10.1.1 added Radio
+Stations); we renamed the visibility flags (`shouldShowLibraryShortcuts`,
+`hasAnythingAfterOffline`).
+
+**✅ Resolution**: Keep our flags, take the new upstream bars, and move
+`borderRadius: hasAnythingAfterOffline ? BorderRadius.zero : commonCustomBarRadiusLast`
+onto whatever is now the last bar.
+
+### 6. `lib/widgets/now_playing/bottom_actions_row.dart` (desktop only)
+**Conflict Pattern**: Our only change is prepending `DesktopVolumeControl` to the
+actions list, but upstream keeps refactoring the widget around it. In 10.1.1 it
+moved `audioId` from a constructor argument to a state field, so a `-X ours`
+resolution kept `widget.audioId` and broke the build.
+
+**✅ Resolution**: Take the upstream block verbatim and re-add only
+`const DesktopVolumeControl(iconSize: 22),` as the first entry.
 
 ## Manual Synchronization Procedure
 
@@ -132,59 +167,64 @@ git remote add upstream https://github.com/gokadzev/Musify.git
 git fetch upstream --no-tags --prune "refs/tags/*:refs/tags/upstream-*"
 ```
 
+Doing this in a `git worktree` keeps your current branch untouched:
+`git worktree add ../wt-mobile mobile-cloud-sync`.
+
 ### For mobile-cloud-sync (with Musify Cloud features)
 ```bash
+UPSTREAM=10.1.1   # upstream release tag
+
 git checkout mobile-cloud-sync
 git fetch origin
+git fetch upstream --no-tags --prune "refs/tags/${UPSTREAM}:refs/tags/${UPSTREAM}"
 
-# Fetch upstream tag
-git fetch upstream --no-tags --prune "refs/tags/10.1.0:refs/tags/10.1.0"
-
-# Attempt merge
-if git merge --no-edit refs/tags/10.1.0; then
+if git merge --no-edit "refs/tags/${UPSTREAM}"; then
   echo "✅ Merge succeeded without conflicts"
 else
-  echo "⚠️  Conflicts detected - resolving..."
-  
-  # Resolve conflicts as documented above
-  # Edit: lib/screens/settings_page.dart (preserve both blocks)
-  # Edit: lib/services/common_services.dart (keep both functions)
-  # For: pubspec.yaml and pubspec.lock (accept upstream)
-  
-  git add lib/screens/settings_page.dart lib/services/common_services.dart
-  git add pubspec.yaml pubspec.lock
+  echo "⚠️  Conflicts detected - resolve them by hand:"
+  git diff --name-only --diff-filter=U
+  # See "Expected Merge Conflicts & Resolution" above, then:
+  #   git add <each resolved file> && git commit
 fi
 
-git commit -m 'Merge upstream 10.1.0 into mobile-cloud-sync; preserve Musify Cloud functionality'
+# Never push before this passes: it is what CI checks, and what the release
+# build would otherwise fail on after the branch has already moved.
+flutter pub get
+flutter analyze
+git add pubspec.lock && git commit -m "chore: refresh pubspec.lock for ${UPSTREAM}" || true
+
 git push origin mobile-cloud-sync
 
-# Trigger mobile release build
+# Trigger mobile release build for the commit you just validated
 gh workflow run mobile_release.yml --ref refs/heads/mobile-cloud-sync \
-  -f version="10.1.0" \
-  -f source_ref="refs/heads/mobile-cloud-sync" \
+  -f version="${UPSTREAM}" \
+  -f source_ref="$(git rev-parse HEAD)" \
   -f repair_existing_release=false
 ```
 
 ### For master (Desktop Port only)
 ```bash
+UPSTREAM=10.1.1
+
 git checkout master
 git fetch origin
+git fetch upstream --no-tags --prune "refs/tags/${UPSTREAM}:refs/tags/${UPSTREAM}"
 
-# Same fetch & merge procedure
-git fetch upstream --no-tags --prune "refs/tags/10.1.0:refs/tags/10.1.0"
+git merge --no-edit "refs/tags/${UPSTREAM}"
+# Resolve conflicts, then commit. Desktop-only trap: bottom_actions_row.dart,
+# see section 6 above.
 
-# Merge (conflicts will be similar - resolve with same strategy)
-git merge --no-edit refs/tags/10.1.0
+flutter pub get
+flutter analyze
+# Optional but cheap insurance before spending a CI cycle:
+flutter build linux --release
 
-# Resolve conflicts (same files, similar patterns)
-git add -A
-git commit -m 'Merge upstream 10.1.0 into master; preserve desktop functionality'
 git push origin master
 
-# Trigger desktop release build
+# Note: desktop_release.yml takes `tag`, not `version`.
 gh workflow run desktop_release.yml --ref refs/heads/master \
-  -f version="10.1.0" \
-  -f source_ref="refs/heads/master" \
+  -f tag="desktop-v${UPSTREAM}" \
+  -f source_ref="$(git rev-parse HEAD)" \
   -f repair_existing_release=false
 ```
 
@@ -215,12 +255,19 @@ gh workflow run mobile_release.yml --ref refs/heads/mobile-cloud-sync \
 ```
 
 ### Desktop Release: `desktop_release.yml`
-**Inputs**: Same as mobile_release.yml
+**Inputs** (note: `tag`, not `version`):
+- tag: "desktop-v10.1.1" — must match `pubspec.yaml`, optionally with a
+  `-<revision>` suffix (`desktop-v10.1.1-2`); the preflight job rejects anything else
+- source_ref: commit/branch to build (defaults to the workflow ref)
+- repair_existing_release: false (create new, or fail if the release exists)
+- prerelease: false
 
 **Outputs**:
-- desktop-v10.1.0 GitHub release
-- Musify-Linux-x64.tar.gz (Linux portable)
-- Musify-Windows-x64.tar.gz (Windows portable)
+- desktop-v10.1.1 GitHub release
+- Musify-linux-x64.deb (Debian/Ubuntu package)
+- Musify-linux-x64.tar.gz (Linux portable)
+- Musify-windows-x64-setup.exe (Inno Setup installer)
+- Musify-windows-x64-portable.zip (Windows portable)
 - SHA256SUMS.txt (verification)
 
 **Release Settings**:
@@ -229,14 +276,14 @@ gh workflow run mobile_release.yml --ref refs/heads/mobile-cloud-sync \
 - References upstream Musify repository
 
 **Build Environment**:
-- Linux: Ubuntu latest (GTK3, pkg-config, ninja-build)
-- Windows: Windows latest (MSVC)
+- Linux: Ubuntu latest (clang, GTK3, pkg-config, ninja-build, dpkg-dev)
+- Windows: Windows latest (MSVC + Inno Setup via choco)
 
 **Trigger**:
 ```bash
 gh workflow run desktop_release.yml --ref refs/heads/master \
-  -f version="10.1.0" \
-  -f source_ref="refs/heads/master"
+  -f tag="desktop-v10.1.1" \
+  -f source_ref="$(git rev-parse HEAD)"
 ```
 
 ## Git Reference Commands
@@ -252,10 +299,14 @@ git fetch upstream --no-tags --prune "refs/tags/10.1.0:refs/tags/10.1.0"
 git status                           # Shows all conflicts
 git diff --name-only --diff-filter=U  # Only conflicted files
 
-# Merge with strategies
-git merge -X ours refs/tags/10.1.0    # Keep local on conflicts
-git merge -X theirs refs/tags/10.1.0  # Accept upstream on conflicts
-git merge -X recursive refs/tags/10.1.0  # More aggressive auto-resolution
+# Inspect one side of a conflicted file before resolving
+git show :2:lib/main.dart   # ours
+git show :3:lib/main.dart   # theirs (upstream)
+
+# Per-file strategies. Only for files you have actually reviewed - blanket
+# -X ours / -X theirs on a whole merge is how 10.1.1 shipped broken.
+git checkout --ours <file>    # keep our side of that file
+git checkout --theirs <file>  # take upstream's side of that file
 
 # Abort failed merge
 git merge --abort
