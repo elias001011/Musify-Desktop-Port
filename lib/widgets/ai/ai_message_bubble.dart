@@ -4,9 +4,14 @@ import 'package:musify/services/ai/ai_voice_service.dart';
 import 'package:musify/widgets/ai/ai_action_card.dart';
 
 class AiMessageBubble extends StatefulWidget {
-  const AiMessageBubble({required this.message, super.key});
+  const AiMessageBubble({
+    required this.message,
+    required this.chatId,
+    super.key,
+  });
 
   final Map message;
+  final String chatId;
 
   @override
   State<AiMessageBubble> createState() => _AiMessageBubbleState();
@@ -37,12 +42,13 @@ class _AiMessageBubbleState extends State<AiMessageBubble>
   Widget build(BuildContext context) {
     final message = widget.message;
     final isUser = message['role'] == 'user';
-    final isError = message['isError'] == true;
+    final status = message['status']?.toString();
+    final isError = status == 'failed' || message['isError'] == true;
     final colorScheme = Theme.of(context).colorScheme;
     final content = (message['content'] ?? '').toString();
     final actionCard = message['actionCard'] as Map?;
     final attachment = message['attachment'] as Map?;
-    final messageId = message['id']?.toString();
+    final messageId = message['id']?.toString() ?? '';
 
     final bubbleColor = isError
         ? colorScheme.errorContainer
@@ -55,30 +61,30 @@ class _AiMessageBubbleState extends State<AiMessageBubble>
         ? colorScheme.onSecondaryContainer
         : colorScheme.onPrimaryContainer;
 
+    // While a turn is still working there is nothing to put in a bubble; the
+    // status line below carries the state. Rendering an empty bubble here is
+    // what used to litter the chat with "…" ghosts.
+    final showBubble = content.isNotEmpty;
+
     return FadeTransition(
       opacity: _fade,
       child: SlideTransition(
         position: _slide,
-        child: Align(
-          alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.8,
-            ),
-            child: Column(
-              crossAxisAlignment: isUser
-                  ? CrossAxisAlignment.end
-                  : CrossAxisAlignment.start,
-              children: [
-                InkWell(
-                  borderRadius: BorderRadius.circular(16),
-                  onTap: (!isUser && content.isNotEmpty)
-                      ? () => AiVoiceService.instance.speak(
-                          content,
-                          messageId: messageId,
-                        )
-                      : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          child: Column(
+            crossAxisAlignment: isUser
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.start,
+            children: [
+              if (showBubble)
+                // Only the text is width-constrained. The card below is a
+                // sibling, so it gets the full column width instead of being
+                // squeezed into a chat bubble's 80%.
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.sizeOf(context).width * 0.8,
+                  ),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 14,
@@ -95,47 +101,51 @@ class _AiMessageBubbleState extends State<AiMessageBubble>
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Flexible(
-                          child: Text(
-                            content.isEmpty ? '…' : content,
-                            style: TextStyle(color: textColor),
+                          child: SelectionArea(
+                            child: _FormattedAnswer(
+                              text: content,
+                              color: textColor,
+                            ),
                           ),
                         ),
-                        if (!isUser && content.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          ValueListenableBuilder<String?>(
-                            valueListenable:
-                                AiVoiceService.instance.speakingMessageId,
-                            builder: (context, speakingId, _) {
-                              if (speakingId != null &&
-                                  speakingId == messageId) {
-                                return _SpeakingIndicator(color: textColor);
-                              }
-                              return Icon(
-                                FluentIcons.speaker_2_24_regular,
-                                size: 16,
-                                color: textColor.withValues(alpha: 0.6),
-                              );
-                            },
+                        if (!isUser) ...[
+                          const SizedBox(width: 6),
+                          _SpeakButton(
+                            content: content,
+                            messageId: messageId,
+                            color: textColor,
                           ),
                         ],
                       ],
                     ),
                   ),
                 ),
-                if (attachment != null)
-                  primaryCard(
+              if (attachment != null)
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.sizeOf(context).width * 0.8,
+                  ),
+                  child: primaryCard(
                     context,
                     image: (attachment['item']?['image'])?.toString(),
                     title: (attachment['item']?['title'] ?? '').toString(),
                     subtitle: _attachmentSubtitle(attachment),
                     badge: 'Anexado',
                   ),
-                if (actionCard != null) AiActionCard(actionCard: actionCard),
-              ],
-            ),
+                ),
+              if (actionCard != null)
+                AiActionCard(
+                  actionCard: actionCard,
+                  chatId: widget.chatId,
+                  messageId: messageId,
+                  saved: message['saved'] as Map?,
+                ),
+              if (!isUser)
+                _AiStatusLine(status: status, label: message['stepLabel']),
+            ],
           ),
         ),
       ),
@@ -154,6 +164,218 @@ class _AiMessageBubbleState extends State<AiMessageBubble>
     final label = labels[type] ?? type;
     final artist = item['artist']?.toString();
     return artist == null || artist.isEmpty ? label : '$label · $artist';
+  }
+}
+
+/// Renders the assistant's answer with the little formatting it actually uses.
+///
+/// The app-wide AutoFormatText is centred and takes its colour from the theme,
+/// which suits the update dialog it was written for and not a chat bubble.
+/// Rather than change a shared widget every Cloud sync would then conflict on,
+/// this handles the same `**bold**` and `* ` bullets, left-aligned and in the
+/// bubble's own colour.
+class _FormattedAnswer extends StatelessWidget {
+  const _FormattedAnswer({required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  static final _bold = RegExp(r'\*\*(.*?)\*\*');
+
+  @override
+  Widget build(BuildContext context) {
+    final baseStyle = Theme.of(
+      context,
+    ).textTheme.bodyMedium?.copyWith(color: color);
+
+    final spans = <TextSpan>[];
+    var cursor = 0;
+
+    for (final match in _bold.allMatches(text)) {
+      spans
+        ..add(
+          TextSpan(
+            text: _bullets(text.substring(cursor, match.start)),
+            style: baseStyle,
+          ),
+        )
+        ..add(
+          TextSpan(
+            text: match.group(1),
+            style: baseStyle?.copyWith(fontWeight: FontWeight.bold),
+          ),
+        );
+      cursor = match.end;
+    }
+
+    spans.add(
+      TextSpan(text: _bullets(text.substring(cursor)), style: baseStyle),
+    );
+
+    return Text.rich(TextSpan(children: spans));
+  }
+
+  String _bullets(String value) => value.replaceAll('* ', '• ');
+}
+
+/// What the assistant is doing right now, under its answer.
+///
+/// This is the whole "real-time" surface, and it is deliberately vague about
+/// mechanics: "Procurando músicas…", never a tool name, a provider or a round
+/// number. A consumer music app should read as an assistant thinking, not as a
+/// debugger.
+class _AiStatusLine extends StatelessWidget {
+  const _AiStatusLine({required this.status, required this.label});
+
+  final String? status;
+  final Object? label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textStyle = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant);
+
+    switch (status) {
+      case 'working':
+        return Padding(
+          padding: const EdgeInsets.only(top: 6, left: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 13,
+                height: 13,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                (label ?? 'Pensando…').toString(),
+                style: textStyle,
+              ),
+            ],
+          ),
+        );
+      case 'streaming':
+        return const _TypingCaret();
+      case 'incomplete':
+        return Padding(
+          padding: const EdgeInsets.only(top: 6, left: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                FluentIcons.info_24_regular,
+                size: 14,
+                color: colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Text('Parei no meio do caminho', style: textStyle),
+            ],
+          ),
+        );
+      case 'stopped':
+        return Padding(
+          padding: const EdgeInsets.only(top: 6, left: 4),
+          child: Text('Interrompido', style: textStyle),
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+}
+
+/// A blinking caret while text streams in, so the answer reads as still being
+/// written rather than as finished and oddly short.
+class _TypingCaret extends StatefulWidget {
+  const _TypingCaret();
+
+  @override
+  State<_TypingCaret> createState() => _TypingCaretState();
+}
+
+class _TypingCaretState extends State<_TypingCaret>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, left: 4),
+      child: FadeTransition(
+        opacity: _controller,
+        child: Container(
+          width: 7,
+          height: 13,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Explicit read-aloud control.
+///
+/// Tapping the whole bubble used to trigger speech, which is both undiscoverable
+/// and impossible to stop: a second tap started it again.
+class _SpeakButton extends StatelessWidget {
+  const _SpeakButton({
+    required this.content,
+    required this.messageId,
+    required this.color,
+  });
+
+  final String content;
+  final String messageId;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    if (content.isEmpty) return const SizedBox.shrink();
+
+    return ValueListenableBuilder<String?>(
+      valueListenable: AiVoiceService.instance.speakingMessageId,
+      builder: (context, speakingId, _) {
+        final isSpeaking = speakingId != null && speakingId == messageId;
+
+        return IconButton(
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          iconSize: 16,
+          tooltip: isSpeaking ? 'Parar leitura' : 'Ouvir',
+          icon: isSpeaking
+              ? _SpeakingIndicator(color: color)
+              : Icon(
+                  FluentIcons.speaker_2_24_regular,
+                  color: color.withValues(alpha: 0.6),
+                ),
+          onPressed: () {
+            if (isSpeaking) {
+              AiVoiceService.instance.stopSpeaking();
+            } else {
+              AiVoiceService.instance.speak(content, messageId: messageId);
+            }
+          },
+        );
+      },
+    );
   }
 }
 

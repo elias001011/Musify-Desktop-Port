@@ -1,10 +1,13 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:musify/constants/app_constants.dart';
 import 'package:musify/screens/ai/ai_chat_page.dart';
 import 'package:musify/services/ai/ai_chat_store.dart';
 import 'package:musify/services/settings_manager.dart';
+import 'package:musify/utilities/app_utils.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';
+import 'package:musify/widgets/custom_bar.dart';
 import 'package:musify/widgets/mini_player_bottom_space.dart';
 
 class AiChatListPage extends StatelessWidget {
@@ -101,31 +104,26 @@ class AiChatListPage extends StatelessWidget {
           );
         }
 
+        // CustomBar with grouped radii, like every other list in the app. The
+        // ListTile/CircleAvatar rows this replaces looked like a different app
+        // next to Library and Settings.
         return ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: commonSingleChildScrollViewPadding,
           itemCount: chats.length + 1,
           itemBuilder: (context, index) {
             if (index == chats.length) {
               return const MiniPlayerBottomSpace();
             }
             final chat = chats[index];
-            return ListTile(
-              leading: const CircleAvatar(
-                child: Icon(FluentIcons.bot_24_regular),
-              ),
-              title: Text(
-                chat['name']?.toString() ?? 'Conversa',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: (chat['preview']?.toString() ?? '').isEmpty
-                  ? null
-                  : Text(
-                      chat['preview'].toString(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+            final preview = (chat['preview']?.toString() ?? '').trim();
+            return CustomBar(
+              key: listItemKey('aiChat', index, chat['id']),
+              chat['name']?.toString() ?? 'Conversa',
+              FluentIcons.chat_24_regular,
+              description: preview.isEmpty ? null : preview,
+              borderRadius: getItemBorderRadius(index, chats.length),
               trailing: PopupMenuButton<String>(
+                icon: const Icon(FluentIcons.more_vertical_24_regular),
                 onSelected: (action) =>
                     _handleMenuAction(context, action, chat),
                 itemBuilder: (context) => const [
@@ -154,23 +152,9 @@ class AiChatListPage extends StatelessWidget {
   ) async {
     final chatId = chat['id'].toString();
     if (action == 'rename') {
-      final controller = TextEditingController(text: chat['name']?.toString());
-      final result = await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Renomear conversa'),
-          content: TextField(controller: controller, autofocus: true),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text),
-              child: const Text('Salvar'),
-            ),
-          ],
-        ),
+      final result = await showRenameChatDialog(
+        context,
+        chat['name']?.toString() ?? '',
       );
       if (result != null && result.trim().isNotEmpty) {
         await AiChatStore.instance.renameChat(chatId, result);

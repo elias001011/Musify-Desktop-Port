@@ -4,6 +4,7 @@ import 'package:musify/constants/app_constants.dart';
 import 'package:musify/services/ai/ai_model_catalog.dart';
 import 'package:musify/services/ai/ai_tools.dart';
 import 'package:musify/services/settings_manager.dart';
+import 'package:musify/utilities/app_utils.dart';
 import 'package:musify/widgets/custom_bar.dart';
 import 'package:musify/widgets/mini_player_bottom_space.dart';
 import 'package:musify/widgets/section_header.dart';
@@ -40,7 +41,12 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Musify AI')),
+      appBar: AppBar(
+        title: ValueListenableBuilder<String>(
+          valueListenable: aiName,
+          builder: (context, name, _) => Text(name),
+        ),
+      ),
       body: SingleChildScrollView(
         padding: commonSingleChildScrollViewPadding,
         child: Column(
@@ -110,6 +116,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: order.length,
+                      buildDefaultDragHandles: false,
                       onReorderItem: (oldIndex, newIndex) {
                         final updated = List<String>.from(order);
                         final item = updated.removeAt(oldIndex);
@@ -132,12 +139,20 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                               ? '${index == 0 ? "Padrão · " : ""}${config?['model'] ?? ''}'
                                     ' · $keyCount chave(s)'
                               : 'Sem chave configurada',
-                          borderRadius: index == 0
-                              ? commonCustomBarRadiusFirst
-                              : (index == order.length - 1
-                                    ? commonCustomBarRadiusLast
-                                    : BorderRadius.zero),
-                          trailing: const Icon(FluentIcons.re_order_24_regular),
+                          borderRadius: getItemBorderRadius(
+                            index,
+                            order.length,
+                          ),
+                          // A drag handle that actually drags. The icon used to
+                          // be decoration, while the row's onTap opened the
+                          // provider dialog, so reordering looked available and
+                          // was not.
+                          trailing: ReorderableDragStartListener(
+                            index: index,
+                            child: const Icon(
+                              FluentIcons.re_order_24_regular,
+                            ),
+                          ),
                           onTap: () => _showProviderDialog(context, providerId),
                         );
                       },
@@ -169,11 +184,10 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                       CustomBar(
                         _toolLabels[aiToolSpecs[i].name] ?? aiToolSpecs[i].name,
                         FluentIcons.wrench_24_regular,
-                        borderRadius: i == 0
-                            ? commonCustomBarRadiusFirst
-                            : (i == aiToolSpecs.length - 1
-                                  ? commonCustomBarRadiusLast
-                                  : BorderRadius.zero),
+                        borderRadius: getItemBorderRadius(
+                          i,
+                          aiToolSpecs.length,
+                        ),
                         trailing: Switch(
                           value: enabledMap[aiToolSpecs[i].name] != false,
                           onChanged: (value) =>
@@ -195,7 +209,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                       'Não é uma tool: as últimas músicas ouvidas são '
                       'enviadas direto no contexto, sem gastar uma chamada '
                       'extra.',
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: commonCustomBarRadius,
                   trailing: Switch(
                     value: value,
                     onChanged: setAiIncludeRecentlyPlayed,

@@ -7,20 +7,37 @@ import 'package:musify/services/ai/ai_chat_store.dart';
 import 'package:musify/services/ai/ai_service.dart';
 import 'package:musify/services/ai/ai_voice_service.dart';
 import 'package:musify/services/common_services.dart' show getRecommendedSongs;
+import 'package:musify/utilities/flutter_toast.dart';
 import 'package:musify/widgets/ai/ai_attachment_picker.dart';
 import 'package:musify/widgets/ai/ai_message_bubble.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';
 
-const _suggestionPool = [
-  'Adicione uma música na fila com base no que está tocando agora',
-  'Monte uma playlist temporária para hoje',
-  'O que tem na minha biblioteca?',
-  'Toque algo parecido com o que está tocando',
-  'O que você acha do meu gosto musical?',
-  'Baixe minha playlist mais recente para ouvir offline',
-  'Qual a letra dessa música?',
-  'Curta a música que está tocando agora',
+/// Chips are shown by their short label and sent as the full prompt.
+///
+/// They used to be the whole sentence, which at 30-55 characters was clipped
+/// mid-word by the horizontal list and read as broken UI.
+typedef _Suggestion = ({String label, String prompt});
+
+const _suggestionPool = <_Suggestion>[
+  (
+    label: 'Fila parecida',
+    prompt: 'Adicione uma música na fila com base no que está tocando agora',
+  ),
+  (label: 'Playlist do dia', prompt: 'Monte uma playlist temporária para hoje'),
+  (label: 'Minha biblioteca', prompt: 'O que tem na minha biblioteca?'),
+  (label: 'Algo parecido', prompt: 'Toque algo parecido com o que está tocando'),
+  (label: 'Meu gosto', prompt: 'O que você acha do meu gosto musical?'),
+  (
+    label: 'Baixar offline',
+    prompt: 'Baixe minha playlist mais recente para ouvir offline',
+  ),
+  (label: 'Letra', prompt: 'Qual a letra da música que está tocando?'),
+  (label: 'Curtir essa', prompt: 'Curta a música que está tocando agora'),
 ];
+
+/// How far from the bottom the user has to scroll before the chat stops
+/// following new content.
+const _followBottomThreshold = 80.0;
 
 class AiChatPage extends StatefulWidget {
   const AiChatPage({required this.chatId, super.key});
@@ -36,46 +53,78 @@ class AiChatPage extends StatefulWidget {
 class _AiChatPageState extends State<AiChatPage> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
-  bool _sending = false;
+
   Map<String, dynamic>? _pendingAttachment;
   bool _startingMoots = false;
-  late final List<String> _dynamicSuggestions = (List<String>.from(
-    _suggestionPool,
-  )..shuffle(Random())).take(3).toList();
+
+  /// Stops the view from yanking itself back down while the user is reading
+  /// earlier messages.
+  bool _followBottom = true;
+  int _lastMessageCount = 0;
+  int _lastContentLength = 0;
+
+  late final List<_Suggestion> _dynamicSuggestions =
+      (List<_Suggestion>.from(_suggestionPool)..shuffle(Random()))
+          .take(3)
+          .toList();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
 
   @override
   void dispose() {
+    _scrollController
+      ..removeListener(_onScroll)
+      ..dispose();
     _inputController.dispose();
-    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final atBottom =
+        position.maxScrollExtent - position.pixels <= _followBottomThreshold;
+    if (atBottom != _followBottom) {
+      setState(() => _followBottom = atBottom);
+    }
+  }
+
+  /// True while the last message is still being produced.
+  bool _isTurnRunning(List<Map> messages) {
+    if (messages.isEmpty) return false;
+    final status = messages.last['status']?.toString();
+    return status == 'working' || status == 'streaming';
   }
 
   @override
   Widget build(BuildContext context) {
-    final chat = AiChatStore.instance.chats.value.firstWhere(
-      (c) => c['id'] == widget.chatId,
-      orElse: () => const {'name': 'Conversa'},
-    );
-
     return Scaffold(
       appBar: AppBar(
-        title: InkWell(
-          onTap: () => Navigator.of(context).maybePop(),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  chat['name']?.toString() ?? 'Conversa',
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const Icon(FluentIcons.chevron_down_24_regular, size: 18),
-            ],
-          ),
+        // The app bar theme is 30pt Paytone One and centred, which is right for
+        // a section title and wrong for a chat name: every name ellipsised.
+        titleTextStyle: Theme.of(context).textTheme.titleMedium,
+        centerTitle: false,
+        title: ValueListenableBuilder<List<Map>>(
+          valueListenable: AiChatStore.instance.chats,
+          builder: (context, chats, _) {
+            final chat = chats.firstWhere(
+              (c) => c['id'] == widget.chatId,
+              orElse: () => const {'name': 'Conversa'},
+            );
+            return Text(
+              chat['name']?.toString() ?? 'Conversa',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            );
+          },
         ),
         actions: [
           PopupMenuButton<String>(
+            icon: const Icon(FluentIcons.more_vertical_24_regular),
             onSelected: _handleMenuAction,
             itemBuilder: (context) => const [
               PopupMenuItem(value: 'rename', child: Text('Renomear')),
@@ -84,52 +133,65 @@ class _AiChatPageState extends State<AiChatPage> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ValueListenableBuilder<List<Map>>(
-              valueListenable: AiChatStore.instance.messagesNotifier(
-                widget.chatId,
+      body: ValueListenableBuilder<List<Map>>(
+        valueListenable: AiChatStore.instance.messagesNotifier(widget.chatId),
+        builder: (context, messages, _) {
+          _scheduleAutoScroll(messages);
+          final running = _isTurnRunning(messages);
+
+          return Column(
+            children: [
+              Expanded(
+                child: messages.isEmpty
+                    ? _buildEmptyState(context)
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        itemCount: messages.length,
+                        itemBuilder: (context, index) {
+                          final message = messages[index];
+                          return AiMessageBubble(
+                            // Without a key, recycling attaches one message's
+                            // element state to another's data as the list grows.
+                            key: ValueKey(message['id']),
+                            message: message,
+                            chatId: widget.chatId,
+                          );
+                        },
+                      ),
               ),
-              builder: (context, messages, _) {
-                final visible = messages
-                    .where((m) => m['role'] != 'tool')
-                    .toList();
-
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (_scrollController.hasClients) {
-                    _scrollController.animateTo(
-                      _scrollController.position.maxScrollExtent,
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeOut,
-                    );
-                  }
-                });
-
-                if (visible.isEmpty) {
-                  return _buildEmptyState(context);
-                }
-
-                return ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  itemCount: visible.length + (_sending ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (index == visible.length) {
-                      return const _TypingIndicator();
-                    }
-                    return AiMessageBubble(message: visible[index]);
-                  },
-                );
-              },
-            ),
-          ),
-          _buildSuggestions(context),
-          _buildSpeakingIndicator(),
-          _buildInputBar(context),
-        ],
+              if (!running) _buildSuggestions(context),
+              _buildSpeakingIndicator(),
+              _buildInputBar(context, running),
+            ],
+          );
+        },
       ),
     );
+  }
+
+  /// Follows new content only while the user is already at the bottom.
+  void _scheduleAutoScroll(List<Map> messages) {
+    final contentLength = messages.isEmpty
+        ? 0
+        : (messages.last['content'] ?? '').toString().length;
+    final changed =
+        messages.length != _lastMessageCount ||
+        contentLength != _lastContentLength;
+
+    _lastMessageCount = messages.length;
+    _lastContentLength = contentLength;
+
+    if (!changed || !_followBottom) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   Widget _buildEmptyState(BuildContext context) {
@@ -158,10 +220,11 @@ class _AiChatPageState extends State<AiChatPage> {
   Widget _buildSuggestions(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return SizedBox(
-      height: 44,
+      // 48 is the M3 chip tap target; 44 clipped the chips vertically.
+      height: 48,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         itemCount: _dynamicSuggestions.length + 1,
         separatorBuilder: (context, index) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
@@ -193,13 +256,12 @@ class _AiChatPageState extends State<AiChatPage> {
 
           final suggestion = _dynamicSuggestions[index - 1];
           return ActionChip(
-            label: Text(suggestion),
-            onPressed: _sending
-                ? null
-                : () {
-                    _inputController.text = suggestion;
-                    _send();
-                  },
+            label: Text(
+              suggestion.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onPressed: () => _send(text: suggestion.prompt),
           );
         },
       ),
@@ -252,7 +314,7 @@ class _AiChatPageState extends State<AiChatPage> {
     );
   }
 
-  Widget _buildInputBar(BuildContext context) {
+  Widget _buildInputBar(BuildContext context, bool running) {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
@@ -264,7 +326,7 @@ class _AiChatPageState extends State<AiChatPage> {
               children: [
                 IconButton(
                   icon: const Icon(FluentIcons.add_circle_24_regular),
-                  onPressed: _sending ? null : _pickAttachment,
+                  onPressed: running ? null : _pickAttachment,
                 ),
                 ValueListenableBuilder<bool>(
                   valueListenable: AiVoiceService.instance.isRecording,
@@ -278,7 +340,7 @@ class _AiChatPageState extends State<AiChatPage> {
                             ? Theme.of(context).colorScheme.error
                             : null,
                       ),
-                      onPressed: _sending ? null : _toggleRecording,
+                      onPressed: running ? null : _toggleRecording,
                     );
                   },
                 ),
@@ -298,10 +360,20 @@ class _AiChatPageState extends State<AiChatPage> {
                   ),
                 ),
                 const SizedBox(width: 4),
-                IconButton.filled(
-                  icon: const Icon(FluentIcons.send_24_filled),
-                  onPressed: _sending ? null : _send,
-                ),
+                // While a turn runs this is the only way out of it, so it has
+                // to be a stop button rather than a disabled send button.
+                if (running)
+                  IconButton.filled(
+                    tooltip: 'Parar',
+                    icon: const Icon(FluentIcons.stop_24_filled),
+                    onPressed: () =>
+                        AiService.instance.stopTurn(widget.chatId),
+                  )
+                else
+                  IconButton.filled(
+                    icon: const Icon(FluentIcons.send_24_filled),
+                    onPressed: _send,
+                  ),
               ],
             ),
           ],
@@ -375,24 +447,29 @@ class _AiChatPageState extends State<AiChatPage> {
     }
   }
 
-  Future<void> _send() async {
-    final text = _inputController.text.trim();
+  Future<void> _send({String? text}) async {
+    final message = (text ?? _inputController.text).trim();
     final attachment = _pendingAttachment;
-    if ((text.isEmpty && attachment == null) || _sending) return;
+    if (message.isEmpty && attachment == null) return;
 
     _inputController.clear();
     setState(() {
-      _sending = true;
       _pendingAttachment = null;
+      // A newly sent message should always pull the view back down.
+      _followBottom = true;
     });
-    try {
-      await AiService.instance.sendMessage(
-        widget.chatId,
-        text.isEmpty ? 'Sobre isso:' : text,
-        attachment: attachment,
-      );
-    } finally {
-      if (mounted) setState(() => _sending = false);
+
+    // An empty message with an attachment used to be sent as the literal
+    // "Sobre isso:", which then showed up in the chat as if the user had typed
+    // it. The attachment block alone is enough for the model.
+    final outcome = await AiService.instance.sendMessage(
+      widget.chatId,
+      message,
+      attachment: attachment,
+    );
+
+    if (outcome == AiTurnOutcome.busy && mounted) {
+      showToast(context, 'Espera eu terminar a anterior…');
     }
   }
 
@@ -402,27 +479,12 @@ class _AiChatPageState extends State<AiChatPage> {
         (c) => c['id'] == widget.chatId,
         orElse: () => const {'name': ''},
       );
-      final controller = TextEditingController(text: chat['name']?.toString());
-      final result = await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Renomear conversa'),
-          content: TextField(controller: controller, autofocus: true),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text),
-              child: const Text('Salvar'),
-            ),
-          ],
-        ),
+      final result = await showRenameChatDialog(
+        context,
+        chat['name']?.toString() ?? '',
       );
       if (result != null && result.trim().isNotEmpty) {
         await AiChatStore.instance.renameChat(widget.chatId, result);
-        if (mounted) setState(() {});
       }
     } else if (action == 'delete') {
       final confirmed = await showDialog<bool>(
@@ -443,35 +505,55 @@ class _AiChatPageState extends State<AiChatPage> {
   }
 }
 
-class _TypingIndicator extends StatelessWidget {
-  const _TypingIndicator();
+/// Shared by the chat page and the chat list.
+Future<String?> showRenameChatDialog(
+  BuildContext context,
+  String initialName,
+) {
+  return showDialog<String>(
+    context: context,
+    builder: (context) => _RenameChatDialog(initialName: initialName),
+  );
+}
+
+/// Own widget so its controller is actually disposed.
+class _RenameChatDialog extends StatefulWidget {
+  const _RenameChatDialog({required this.initialName});
+
+  final String initialName;
+
+  @override
+  State<_RenameChatDialog> createState() => _RenameChatDialogState();
+}
+
+class _RenameChatDialogState extends State<_RenameChatDialog> {
+  late final _controller = TextEditingController(text: widget.initialName);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primaryContainer,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: SizedBox(
-          width: 32,
-          height: 14,
-          child: Center(
-            child: SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Theme.of(context).colorScheme.onPrimaryContainer,
-              ),
-            ),
-          ),
-        ),
+    return AlertDialog(
+      title: const Text('Renomear conversa'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        onSubmitted: (value) => Navigator.pop(context, value),
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: const Text('Salvar'),
+        ),
+      ],
     );
   }
 }

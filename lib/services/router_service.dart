@@ -26,6 +26,7 @@ import 'package:musify/constants/version.dart';
 import 'package:musify/screens/about_page.dart';
 import 'package:musify/screens/ai/ai_chat_list_page.dart';
 import 'package:musify/screens/ai/ai_chat_page.dart';
+import 'package:musify/screens/ai/ai_playlist_page.dart';
 import 'package:musify/screens/ai/ai_settings_page.dart';
 import 'package:musify/screens/artist_page.dart';
 import 'package:musify/screens/bottom_navigation_page.dart';
@@ -354,6 +355,24 @@ class NavigationManager {
                   ),
                   state: state,
                 ),
+                routes: [
+                  // Nested under the AI branch on purpose. Pushing
+                  // /home/playlist/<id> from here lands on the Home branch's
+                  // navigator, which is not the visible one, so nothing
+                  // appears. The playlist is rehydrated from the stored chat
+                  // message rather than passed through `extra`, which would
+                  // not survive the router's state restoration.
+                  GoRoute(
+                    path: 'playlist/:messageId',
+                    pageBuilder: (context, state) => _pushPage(
+                      child: AiPlaylistPage(
+                        chatId: state.pathParameters['chatId'] ?? '',
+                        messageId: state.pathParameters['messageId'] ?? '',
+                      ),
+                      state: state,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

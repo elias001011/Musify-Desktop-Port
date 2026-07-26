@@ -273,10 +273,15 @@ class SettingsPage extends StatelessWidget {
           },
         ),
 
+        // Its own single-item group: this opens another screen rather than
+        // toggling something in the block above, and a bar with no radius sat
+        // flush under that block's rounded bottom edge.
+        const SizedBox(height: 12),
         CustomBar(
           'Musify AI',
           FluentIcons.bot_24_regular,
           description: 'Assistente de IA (experimental)',
+          borderRadius: commonCustomBarRadius,
           onTap: () => context.push('/settings/musify-ai'),
         ),
         _buildCloudSyncSection(context),

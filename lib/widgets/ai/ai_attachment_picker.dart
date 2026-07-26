@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/playlist_download_service.dart';
 import 'package:musify/services/playlists_manager.dart';
-import 'package:musify/widgets/ai/ai_action_card.dart' show thumbnail;
+import 'package:musify/widgets/artwork_image.dart';
 
 /// Shows a bottom sheet letting the user attach a song/playlist/album/
 /// artist to their next Musify AI message, either by searching or by
@@ -155,7 +155,7 @@ class _SearchTabState extends State<_SearchTab> {
                   itemBuilder: (context, index) {
                     final item = _results[index];
                     return ListTile(
-                      leading: thumbnail(item['image']?.toString(), size: 48),
+                      leading: ArtworkImage(url: item['image']?.toString(), size: 48),
                       title: Text(
                         (item['title'] ?? '').toString(),
                         maxLines: 1,
@@ -202,7 +202,7 @@ class _LibraryTab extends StatelessWidget {
         if (playlists.isNotEmpty)
           for (final p in playlists)
             ListTile(
-              leading: thumbnail(p['image']?.toString(), size: 48),
+              leading: ArtworkImage(url: p['image']?.toString(), size: 48),
               title: Text(
                 (p['title'] ?? '').toString(),
                 maxLines: 1,
@@ -217,7 +217,7 @@ class _LibraryTab extends StatelessWidget {
         if (artists.isNotEmpty)
           for (final a in artists)
             ListTile(
-              leading: thumbnail(a['image']?.toString(), size: 48),
+              leading: ArtworkImage(url: a['image']?.toString(), size: 48),
               title: Text(
                 (a['title'] ?? '').toString(),
                 maxLines: 1,
@@ -232,7 +232,7 @@ class _LibraryTab extends StatelessWidget {
         if (likedSongs.isNotEmpty)
           for (final s in likedSongs)
             ListTile(
-              leading: thumbnail(s['image']?.toString(), size: 48),
+              leading: ArtworkImage(url: s['image']?.toString(), size: 48),
               title: Text(
                 (s['title'] ?? '').toString(),
                 maxLines: 1,
