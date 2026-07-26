@@ -11,6 +11,10 @@ needed for those items.
 
 - `mobile-cloud-sync` is the Android Musify Cloud branch.
 - `master` is the desktop port branch.
+- `feature/musify-ai` is the Musify AI branch. It tracks `mobile-cloud-sync`
+  rather than upstream, and has its own package id, update channel and Cloud
+  Sync namespace. See `docs/musify-ai.md`; this file describes the Cloud and
+  desktop flows only.
 - Upstream source is `gokadzev/Musify`.
 
 ## Automatic Mobile Flow
