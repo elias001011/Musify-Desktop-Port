@@ -1,0 +1,247 @@
+name: Build Musify AI Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Upstream Musify version to publish, for example 10.1.1
+        required: true
+        type: string
+      source_ref:
+        description: Branch, tag, or SHA to build
+        required: false
+        default: refs/heads/feature/musify-ai
+        type: string
+      repair_existing_release:
+        description: Replace assets on an existing Musify AI release
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - musifyai-v*
+
+permissions:
+  contents: write
+
+env:
+  PROPERTIES_PATH: ./android/key.properties
+
+jobs:
+  build:
+    name: Build Android APKs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+            source_ref="${{ inputs.source_ref }}"
+            repair="${{ inputs.repair_existing_release }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#musifyai-v}"
+            source_ref="${GITHUB_SHA}"
+            repair="false"
+          fi
+
+          version="${version#v}"
+          version="${version#musifyai-v}"
+          tag="musifyai-v${version}"
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "source_ref=${source_ref:-refs/heads/feature/musify-ai}" >> "$GITHUB_OUTPUT"
+          echo "repair=${repair}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.release.outputs.source_ref }}
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Resolve Flutter version
+        id: flutter-version
+        shell: bash
+        run: |
+          flutter_version="$(grep -E '^[[:space:]]*flutter:[[:space:]]*\^?[0-9.]+' pubspec.yaml | head -1 | sed -E 's/^[[:space:]]*flutter:[[:space:]]*\^?//')"
+          flutter_version="${flutter_version:-3.x}"
+          echo "version=${flutter_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ steps.flutter-version.outputs.version }}
+
+      - name: Configure Android signing
+        env:
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.KEY_STORE }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD || secrets.KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.KEY_ALIAS }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.KEYSTORE2 }}
+        shell: bash
+        run: |
+          if [[ -z "$ANDROID_KEY_PASSWORD" || -z "$ANDROID_STORE_PASSWORD" || -z "$ANDROID_KEY_ALIAS" || -z "$ANDROID_KEYSTORE_BASE64" ]]; then
+            echo "Android signing secrets are required: ANDROID_KEY_PASSWORD, ANDROID_STORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEYSTORE_BASE64." >&2
+            echo "Legacy upstream names are also accepted: KEY_STORE, KEY_PASSWORD, KEY_ALIAS, KEYSTORE2." >&2
+            exit 1
+          fi
+
+          echo "keyPassword=${ANDROID_KEY_PASSWORD}" > "${PROPERTIES_PATH}"
+          echo "storePassword=${ANDROID_STORE_PASSWORD}" >> "${PROPERTIES_PATH}"
+          echo "keyAlias=${ANDROID_KEY_ALIAS}" >> "${PROPERTIES_PATH}"
+          echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > android/app/key.jks
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Analyze Dart code
+        run: flutter analyze .
+
+      - name: Build arm64 APK
+        env:
+          MUSIFY_CLOUD_SYNC_URL: ${{ vars.MUSIFY_CLOUD_SYNC_URL }}
+        run: |
+          flutter build apk \
+            --release \
+            --split-per-abi \
+            --target-platform=android-arm64 \
+            --flavor github \
+            --dart-define=MUSIFY_CLOUD_SYNC_URL="${MUSIFY_CLOUD_SYNC_URL}"
+
+      - name: Build universal APK
+        env:
+          MUSIFY_CLOUD_SYNC_URL: ${{ vars.MUSIFY_CLOUD_SYNC_URL }}
+        run: |
+          flutter build apk \
+            --release \
+            --flavor github \
+            --dart-define=MUSIFY_CLOUD_SYNC_URL="${MUSIFY_CLOUD_SYNC_URL}"
+
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-github-release.apk dist/MusifyAI-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-github-release.apk dist/MusifyAI.apk
+          (cd dist && sha256sum MusifyAI-arm64-v8a.apk MusifyAI.apk > SHA256SUMS.txt)
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > release_notes.md <<EOF
+          Musify AI ${{ steps.release.outputs.version }}
+
+          Based on upstream Musify ${{ steps.release.outputs.version }} from gokadzev/Musify, tracking the Musify Cloud branch and adding the built-in AI assistant.
+
+          What is different from original Musify:
+          - Musify AI: a built-in assistant that can search, play, queue, build playlists, download for offline and drive the rest of the app for you.
+          - Optional Cloud Sync for settings, playlists, liked songs, recently played songs, and most-played metadata.
+          - Separate Android package id com.elias001011.musifyai, app name, icon color, and update channel, so it can be installed beside original Musify and beside Musify Cloud.
+          - The updater checks this repository's musifyai-v* release channel.
+          - Large cloud backups may be gzip-compressed inside a JSON envelope before upload.
+
+          Privacy:
+          - Your AI provider API keys are stored on this device only. They are never uploaded to Cloud Sync.
+          - Musify AI uses its own Cloud Sync namespace, so it never reads or overwrites a Musify Cloud backup.
+
+          Assets:
+          - MusifyAI.apk: universal Android APK.
+          - MusifyAI-arm64-v8a.apk: smaller APK for arm64-v8a devices.
+          - SHA256SUMS.txt: checksums for verification.
+
+          Notes:
+          - This release is intentionally not marked as GitHub Latest. Latest is reserved for desktop-v* releases so the desktop updater does not see Android builds.
+          - If you previously installed a debug APK, uninstall it before installing this release APK because the signing key is different.
+
+          Upstream Musify: https://github.com/gokadzev/Musify/releases/tag/${{ steps.release.outputs.version }}
+
+          Musify AI docs:
+          https://github.com/elias001011/Musify-Desktop-Port/blob/feature/musify-ai/docs/musify-ai.md
+
+          Cloud Sync setup docs:
+          https://github.com/elias001011/Musify-Desktop-Port/blob/feature/musify-ai/docs/cloud-sync.md
+          EOF
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${{ steps.release.outputs.tag }}"
+          repair="${{ steps.release.outputs.repair }}"
+          target_commit="$(git rev-parse HEAD)"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            if [[ "$repair" != "true" ]]; then
+              echo "Release $tag already exists. Re-run with repair_existing_release=true to replace assets." >&2
+              exit 1
+            fi
+
+            gh release delete-asset "$tag" MusifyAI-arm64-v8a.apk -y || true
+            gh release delete-asset "$tag" MusifyAI.apk -y || true
+            gh release delete-asset "$tag" SHA256SUMS.txt -y || true
+            gh release edit "$tag" \
+              --title "Musify AI ${{ steps.release.outputs.version }}" \
+              --notes-file release_notes.md \
+              --target "$target_commit"
+          else
+            gh release create "$tag" \
+              --title "Musify AI ${{ steps.release.outputs.version }}" \
+              --notes-file release_notes.md \
+              --target "$target_commit"
+          fi
+
+          gh release upload "$tag" dist/MusifyAI-arm64-v8a.apk dist/MusifyAI.apk dist/SHA256SUMS.txt --clobber
+
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq .id)"
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -f make_latest=false >/dev/null
+
+      # make_latest=false only means "do not pin this one"; GitHub then falls back
+      # to the newest non-prerelease release, so a mobile build published after a
+      # desktop one still takes the Latest badge. Re-pin the desktop channel.
+      - name: Restore Latest on the desktop release channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          desktop_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq 'map(select(.draft == false and .prerelease == false and (.tag_name | startswith("desktop-v"))))
+                    | sort_by(.created_at) | last | .id // empty'
+          )"
+
+          if [[ -z "$desktop_id" ]]; then
+            echo "No published desktop-v* release to pin as Latest; leaving it as is."
+            exit 0
+          fi
+
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${desktop_id}" \
+            -f make_latest=true >/dev/null
+
+          echo "Latest is now $(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)."
