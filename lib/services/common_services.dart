@@ -44,6 +44,13 @@ ValueNotifier<List> userLikedSongsList = ValueNotifier<List>(
   Hive.box('user').get('likedSongs', defaultValue: []),
 );
 
+ValueNotifier<List<String>> userLikedRadioStations =
+    ValueNotifier<List<String>>(
+      List<String>.from(
+        Hive.box('user').get('likedRadioStations', defaultValue: []),
+      ),
+    );
+
 ValueNotifier<List> userRecentlyPlayed = ValueNotifier<List>(
   Hive.box('user').get('recentlyPlayedSongs', defaultValue: []),
 );
@@ -425,6 +432,34 @@ bool isPlaylistAlreadyLiked(playlistIdToCheck) {
   return userLikedPlaylists.value.any(
     (playlist) => playlist['ytid']?.toString() == playlistId,
   );
+}
+
+bool isRadioStationLiked(String radioStationId) {
+  return userLikedRadioStations.value.contains(radioStationId);
+}
+
+Future<void> addRadioStationToLiked(String radioStationId) async {
+  if (!userLikedRadioStations.value.contains(radioStationId)) {
+    final updatedList = List<String>.from(userLikedRadioStations.value)
+      ..add(radioStationId);
+    userLikedRadioStations.value = updatedList;
+    await addOrUpdateData<List<String>>(
+      'user',
+      'likedRadioStations',
+      updatedList,
+    );
+  }
+}
+
+Future<void> removeRadioStationFromLiked(String radioStationId) async {
+  if (userLikedRadioStations.value.contains(radioStationId)) {
+    final updatedList = List<String>.from(userLikedRadioStations.value)
+      ..remove(radioStationId);
+    userLikedRadioStations.value = updatedList;
+    unawaited(
+      addOrUpdateData<List<String>>('user', 'likedRadioStations', updatedList),
+    );
+  }
 }
 
 bool isSongAlreadyOffline(songIdToCheck) =>
@@ -866,12 +901,14 @@ const recentlyPlayedSongsLimit = 100;
 /// locally (e.g. from [userOfflineSongs]).
 Future<void> updateRecentlyPlayed(dynamic songId, {Map? songFallback}) async {
   try {
+    final now = DateTime.now();
+
     if (userRecentlyPlayed.value.isNotEmpty &&
         userRecentlyPlayed.value[0]['ytid'] == songId) {
       final updatedList = List.from(userRecentlyPlayed.value);
       final existing = Map.from(updatedList[0] as Map);
       existing['listeningCount'] = (existing['listeningCount'] ?? 0) + 1;
-      existing['lastPlayed'] = DateTime.now();
+      existing['lastPlayed'] = now;
       updatedList[0] = existing;
       userRecentlyPlayed.value = updatedList;
       unawaited(
@@ -897,14 +934,22 @@ Future<void> updateRecentlyPlayed(dynamic songId, {Map? songFallback}) async {
     if (existingIndex != -1) {
       final song = Map.from(updatedList.removeAt(existingIndex) as Map);
       song['listeningCount'] = (song['listeningCount'] ?? 0) + 1;
-      song['lastPlayed'] = DateTime.now();
+      song['lastPlayed'] = now;
       updatedList.insert(0, song);
     } else {
-      final newSongDetails = songFallback != null
+      final dynamic fetchedSongDetails = songFallback != null
           ? Map<String, dynamic>.from(songFallback)
           : await getSongDetails(0, songId);
+
+      if (fetchedSongDetails is! Map) {
+        logger.log('Failed to update recently played: invalid song details');
+        return;
+      }
+
+      final newSongDetails = Map<String, dynamic>.from(fetchedSongDetails);
+      newSongDetails['ytid'] ??= songId;
       newSongDetails['listeningCount'] = 1;
-      newSongDetails['lastPlayed'] = DateTime.now();
+      newSongDetails['lastPlayed'] = now;
       updatedList.insert(0, newSongDetails);
     }
 
