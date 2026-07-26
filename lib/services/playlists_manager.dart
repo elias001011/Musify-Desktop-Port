@@ -1319,7 +1319,7 @@ Future<void> renameSongInPlaylist(
 /// Applies an edited custom-playlist map (title/image/song list) wherever
 /// it currently lives (root list or inside a folder), persists it, and
 /// keeps any offline copy's metadata in sync. Shared by the playlist edit
-/// dialog and the Musify IA `edit_playlist` tool.
+/// dialog and the Musify AI `edit_playlist` tool.
 Future<Map> updateCustomPlaylistMeta(Map updatedPlaylist) async {
   final playlistId = updatedPlaylist['ytid'];
 

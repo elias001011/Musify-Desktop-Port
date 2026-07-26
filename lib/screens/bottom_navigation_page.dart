@@ -225,15 +225,15 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
       ),
     ]);
 
-    // Musify IA is an experimental feature: only show the tab once the
+    // Musify AI is an experimental feature: only show the tab once the
     // user has explicitly turned it on in settings.
     if (isAiEnabled && !isOfflineMode) {
       items.add(
         const _NavigationItem(
           icon: FluentIcons.bot_24_regular,
           selectedIcon: FluentIcons.bot_24_filled,
-          label: 'Musify IA',
-          route: '/musify-ia',
+          label: 'Musify AI',
+          route: '/musify-ai',
           shellIndex: 4,
         ),
       );
@@ -251,7 +251,7 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
     // IA (both need a live connection), navigate to home.
     if (isOfflineMode &&
         (currentRoute.startsWith('/search') ||
-            currentRoute.startsWith('/musify-ia'))) {
+            currentRoute.startsWith('/musify-ai'))) {
       widget.child.goBranch(0);
     }
   }

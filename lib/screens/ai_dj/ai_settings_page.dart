@@ -40,13 +40,13 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Musify IA')),
+      appBar: AppBar(title: const Text('Musify AI')),
       body: SingleChildScrollView(
         padding: commonSingleChildScrollViewPadding,
         child: Column(
           children: [
             const SectionHeader(
-              title: 'Musify IA (experimental)',
+              title: 'Musify AI (experimental)',
               icon: FluentIcons.bot_24_filled,
             ),
             Padding(
@@ -65,7 +65,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
               valueListenable: aiEnabled,
               builder: (context, enabled, _) {
                 return CustomBar(
-                  'Ativar Musify IA',
+                  'Ativar Musify AI',
                   FluentIcons.sparkle_24_regular,
                   borderRadius: commonCustomBarRadiusFirst,
                   trailing: Switch(value: enabled, onChanged: setAiEnabled),

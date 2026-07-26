@@ -82,7 +82,7 @@ class NavigationManager {
             (currentPath == searchPath ||
                 currentPath == timeMachinePath ||
                 currentPath.startsWith(aiPath))) {
-          // Redirect unavailable pages to home in offline mode. Musify IA
+          // Redirect unavailable pages to home in offline mode. Musify AI
           // needs a live connection to its configured providers, so it's
           // unavailable offline just like search.
           return homePath;
@@ -145,7 +145,7 @@ class NavigationManager {
   static const String settingsPath = '/settings';
   static const String searchPath = '/search';
   static const String libraryPath = '/library';
-  static const String aiPath = '/musify-ia';
+  static const String aiPath = '/musify-ai';
 
   /// Refresh the router configuration when offline mode changes
   static void refreshRouter() {
@@ -311,7 +311,7 @@ class NavigationManager {
                 path: 'license',
                 pageBuilder: (context, state) => _pushPage(
                   child: const LicensePage(
-                    applicationName: 'Musify Cloud',
+                    applicationName: 'Musify AI',
                     applicationVersion: appVersion,
                   ),
                   state: state,
@@ -328,7 +328,7 @@ class NavigationManager {
                     _pushPage(child: const EqualizerPage(), state: state),
               ),
               GoRoute(
-                path: 'musify-ia',
+                path: 'musify-ai',
                 pageBuilder: (context, state) =>
                     _pushPage(child: const AiSettingsPage(), state: state),
               ),
@@ -336,7 +336,7 @@ class NavigationManager {
           ),
         ],
       ),
-      // Branch 4: Musify IA
+      // Branch 4: Musify AI
       StatefulShellBranch(
         navigatorKey: aiTabNavigatorKey,
         routes: [

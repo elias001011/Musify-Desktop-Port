@@ -7,7 +7,7 @@ import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/services/router_service.dart';
 import 'package:musify/services/settings_manager.dart' show wrappedEnabled;
 
-/// The tool a Musify IA turn is allowed to call, and the dispatcher that
+/// The tool a Musify AI turn is allowed to call, and the dispatcher that
 /// routes a call into the app's existing services. Every tool returns
 /// `(result, actionCard)`: `result` is JSON-encoded back to the model as
 /// the tool's output, `actionCard` (if present) is attached to the chat

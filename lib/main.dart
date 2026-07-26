@@ -304,8 +304,8 @@ Future<void> initialisation() async {
     audioHandler = await AudioService.init(
       builder: MusifyAudioHandler.new,
       config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.elias001011.musifycloud',
-        androidNotificationChannelName: 'Musify Cloud',
+        androidNotificationChannelId: 'com.elias001011.musifyai',
+        androidNotificationChannelName: 'Musify AI',
         androidNotificationIcon: 'drawable/ic_launcher_foreground',
         androidShowNotificationBadge: true,
         androidStopForegroundOnPause: false,
@@ -339,7 +339,7 @@ Future<void> initialisation() async {
 }
 
 void handleIncomingLink(Uri? uri) async {
-  if (uri == null || uri.scheme != 'musifycloud' || uri.host != 'playlist') {
+  if (uri == null || uri.scheme != 'musifyai' || uri.host != 'playlist') {
     return;
   }
 

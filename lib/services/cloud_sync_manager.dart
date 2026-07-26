@@ -597,7 +597,10 @@ class CloudSyncManager {
   }
 
   String _accountIdForPassphrase(String passphrase) {
-    final bytes = utf8.encode('musify-cloud-sync-v1:$passphrase');
+    // Namespaced per product. Musify AI and Musify Cloud can be installed side
+    // by side, and they do not have the same settings shape, so sharing a
+    // record would make whichever app synced last wipe the other's settings.
+    final bytes = utf8.encode('musify-ai-sync-v1:$passphrase');
     return sha256.convert(bytes).toString();
   }
 
@@ -629,8 +632,15 @@ class CloudSyncManager {
   bool _isInternalSettingKey(dynamic key) =>
       key.toString().startsWith('cloudSync');
 
-  bool _isLocalOnlySettingKey(dynamic key) =>
-      _isInternalSettingKey(key) || key.toString() == 'offlineMode';
+  /// Settings that must never be uploaded. `aiProviders` holds the user's
+  /// plaintext AI provider API keys, and the sync payload is not encrypted, so
+  /// those stay on the device even though the rest of the AI settings sync.
+  bool _isLocalOnlySettingKey(dynamic key) {
+    final name = key.toString();
+    return _isInternalSettingKey(key) ||
+        name == 'offlineMode' ||
+        name == 'aiProviders';
+  }
 
   DateTime? _readDateTimeSetting(String key) {
     final value = Hive.box('settings').get(key);

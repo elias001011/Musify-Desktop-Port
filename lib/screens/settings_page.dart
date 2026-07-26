@@ -274,10 +274,10 @@ class SettingsPage extends StatelessWidget {
         ),
 
         CustomBar(
-          'Musify IA',
+          'Musify AI',
           FluentIcons.bot_24_regular,
           description: 'Assistente de IA (experimental)',
-          onTap: () => context.push('/settings/musify-ia'),
+          onTap: () => context.push('/settings/musify-ai'),
         ),
         _buildCloudSyncSection(context),
         _buildToolsSection(context),
@@ -339,7 +339,7 @@ class SettingsPage extends StatelessWidget {
                       'Automatic uploads',
                       FluentIcons.arrow_upload_24_regular,
                       description:
-                          'When enabled, Musify Cloud uploads a fresh backup shortly after local changes.',
+                          'When enabled, Musify AI uploads a fresh backup shortly after local changes.',
                       trailing: Switch(
                         value: automatic,
                         onChanged: (value) =>
@@ -996,7 +996,7 @@ class SettingsPage extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Use the same passphrase on every device. If a backup already exists, Musify Cloud will load it from the cloud.',
+                  'Use the same passphrase on every device. If a backup already exists, Musify AI will load it from the cloud.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),

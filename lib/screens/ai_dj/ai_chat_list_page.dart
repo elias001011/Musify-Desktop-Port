@@ -48,7 +48,7 @@ class AiChatListPage extends StatelessWidget {
             const Icon(FluentIcons.bot_24_regular, size: 56),
             const SizedBox(height: 16),
             Text(
-              'Musify IA está desativado.',
+              'Musify AI está desativado.',
               style: Theme.of(context).textTheme.titleMedium,
               textAlign: TextAlign.center,
             ),
@@ -63,7 +63,7 @@ class AiChatListPage extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: () => context.push('/settings/musify-ia'),
+              onPressed: () => context.push('/settings/musify-ai'),
               child: const Text('Abrir configurações'),
             ),
           ],

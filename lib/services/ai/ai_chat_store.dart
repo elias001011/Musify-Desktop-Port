@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 
-/// Local persistence for Musify IA chat history.
+/// Local persistence for Musify AI chat history.
 ///
 /// Chat summaries (id/name/timestamps/preview) live in the `ai_chat_index`
 /// box so the history list can render without loading every message body.

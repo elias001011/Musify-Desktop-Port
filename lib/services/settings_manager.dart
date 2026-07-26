@@ -19,6 +19,8 @@
  *     please visit: https://github.com/gokadzev/Musify
  */
 
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -123,7 +125,7 @@ final cloudSyncEnabled = ValueNotifier<bool>(
   Hive.box('settings').get('cloudSyncEnabled', defaultValue: false),
 );
 
-// Musify IA (experimental AI DJ) settings
+// Musify AI (experimental AI DJ) settings
 
 const defaultAiProviderOrder = ['groq', 'gemini', 'openrouter'];
 
@@ -138,7 +140,7 @@ final aiEnabled = ValueNotifier<bool>(
 );
 
 final aiName = ValueNotifier<String>(
-  Hive.box('settings').get('aiName', defaultValue: 'Musify IA'),
+  Hive.box('settings').get('aiName', defaultValue: 'Musify AI'),
 );
 
 List<String> _readAiProviderOrder() {
@@ -174,7 +176,7 @@ final aiProviderOrder = ValueNotifier<List<String>>(_readAiProviderOrder());
 
 /// Each provider config is `{'apiKeys': List<String>, 'model': String}`.
 /// Multiple keys let the same provider rotate to the next key (e.g. on a
-/// rate limit) before Musify IA gives up on it and falls back to the next
+/// rate limit) before Musify AI gives up on it and falls back to the next
 /// provider in [aiProviderOrder].
 final aiProviders = ValueNotifier<Map<String, Map<String, Object>>>(
   _readAiProviders(),
@@ -227,7 +229,7 @@ Map<String, bool> _readAiToolsEnabled() {
   return {};
 }
 
-/// Per-tool on/off switches for Musify IA. A tool absent from this map is
+/// Per-tool on/off switches for Musify AI. A tool absent from this map is
 /// treated as enabled - it only needs an entry once the user turns it off.
 final aiToolsEnabled = ValueNotifier<Map<String, bool>>(_readAiToolsEnabled());
 
@@ -358,7 +360,13 @@ void refreshSettingsFromStorage() {
       .isNotEmpty;
   cloudSyncLastSyncedAt.value = _readDateTimeSetting('cloudSyncLastSyncedAt');
   aiEnabled.value = settingsBox.get('aiEnabled', defaultValue: false);
-  aiName.value = settingsBox.get('aiName', defaultValue: 'Musify IA');
+  aiName.value = settingsBox.get('aiName', defaultValue: 'Musify AI');
+  // The assistant used to be called "Musify IA". Users who never renamed it
+  // have that literal persisted, so the default alone would never reach them.
+  if (aiName.value == 'Musify IA') {
+    aiName.value = 'Musify AI';
+    unawaited(settingsBox.put('aiName', aiName.value));
+  }
   aiProviderOrder.value = _readAiProviderOrder();
   aiProviders.value = _readAiProviders();
   aiToolsEnabled.value = _readAiToolsEnabled();
@@ -375,6 +383,6 @@ Future<void> setAiEnabled(bool value) async {
 
 Future<void> setAiName(String value) async {
   final trimmed = value.trim();
-  aiName.value = trimmed.isEmpty ? 'Musify IA' : trimmed;
+  aiName.value = trimmed.isEmpty ? 'Musify AI' : trimmed;
   await Hive.box('settings').put('aiName', aiName.value);
 }

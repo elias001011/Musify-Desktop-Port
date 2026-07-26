@@ -6,7 +6,7 @@ import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/widgets/ai_dj/ai_action_card.dart' show thumbnail;
 
 /// Shows a bottom sheet letting the user attach a song/playlist/album/
-/// artist to their next Musify IA message, either by searching or by
+/// artist to their next Musify AI message, either by searching or by
 /// picking straight from their library. Returns
 /// `{'itemType': ..., 'item': {...compact fields...}}`, or null if
 /// dismissed without a pick.

@@ -13,12 +13,12 @@ import 'package:musify/services/common_services.dart' show userRecentlyPlayed;
 import 'package:musify/services/settings_manager.dart';
 
 /// How many previous chat messages are resent as context on every turn.
-/// Musify IA intentionally only remembers a short recent window, not the
+/// Musify AI intentionally only remembers a short recent window, not the
 /// full chat history, to keep requests small and fast.
 const _historyWindowSize = 24;
 const _maxToolIterationsPerTurn = 5;
 
-/// Orchestrates a single Musify IA turn: builds the system prompt, tries
+/// Orchestrates a single Musify AI turn: builds the system prompt, tries
 /// each configured provider in [aiProviderOrder] until one answers, runs
 /// any tool calls the model asks for against [executeAiTool], and persists
 /// every message (including tool actions) via [AiChatStore] so the chat UI
@@ -82,13 +82,13 @@ class AiDjService {
           );
           return;
         } on AiProviderException catch (e) {
-          logger.log('Musify IA provider ${provider.id} failed', error: e);
+          logger.log('Musify AI provider ${provider.id} failed', error: e);
           lastError = e.message;
           history = _recentHistory(chatId);
           if (!e.retryable) break;
         } catch (e, stackTrace) {
           logger.log(
-            'Musify IA provider ${provider.id} crashed',
+            'Musify AI provider ${provider.id} crashed',
             error: e,
             stackTrace: stackTrace,
           );

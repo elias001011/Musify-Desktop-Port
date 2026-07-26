@@ -404,7 +404,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
           final encodedPlaylist = PlaylistSharingService.encodePlaylist(
             _playlist,
           );
-          final url = 'musifycloud://playlist/custom/$encodedPlaylist';
+          final url = 'musifyai://playlist/custom/$encodedPlaylist';
           await Clipboard.setData(ClipboardData(text: url));
           if (mounted) {
             showToast(context, context.l10n!.linkCopied);

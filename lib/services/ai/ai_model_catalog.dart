@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 /// Fetches the live list of available model ids for a configured provider,
-/// so the Musify IA settings screen doesn't have to rely on a hardcoded
+/// so the Musify AI settings screen doesn't have to rely on a hardcoded
 /// model id that may drift as providers add/retire models.
 Future<List<String>> fetchProviderModels(
   String providerId,

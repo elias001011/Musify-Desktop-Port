@@ -12,7 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
-/// Voice input/output for Musify IA. Groq is tried first for both
+/// Voice input/output for Musify AI. Groq is tried first for both
 /// directions (Whisper transcription, Orpheus TTS) since it is already one
 /// of the configured chat providers and works identically on every desktop/
 /// mobile target; the device's own speech engine is used as a fallback
@@ -164,7 +164,7 @@ class AiVoiceService {
     }
 
     if (Platform.isLinux) {
-      logger.log('Musify IA: no TTS available (no Groq key, Linux desktop).');
+      logger.log('Musify AI: no TTS available (no Groq key, Linux desktop).');
       speakingMessageId.value = null;
       return;
     }

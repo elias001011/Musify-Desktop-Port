@@ -11,6 +11,6 @@ class OpenRouterProvider extends OpenAiCompatibleProvider {
   @override
   Map<String, String> get extraHeaders => const {
     'HTTP-Referer': 'https://github.com/elias001011/Musify-Desktop-Port',
-    'X-Title': 'Musify IA',
+    'X-Title': 'Musify AI',
   };
 }

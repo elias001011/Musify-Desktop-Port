@@ -23,7 +23,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.elias001011.musifycloud"
+    namespace = "com.elias001011.musifyai"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
 
@@ -42,7 +42,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.elias001011.musifycloud"
+        applicationId = "com.elias001011.musifyai"
         minSdk = 24
         targetSdk = 36
         versionCode = flutter.versionCode

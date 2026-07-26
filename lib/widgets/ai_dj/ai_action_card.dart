@@ -6,7 +6,7 @@ import 'package:musify/main.dart' show audioHandler;
 import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/utilities/flutter_toast.dart';
 
-/// Renders whatever action Musify IA just took (search results, a song it
+/// Renders whatever action Musify AI just took (search results, a song it
 /// started playing, a playlist it built, a like/offline toggle, ...) right
 /// below its chat bubble, so the user sees the effect instead of just text.
 ///

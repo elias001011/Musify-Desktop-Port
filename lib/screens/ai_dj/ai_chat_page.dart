@@ -27,7 +27,7 @@ class AiChatPage extends StatefulWidget {
 
   final String chatId;
 
-  static const routePath = '/musify-ia/chat';
+  static const routePath = '/musify-ai/chat';
 
   @override
   State<AiChatPage> createState() => _AiChatPageState();

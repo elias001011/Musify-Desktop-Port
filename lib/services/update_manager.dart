@@ -37,13 +37,13 @@ import 'package:musify/widgets/auto_format_text.dart';
 
 const String releasesUrl =
     'https://api.github.com/repos/elias001011/Musify-Desktop-Port/releases';
-const String mobileReleaseTagPrefix = 'mobile-v';
-const String downloadFilename = 'MusifyCloud.apk';
-const String downloadArm64Filename = 'MusifyCloud-arm64-v8a.apk';
+const String mobileReleaseTagPrefix = 'musifyai-v';
+const String downloadFilename = 'MusifyAI.apk';
+const String downloadArm64Filename = 'MusifyAI-arm64-v8a.apk';
 
 Future<void> checkAppUpdates() async {
   try {
-    final latestRelease = await _fetchLatestMobileCloudRelease();
+    final latestRelease = await _fetchLatestAiRelease();
     if (latestRelease == null) return;
 
     final latestVersion = _versionFromRelease(latestRelease);
@@ -296,44 +296,60 @@ String _versionFromRelease(Map<String, dynamic> release) {
   return release['name']?.toString() ?? '0.0.0';
 }
 
-Future<Map<String, dynamic>?> _fetchLatestMobileCloudRelease() async {
-  final releasesRequest = await http.get(Uri.parse(releasesUrl));
+/// How many pages of `/releases` to scan for this build's channel.
+///
+/// The repository publishes three interleaved channels (`desktop-v*`,
+/// `mobile-v*` and `musifyai-v*`) and GitHub cannot filter releases by tag
+/// prefix, so an unpaginated request (30 newest) can easily contain no
+/// `musifyai-v*` entry at all and silently report "no update available".
+const int _releasePagesToScan = 3;
+const int _releasesPerPage = 100;
 
-  if (releasesRequest.statusCode != 200) {
-    logger.log(
-      'Fetch update API (releasesUrl) call returned status code ${releasesRequest.statusCode}',
+Future<Map<String, dynamic>?> _fetchLatestAiRelease() async {
+  for (var page = 1; page <= _releasePagesToScan; page++) {
+    final uri = Uri.parse(
+      '$releasesUrl?per_page=$_releasesPerPage&page=$page',
     );
-    return null;
-  }
+    final releasesRequest = await http.get(uri);
 
-  final decoded = json.decode(releasesRequest.body);
-  if (decoded is! List) {
-    logger.log('Fetch update API (releasesUrl) did not return a list');
-    return null;
-  }
+    if (releasesRequest.statusCode != 200) {
+      logger.log(
+        'Fetch update API (releasesUrl) call returned status code ${releasesRequest.statusCode}',
+      );
+      return null;
+    }
 
-  for (final rawRelease in decoded) {
-    if (rawRelease is! Map) continue;
+    final decoded = json.decode(releasesRequest.body);
+    if (decoded is! List) {
+      logger.log('Fetch update API (releasesUrl) did not return a list');
+      return null;
+    }
 
-    final release = Map<String, dynamic>.from(rawRelease);
-    final tagName = release['tag_name']?.toString() ?? '';
-    final draft = release['draft'] == true;
-    final prerelease = release['prerelease'] == true;
+    if (decoded.isEmpty) return null;
 
-    if (!draft && !prerelease && tagName.startsWith(mobileReleaseTagPrefix)) {
-      return release;
+    for (final rawRelease in decoded) {
+      if (rawRelease is! Map) continue;
+
+      final release = Map<String, dynamic>.from(rawRelease);
+      final tagName = release['tag_name']?.toString() ?? '';
+      final draft = release['draft'] == true;
+      final prerelease = release['prerelease'] == true;
+
+      if (!draft && !prerelease && tagName.startsWith(mobileReleaseTagPrefix)) {
+        return release;
+      }
     }
   }
 
   return null;
 }
 
-/// Fetch only the latest Musify Cloud mobile release URL. This does not trigger
+/// Fetch only the latest Musify AI mobile release URL. This does not trigger
 /// update dialogs/downloads and is safe to call for F-Droid builds where update
 /// prompts are not allowed.
 Future<void> fetchAnnouncementOnly() async {
   try {
-    final latestRelease = await _fetchLatestMobileCloudRelease();
+    final latestRelease = await _fetchLatestAiRelease();
     if (latestRelease == null) return;
 
     final latestVersion = _versionFromRelease(latestRelease);

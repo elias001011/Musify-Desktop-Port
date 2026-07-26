@@ -6,7 +6,7 @@ import 'package:musify/services/ai/ai_provider.dart';
 
 /// Talks to Google's Gemini "Interactions" API
 /// (https://generativelanguage.googleapis.com/v1beta/interactions), which
-/// replaced the older generateContent endpoint. Musify IA calls it in
+/// replaced the older generateContent endpoint. Musify AI calls it in
 /// stateless mode (full history resent every turn, no
 /// previous_interaction_id) so it slots into the same provider-agnostic
 /// fallback chain as Groq/OpenRouter. The function_call/function_result
