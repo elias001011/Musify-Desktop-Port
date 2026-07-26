@@ -18,8 +18,39 @@ class GeminiProvider implements AiProvider {
   @override
   String get id => 'gemini';
 
+  // Kept on the non-streaming path deliberately. This endpoint's shape is
+  // reverse-engineered, so adding SSE parsing on top would double the surface
+  // that breaks when Google changes it.
   @override
-  Future<AiCompletionResult> complete({
+  bool get streams => false;
+
+  @override
+  Stream<AiChunk> run({
+    required String systemPrompt,
+    required List<AiMessage> history,
+    required List<AiToolSpec> tools,
+    required String apiKey,
+    required String model,
+    AiCancellationToken? token,
+  }) async* {
+    final result = await _complete(
+      systemPrompt: systemPrompt,
+      history: history,
+      tools: tools,
+      apiKey: apiKey,
+      model: model,
+    );
+
+    if (token?.isCancelled ?? false) throw const AiCancelledException();
+
+    if (result.content.isNotEmpty) yield AiTextDelta(result.content);
+    if (result.toolCalls.isNotEmpty) yield AiToolCallsChunk(result.toolCalls);
+    yield AiTurnEnd(
+      finishReason: result.toolCalls.isNotEmpty ? 'tool_calls' : 'stop',
+    );
+  }
+
+  Future<_GeminiResult> _complete({
     required String systemPrompt,
     required List<AiMessage> history,
     required List<AiToolSpec> tools,
@@ -27,7 +58,10 @@ class GeminiProvider implements AiProvider {
     required String model,
   }) async {
     if (apiKey.trim().isEmpty) {
-      throw AiProviderException('gemini: nenhuma chave de API configurada.');
+      throw AiProviderException(
+        'gemini: nenhuma chave de API configurada.',
+        kind: AiFailureKind.auth,
+      );
     }
 
     final input = <Map<String, dynamic>>[];
@@ -108,18 +142,34 @@ class GeminiProvider implements AiProvider {
           )
           .timeout(const Duration(seconds: 45));
     } catch (e) {
-      throw AiProviderException('gemini: falha de rede ($e)');
+      throw AiProviderException(
+        'gemini: falha de rede ($e)',
+        kind: AiFailureKind.network,
+      );
     }
 
     if (response.statusCode == 401 || response.statusCode == 403) {
-      throw AiProviderException('gemini: chave de API inválida ou sem acesso.');
+      throw AiProviderException(
+        'gemini: chave de API inválida ou sem acesso.',
+        kind: AiFailureKind.auth,
+      );
     }
     if (response.statusCode == 429) {
-      throw AiProviderException('gemini: limite de requisições atingido.');
+      throw AiProviderException(
+        'gemini: limite de requisições atingido.',
+        kind: AiFailureKind.rateLimit,
+      );
+    }
+    if (response.statusCode >= 500) {
+      throw AiProviderException(
+        'gemini: erro ${response.statusCode} no provedor.',
+        kind: AiFailureKind.server,
+      );
     }
     if (response.statusCode >= 400) {
       throw AiProviderException(
         'gemini: erro ${response.statusCode} (${response.body})',
+        kind: AiFailureKind.badRequest,
       );
     }
 
@@ -128,7 +178,10 @@ class GeminiProvider implements AiProvider {
       decoded =
           jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     } catch (e) {
-      throw AiProviderException('gemini: resposta inválida ($e)');
+      throw AiProviderException(
+        'gemini: resposta inválida ($e)',
+        kind: AiFailureKind.badResponse,
+      );
     }
 
     final toolCalls = <AiToolCall>[];
@@ -167,6 +220,13 @@ class GeminiProvider implements AiProvider {
         ? textBuffer.toString()
         : (outputText ?? '');
 
-    return AiCompletionResult(content: content, toolCalls: toolCalls);
+    return _GeminiResult(content: content, toolCalls: toolCalls);
   }
+}
+
+class _GeminiResult {
+  const _GeminiResult({required this.content, required this.toolCalls});
+
+  final String content;
+  final List<AiToolCall> toolCalls;
 }

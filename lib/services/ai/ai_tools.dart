@@ -1,5 +1,8 @@
-import 'package:musify/main.dart' show audioHandler;
+import 'dart:convert';
+
+import 'package:musify/main.dart' show audioHandler, logger;
 import 'package:musify/services/ai/ai_message.dart';
+import 'package:musify/services/ai/ai_tool_input.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/playlist_download_service.dart';
@@ -259,38 +262,170 @@ final List<AiToolSpec> aiToolSpecs = [
   ),
 ];
 
+/// Everything the orchestrator needs to know about one tool.
+///
+/// Keeping this in a single table means the spec sent to the model, the
+/// handler, the label shown while it runs, how much of its output is worth
+/// sending back, and whether it changes app state can never drift apart.
+class AiToolRegistration {
+  const AiToolRegistration({
+    required this.spec,
+    required this.handler,
+    required this.stepLabel,
+    this.sideEffecting = false,
+    this.resultCharBudget = 2000,
+  });
+
+  final AiToolSpec spec;
+  final Future<AiToolResult> Function(Map<String, dynamic> args) handler;
+
+  /// Shown under the answer while the tool runs. User-facing, so it names the
+  /// activity ("Procurando músicas…") and never the tool.
+  final String stepLabel;
+
+  /// Changes playback or the library. A turn that has already run one of these
+  /// is never replayed on another provider, because the effect already landed.
+  final bool sideEffecting;
+
+  /// Tool output over this many characters is truncated before it goes back to
+  /// the model; a 200-song playlist would otherwise eat the whole context.
+  final int resultCharBudget;
+}
+
+final Map<String, AiToolRegistration> aiToolRegistry = {
+  'search': AiToolRegistration(
+    spec: _specFor('search'),
+    handler: _search,
+    stepLabel: 'Procurando músicas…',
+  ),
+  'get_library_index': AiToolRegistration(
+    spec: _specFor('get_library_index'),
+    handler: (_) => _getLibraryIndex(),
+    stepLabel: 'Vendo sua biblioteca…',
+    resultCharBudget: 2500,
+  ),
+  'get_library_item': AiToolRegistration(
+    spec: _specFor('get_library_item'),
+    handler: _getLibraryItem,
+    stepLabel: 'Abrindo a playlist…',
+    resultCharBudget: 3000,
+  ),
+  'play_song': AiToolRegistration(
+    spec: _specFor('play_song'),
+    handler: _playSong,
+    stepLabel: 'Colocando pra tocar…',
+    sideEffecting: true,
+  ),
+  'queue_action': AiToolRegistration(
+    spec: _specFor('queue_action'),
+    handler: _queueAction,
+    stepLabel: 'Mexendo na fila…',
+    sideEffecting: true,
+  ),
+  'playback_control': AiToolRegistration(
+    spec: _specFor('playback_control'),
+    handler: _playbackControl,
+    stepLabel: 'Controlando a reprodução…',
+    sideEffecting: true,
+  ),
+  'like_item': AiToolRegistration(
+    spec: _specFor('like_item'),
+    handler: _likeItem,
+    stepLabel: 'Atualizando seus favoritos…',
+    sideEffecting: true,
+  ),
+  'create_playlist': AiToolRegistration(
+    spec: _specFor('create_playlist'),
+    handler: _createPlaylist,
+    stepLabel: 'Montando a playlist…',
+    sideEffecting: true,
+  ),
+  'edit_playlist': AiToolRegistration(
+    spec: _specFor('edit_playlist'),
+    handler: _editPlaylist,
+    stepLabel: 'Editando a playlist…',
+    sideEffecting: true,
+  ),
+  'offline_control': AiToolRegistration(
+    spec: _specFor('offline_control'),
+    handler: _offlineControl,
+    stepLabel: 'Baixando para offline…',
+    sideEffecting: true,
+  ),
+  'get_lyrics': AiToolRegistration(
+    spec: _specFor('get_lyrics'),
+    handler: _getLyrics,
+    stepLabel: 'Buscando a letra…',
+    resultCharBudget: 4000,
+  ),
+  'get_wrapped_insights': AiToolRegistration(
+    spec: _specFor('get_wrapped_insights'),
+    handler: (_) => _getWrappedInsights(),
+    stepLabel: 'Olhando seu histórico…',
+    resultCharBudget: 2500,
+  ),
+};
+
+/// Looks a spec up by name, failing loudly at startup if the registry and the
+/// spec list have drifted apart.
+AiToolSpec _specFor(String name) =>
+    aiToolSpecs.firstWhere((spec) => spec.name == name);
+
 Future<AiToolResult> executeAiTool(
   String name,
   Map<String, dynamic> args,
 ) async {
-  switch (name) {
-    case 'search':
-      return _search(args);
-    case 'get_library_index':
-      return _getLibraryIndex();
-    case 'get_library_item':
-      return _getLibraryItem(args);
-    case 'play_song':
-      return _playSong(args);
-    case 'queue_action':
-      return _queueAction(args);
-    case 'playback_control':
-      return _playbackControl(args);
-    case 'like_item':
-      return _likeItem(args);
-    case 'create_playlist':
-      return _createPlaylist(args);
-    case 'edit_playlist':
-      return _editPlaylist(args);
-    case 'offline_control':
-      return _offlineControl(args);
-    case 'get_lyrics':
-      return _getLyrics(args);
-    case 'get_wrapped_insights':
-      return _getWrappedInsights();
-    default:
-      return AiToolResult({'error': 'Unknown tool: $name'});
+  final registration = aiToolRegistry[name];
+  if (registration == null) {
+    return AiToolResult({'ok': false, 'error': 'Unknown tool: $name'});
   }
+  return registration.handler(args);
+}
+
+/// Runs a tool and turns every failure into data.
+///
+/// A tool that throws used to escape into the orchestrator's provider-failure
+/// handling, which read it as "this provider crashed" and replayed the whole
+/// turn on the next API key — with any side effect already applied, so a song
+/// could be queued twice or a playlist created twice. Returning the error as a
+/// tool result instead lets the model read what went wrong and fix its own
+/// call on the next round.
+Future<AiToolResult> executeToolSafely(
+  String name,
+  Map<String, dynamic> rawArgs, {
+  bool argumentsMalformed = false,
+}) async {
+  try {
+    final args = normalizeToolInput(name, rawArgs);
+
+    if (argumentsMalformed) {
+      // Tell the model rather than acting on defaults it never chose.
+      return AiToolResult({
+        'ok': false,
+        'error':
+            'Your arguments for $name were not valid JSON, so nothing ran. '
+            'Call it again with well-formed arguments.',
+      });
+    }
+
+    return await executeAiTool(name, args);
+  } catch (e, stackTrace) {
+    logger.log('Musify AI tool $name failed', error: e, stackTrace: stackTrace);
+    return AiToolResult({'ok': false, 'error': e.toString()});
+  }
+}
+
+/// Whether a result represents a failed execution the orchestrator should
+/// notice. Kept as one predicate so "did this step fail" has a single answer.
+bool toolResultFailed(AiToolResult result) =>
+    result.result['ok'] == false || result.result['error'] != null;
+
+/// Trims tool output to the tool's budget before it goes back to the model.
+String encodeToolResult(String name, Map<String, dynamic> result) {
+  final budget = aiToolRegistry[name]?.resultCharBudget ?? 2000;
+  final encoded = jsonEncode(result);
+  if (encoded.length <= budget) return encoded;
+  return '${encoded.substring(0, budget)}…[truncado]';
 }
 
 Map<String, dynamic> _compactSong(Map song) => {

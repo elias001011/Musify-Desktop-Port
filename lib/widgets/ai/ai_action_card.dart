@@ -6,6 +6,48 @@ import 'package:musify/main.dart' show audioHandler;
 import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/utilities/flutter_toast.dart';
 
+/// Card types in the order they deserve to be the one card of a turn.
+///
+/// A turn that searched three times and then built a playlist should show the
+/// playlist, not three lists of songs the user did not ask to see. Earlier in
+/// this list wins.
+const _cardPriority = [
+  'temp_playlist',
+  'playlist',
+  'now_playing',
+  'playback',
+  'queue',
+  'offline',
+  'like',
+  'playlist_updated',
+  'search_results',
+];
+
+/// Picks the single card that represents what a turn accomplished.
+///
+/// `search_results` is last on purpose: searching is how the assistant gets to
+/// the answer, not the answer itself, so it only shows when nothing else
+/// happened (i.e. the user actually asked to search).
+Map<String, dynamic>? pickPrimaryCard(List<Map<String, dynamic>> cards) {
+  if (cards.isEmpty) return null;
+
+  Map<String, dynamic>? best;
+  var bestRank = _cardPriority.length;
+
+  for (final card in cards) {
+    final rank = _cardPriority.indexOf(card['type']?.toString() ?? '');
+    final effectiveRank = rank == -1 ? _cardPriority.length : rank;
+    // `<` rather than `<=`, so among equals the first one wins: that is the
+    // one the model produced first, and so the one its text refers to.
+    if (best == null || effectiveRank < bestRank) {
+      best = card;
+      bestRank = effectiveRank;
+    }
+  }
+
+  return best;
+}
+
 /// Renders whatever action Musify AI just took (search results, a song it
 /// started playing, a playlist it built, a like/offline toggle, ...) right
 /// below its chat bubble, so the user sees the effect instead of just text.
