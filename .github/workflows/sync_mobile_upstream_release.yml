@@ -86,12 +86,31 @@ jobs:
           git remote add upstream https://github.com/gokadzev/Musify.git || git remote set-url upstream https://github.com/gokadzev/Musify.git
           git fetch upstream --no-tags --prune "+refs/tags/${{ steps.upstream.outputs.tag }}:refs/tags/${{ steps.upstream.outputs.tag }}"
 
+      # A plain merge only. Automatic -X ours / -X theirs resolution hides real
+      # conflicts: it can keep Musify Cloud code that calls a refactored upstream
+      # API, or drop an upstream fix. Conflicts need a human.
       - name: Merge upstream release
+        id: merge
         if: steps.existing.outputs.exists != 'true'
         shell: bash
         run: |
           upstream_tag="${{ steps.upstream.outputs.tag }}"
-          git merge --no-edit "refs/tags/${upstream_tag}"
+
+          if git merge --no-edit "refs/tags/${upstream_tag}"; then
+            echo "Merged upstream ${upstream_tag} without conflicts."
+            exit 0
+          fi
+
+          {
+            echo "### Conflicts merging upstream \`${upstream_tag}\` into \`mobile-cloud-sync\`"
+            echo
+            echo "Resolve these files by hand and push to \`mobile-cloud-sync\`:"
+            echo
+            git diff --name-only --diff-filter=U | sed 's/^/- `/;s/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          git merge --abort
+          exit 1
 
       - name: Set up Java
         if: steps.existing.outputs.exists != 'true'
@@ -127,15 +146,31 @@ jobs:
             git commit -m "chore: refresh version constant for ${{ steps.upstream.outputs.tag }}"
           fi
 
-      - name: Validate merged source
+      # Upstream can add or bump dependencies without the merge touching
+      # pubspec.lock, so refresh the lockfile and keep it in the branch.
+      - name: Refresh pubspec.lock
         if: steps.existing.outputs.exists != 'true'
+        shell: bash
         run: |
           flutter pub get
-          flutter analyze .
+          if ! git diff --quiet pubspec.lock; then
+            git add pubspec.lock
+            git commit -m "chore: refresh pubspec.lock for ${{ steps.upstream.outputs.tag }}"
+          fi
+
+      # The gate that matters: never push a tree that does not analyze clean,
+      # because the release build would fail afterwards on an already-pushed branch.
+      - name: Validate merged source
+        if: steps.existing.outputs.exists != 'true'
+        run: flutter analyze
 
       - name: Push mobile branch
+        id: push
         if: steps.existing.outputs.exists != 'true'
-        run: git push origin HEAD:mobile-cloud-sync
+        shell: bash
+        run: |
+          git push origin HEAD:refs/heads/mobile-cloud-sync
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch mobile release build
         if: steps.existing.outputs.exists != 'true'
@@ -149,18 +184,46 @@ jobs:
           fi
 
           gh workflow run mobile_release.yml \
+            --repo "${GITHUB_REPOSITORY}" \
             --ref refs/heads/mobile-cloud-sync \
             -f version="${{ steps.upstream.outputs.version }}" \
-            -f source_ref="refs/heads/mobile-cloud-sync" \
+            -f source_ref="${{ steps.push.outputs.sha }}" \
             -f repair_existing_release="$repair"
 
-      - name: Open sync failure issue
-        if: ${{ failure() && steps.existing.outputs.exists != 'true' }}
+      - name: Report failure
+        if: failure() && steps.existing.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
+          PUSHED: ${{ steps.push.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
         run: |
+          if [[ "${MERGE_OUTCOME}" == "failure" ]]; then
+            reason="the merge hit conflicts"
+          elif [[ "${PUSHED}" == "success" ]]; then
+            reason="mobile-cloud-sync was pushed but the release dispatch failed"
+          else
+            reason="the merged tree did not pass flutter analyze, so nothing was pushed"
+          fi
+
+          {
+            echo "### Mobile upstream sync failed for \`${UPSTREAM_TAG:-unknown}\`"
+            echo
+            echo "Reason: ${reason}."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          cat > /tmp/sync-failure.md <<NOTE
+          Automatic mobile sync from gokadzev/Musify ${UPSTREAM_TAG:-unknown upstream tag} failed because ${reason}.
+
+          Resolve it on \`mobile-cloud-sync\` locally, make sure \`flutter analyze\` is clean, push, then dispatch \`mobile_release.yml\`.
+
+          Run: ${RUN_URL}
+          NOTE
+
+          # Best effort: issue creation can be unavailable for the workflow token.
           gh issue create \
-            --title "Mobile upstream sync failed for ${UPSTREAM_TAG:-unknown upstream tag}" \
-            --body "Automatic mobile sync from gokadzev/Musify ${UPSTREAM_TAG:-unknown upstream tag} failed. This usually means the upstream release touched files that Musify Cloud also changes, so the branch needs a manual conflict resolution. Run: ${RUN_URL}" || true
+            --title "[SYNC FAILED] Mobile upstream sync failed for ${UPSTREAM_TAG:-unknown upstream tag}" \
+            --body-file /tmp/sync-failure.md \
+            || echo "Could not open an issue; see the run summary above."
