@@ -1,7 +1,7 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:musify/screens/ai_dj/ai_chat_page.dart';
+import 'package:musify/screens/ai/ai_chat_page.dart';
 import 'package:musify/services/ai/ai_chat_store.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';

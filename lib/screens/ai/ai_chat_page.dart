@@ -4,11 +4,11 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:musify/main.dart' show audioHandler;
 import 'package:musify/services/ai/ai_chat_store.dart';
-import 'package:musify/services/ai/ai_dj_service.dart';
+import 'package:musify/services/ai/ai_service.dart';
 import 'package:musify/services/ai/ai_voice_service.dart';
 import 'package:musify/services/common_services.dart' show getRecommendedSongs;
-import 'package:musify/widgets/ai_dj/ai_attachment_picker.dart';
-import 'package:musify/widgets/ai_dj/ai_message_bubble.dart';
+import 'package:musify/widgets/ai/ai_attachment_picker.dart';
+import 'package:musify/widgets/ai/ai_message_bubble.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';
 
 const _suggestionPool = [
@@ -386,7 +386,7 @@ class _AiChatPageState extends State<AiChatPage> {
       _pendingAttachment = null;
     });
     try {
-      await AiDjService.instance.sendMessage(
+      await AiService.instance.sendMessage(
         widget.chatId,
         text.isEmpty ? 'Sobre isso:' : text,
         attachment: attachment,

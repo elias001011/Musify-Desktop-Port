@@ -1,5 +1,5 @@
 /// Shared, provider-agnostic chat message/tool model used by every
-/// AiProvider implementation and by AiDjService.
+/// AiProvider implementation and by AiService.
 library;
 
 enum AiRole { system, user, assistant, tool }

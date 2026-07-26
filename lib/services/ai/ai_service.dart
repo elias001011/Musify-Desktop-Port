@@ -23,9 +23,9 @@ const _maxToolIterationsPerTurn = 5;
 /// any tool calls the model asks for against [executeAiTool], and persists
 /// every message (including tool actions) via [AiChatStore] so the chat UI
 /// can render them.
-class AiDjService {
-  AiDjService._internal();
-  static final AiDjService instance = AiDjService._internal();
+class AiService {
+  AiService._internal();
+  static final AiService instance = AiService._internal();
 
   final Map<String, AiProvider> _providers = {
     'groq': GroqProvider(),

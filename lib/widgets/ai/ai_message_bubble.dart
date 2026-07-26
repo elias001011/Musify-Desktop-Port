@@ -1,7 +1,7 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:musify/services/ai/ai_voice_service.dart';
-import 'package:musify/widgets/ai_dj/ai_action_card.dart';
+import 'package:musify/widgets/ai/ai_action_card.dart';
 
 class AiMessageBubble extends StatefulWidget {
   const AiMessageBubble({required this.message, super.key});
