@@ -6,9 +6,16 @@ name: Sync Musify AI from Musify Cloud
 # means this branch only ever sees one class of conflict (Cloud vs AI) instead
 # of two.
 #
-# Deliberately release-triggered and not scheduled. A cron would re-run and
-# re-fail on every tick for the same unresolved conflict; keying off a published
-# mobile-v* release means the sync fires exactly once per Cloud release.
+# Deliberately not scheduled: a cron would re-run and re-fail on every tick for
+# the same unresolved conflict, which is what made the sync mail unreadable. It
+# fires exactly once per Cloud release instead.
+#
+# The reliable trigger is the explicit dispatch at the end of
+# mobile_release.yml. GitHub suppresses workflow triggers for events created
+# with GITHUB_TOKEN, and that workflow publishes the release with it, so the
+# `release: published` event below never fires for an automated Cloud release.
+# It is kept for releases a human publishes from the UI, and the gate step makes
+# it a no-op for anything that is not a mobile-v* tag.
 
 on:
   release:

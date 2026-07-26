@@ -62,8 +62,8 @@ sync.
 ```
 Musify Cloud publishes mobile-v<version>
         |
-        v
-sync_ai_from_cloud.yml   (release: published, gated to mobile-v* tags)
+        v  (explicit dispatch from the end of mobile_release.yml)
+sync_ai_from_cloud.yml
   merge mobile-cloud-sync -> feature/musify-ai   (plain merge; conflicts abort)
   refresh version.dart and pubspec.lock
   flutter analyze                                (gate: nothing is pushed if it fails)
@@ -77,9 +77,17 @@ musifyai_release.yml     (dispatched pinned to the exact validated SHA)
 
 Notes on the parts that are easy to get wrong:
 
-- The `release` event has **no tag filter** — there is no `tags:` key for it the
-  way there is for `push`. Every published release starts the workflow, and the
-  first step is a gate that exits early unless the tag starts with `mobile-v`.
+- **GitHub suppresses workflow triggers for events created with
+  `GITHUB_TOKEN`.** `mobile_release.yml` publishes the Cloud release with that
+  token, so its `release: published` event starts nothing at all — not even a
+  run that the gate below would skip. The sync is therefore kicked off by an
+  explicit `gh workflow run` at the end of `mobile_release.yml`; a
+  `workflow_dispatch` through the API does run, which is how every other
+  cross-workflow hand-off in this repository already works.
+- The `release: published` trigger is kept anyway, for releases a human
+  publishes from the UI. That event has **no tag filter** — there is no `tags:`
+  key for it the way there is for `push` — so the first step is a gate that
+  exits early unless the tag starts with `mobile-v`.
 - `release: published` only fires for workflows on the repository's **default
   branch**, so `sync_ai_from_cloud.yml` and `musifyai_release.yml` are also
   committed to `master`. That is the same reason all the other workflow files
