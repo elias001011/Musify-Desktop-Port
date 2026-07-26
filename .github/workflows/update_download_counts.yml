@@ -1,0 +1,126 @@
+name: Update download counts
+
+# Keeps the download badges in README.md accurate.
+#
+# shields.io can only total a whole repository, and this one publishes three
+# products from one release list, so a repo-wide badge would report Musify
+# Cloud and Musify AI downloads as desktop ones. This sums per tag prefix and
+# writes the numbers into the badge URLs instead.
+
+on:
+  schedule:
+    # Daily. The counts move slowly, and a push here should not compete with
+    # release runs.
+    - cron: "40 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-download-counts
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Refresh README download badges
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v5
+        with:
+          ref: refs/heads/master
+
+      - name: Count downloads per release channel
+        id: counts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          # --paginate: a repository with several years of releases will not
+          # fit in one page, and a silently truncated total is worse than none.
+          releases="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate)"
+
+          count_for() {
+            echo "$releases" | jq -s --arg prefix "$1" '
+              add
+              | map(select(.draft == false and (.tag_name | startswith($prefix))))
+              | [.[].assets[].download_count]
+              | add // 0
+            '
+          }
+
+          desktop="$(count_for 'desktop-v')"
+          cloud="$(count_for 'mobile-v')"
+          ai="$(count_for 'musifyai-v')"
+
+          echo "desktop=${desktop}" >> "$GITHUB_OUTPUT"
+          echo "cloud=${cloud}" >> "$GITHUB_OUTPUT"
+          echo "ai=${ai}" >> "$GITHUB_OUTPUT"
+          echo "total=$((desktop + cloud + ai))" >> "$GITHUB_OUTPUT"
+
+          echo "desktop=${desktop} cloud=${cloud} ai=${ai}"
+
+      - name: Rewrite the badge block
+        env:
+          DESKTOP: ${{ steps.counts.outputs.desktop }}
+          CLOUD: ${{ steps.counts.outputs.cloud }}
+          AI: ${{ steps.counts.outputs.ai }}
+          TOTAL: ${{ steps.counts.outputs.total }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+
+          desktop = os.environ['DESKTOP']
+          cloud = os.environ['CLOUD']
+          ai = os.environ['AI']
+          total = os.environ['TOTAL']
+
+          badges = (
+              f'[![Musify Desktop Port downloads]'
+              f'(https://img.shields.io/badge/desktop%20downloads-{desktop}-2F6FE0'
+              f'?style=for-the-badge&logo=github)]'
+              f'(https://github.com/elias001011/Musify-Desktop-Port/releases)\n'
+              f'[![Musify Cloud downloads]'
+              f'(https://img.shields.io/badge/Musify%20Cloud-{cloud}-006A71'
+              f'?style=for-the-badge)]'
+              f'(https://github.com/elias001011/Musify-Desktop-Port/releases)\n'
+              f'[![Musify AI downloads]'
+              f'(https://img.shields.io/badge/Musify%20AI-{ai}-2F4FE0'
+              f'?style=for-the-badge)]'
+              f'(https://github.com/elias001011/Musify-Desktop-Port/releases)\n'
+              f'\n'
+              f'<sub>{total} downloads across every release of all three '
+              f'products. Updated daily.</sub>'
+          )
+
+          readme = open('README.md', encoding='utf-8').read()
+          updated = re.sub(
+              r'(<!-- download-counts:start -->\n).*?(\n<!-- download-counts:end -->)',
+              lambda m: m.group(1) + badges + m.group(2),
+              readme,
+              flags=re.DOTALL,
+          )
+
+          if updated == readme:
+              print('No badge block found or nothing changed.')
+          else:
+              open('README.md', 'w', encoding='utf-8').write(updated)
+          PY
+
+      - name: Commit when the numbers moved
+        shell: bash
+        run: |
+          if git diff --quiet README.md; then
+            echo "Counts unchanged; nothing to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: refresh download counts"
+          git push origin HEAD:refs/heads/master
