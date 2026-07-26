@@ -38,6 +38,7 @@ import 'package:musify/utilities/formatter.dart';
 import 'package:musify/utilities/playlist_dialogs.dart';
 import 'package:musify/widgets/no_artwork_cube.dart';
 import 'package:musify/widgets/overflow_menu_button.dart';
+import 'package:musify/widgets/popup_menu_item.dart';
 import 'package:musify/widgets/rename_song_dialog.dart';
 
 List<PopupMenuEntry<String>> _buildSongMenuItems({
@@ -65,49 +66,25 @@ List<PopupMenuEntry<String>> _buildSongMenuItems({
 
   return [
     if (showQueueActions)
-      PopupMenuItem<String>(
+      buildPopupMenuItem<String>(
         value: 'play_next',
-        child: Row(
-          children: [
-            Icon(
-              FluentIcons.receipt_play_24_regular,
-              color: colorScheme.primary,
-            ),
-            const SizedBox(width: 8),
-            Text(playNextText, style: TextStyle(color: colorScheme.secondary)),
-          ],
-        ),
+        icon: FluentIcons.receipt_play_24_regular,
+        label: playNextText,
+        colorScheme: colorScheme,
       ),
     if (showGoToArtist)
-      PopupMenuItem<String>(
+      buildPopupMenuItem<String>(
         value: 'go_to_artist',
-        child: Row(
-          children: [
-            Icon(FluentIcons.person_24_regular, color: colorScheme.primary),
-            const SizedBox(width: 8),
-            Text(
-              l10n.goToArtist,
-              style: TextStyle(color: colorScheme.secondary),
-            ),
-          ],
-        ),
+        icon: FluentIcons.person_24_regular,
+        label: l10n.goToArtist,
+        colorScheme: colorScheme,
       ),
     if (showQueueActions)
-      PopupMenuItem<String>(
+      buildPopupMenuItem<String>(
         value: 'add_to_queue',
-        child: Row(
-          children: [
-            Icon(
-              FluentIcons.text_bullet_list_add_24_regular,
-              color: colorScheme.primary,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              addToQueueText,
-              style: TextStyle(color: colorScheme.secondary),
-            ),
-          ],
-        ),
+        icon: FluentIcons.text_bullet_list_add_24_regular,
+        label: addToQueueText,
+        colorScheme: colorScheme,
       ),
     if (!offlineMode.value)
       PopupMenuItem<String>(
@@ -124,7 +101,7 @@ List<PopupMenuEntry<String>> _buildSongMenuItems({
                 const SizedBox(width: 8),
                 Text(
                   value ? removeFromLikedSongsText : addToLikedSongsText,
-                  style: TextStyle(color: colorScheme.secondary),
+                  style: TextStyle(color: colorScheme.onSurface),
                 ),
               ],
             );
@@ -132,60 +109,32 @@ List<PopupMenuEntry<String>> _buildSongMenuItems({
         ),
       ),
     if (canRename)
-      PopupMenuItem<String>(
+      buildPopupMenuItem<String>(
         value: 'rename',
-        child: Row(
-          children: [
-            Icon(FluentIcons.edit_24_regular, color: colorScheme.primary),
-            const SizedBox(width: 8),
-            Text(
-              renameSongText,
-              style: TextStyle(color: colorScheme.secondary),
-            ),
-          ],
-        ),
+        icon: FluentIcons.edit_24_regular,
+        label: renameSongText,
+        colorScheme: colorScheme,
       ),
     if (canRemove)
-      PopupMenuItem<String>(
+      buildPopupMenuItem<String>(
         value: 'remove',
-        child: Row(
-          children: [
-            Icon(FluentIcons.delete_24_regular, color: colorScheme.primary),
-            const SizedBox(width: 8),
-            Text(
-              removeFromPlaylistText,
-              style: TextStyle(color: colorScheme.secondary),
-            ),
-          ],
-        ),
+        icon: FluentIcons.delete_24_regular,
+        label: removeFromPlaylistText,
+        colorScheme: colorScheme,
       ),
     if (!offlineMode.value)
-      PopupMenuItem<String>(
+      buildPopupMenuItem<String>(
         value: 'add_to_playlist',
-        child: Row(
-          children: [
-            Icon(FluentIcons.album_add_24_regular, color: colorScheme.primary),
-            const SizedBox(width: 8),
-            Text(
-              addToPlaylistText,
-              style: TextStyle(color: colorScheme.secondary),
-            ),
-          ],
-        ),
+        icon: FluentIcons.album_add_24_regular,
+        label: addToPlaylistText,
+        colorScheme: colorScheme,
       ),
     if (isRecentSong)
-      PopupMenuItem<String>(
+      buildPopupMenuItem<String>(
         value: 'remove_from_recents',
-        child: Row(
-          children: [
-            Icon(FluentIcons.delete_24_regular, color: colorScheme.primary),
-            const SizedBox(width: 8),
-            Text(
-              removeFromRecentlyPlayedText,
-              style: TextStyle(color: colorScheme.secondary),
-            ),
-          ],
-        ),
+        icon: FluentIcons.delete_24_regular,
+        label: removeFromRecentlyPlayedText,
+        colorScheme: colorScheme,
       ),
     if (!offlineMode.value || songOfflineStatus.value)
       PopupMenuItem<String>(
@@ -204,7 +153,7 @@ List<PopupMenuEntry<String>> _buildSongMenuItems({
                 const SizedBox(width: 8),
                 Text(
                   value ? removeOfflineText : makeOfflineText,
-                  style: TextStyle(color: colorScheme.secondary),
+                  style: TextStyle(color: colorScheme.onSurface),
                 ),
               ],
             );
@@ -529,32 +478,15 @@ class _SongBarState extends State<SongBar> {
     final isDurationAvailable =
         widget.showMusicDuration && widget.song['duration'] != null;
 
-    return ValueListenableBuilder<bool>(
-      valueListenable: _songOfflineStatus,
-      builder: (_, isOffline, __) {
-        if (isOffline && _artworkPath != null) {
-          return _OfflineArtwork(
-            artworkPath: _artworkPath,
-            size: size,
-            colorScheme: colorScheme,
-          );
-        }
-
-        return ValueListenableBuilder<bool>(
-          valueListenable: _songLikeStatus,
-          builder: (_, isLiked, __) {
-            return _OnlineArtwork(
-              lowResImageUrl: _lowResImageUrl,
-              size: size,
-              isDurationAvailable: isDurationAvailable,
-              colorScheme: colorScheme,
-              duration: widget.song['duration'],
-              isOffline: isOffline,
-              isLiked: isLiked,
-            );
-          },
-        );
-      },
+    return _ArtworkDisplay(
+      lowResImageUrl: _lowResImageUrl,
+      artworkPath: _artworkPath,
+      size: size,
+      isDurationAvailable: isDurationAvailable,
+      colorScheme: colorScheme,
+      offlineStatus: _songOfflineStatus,
+      likeStatus: _songLikeStatus,
+      duration: widget.song['duration'],
     );
   }
 
@@ -875,6 +807,59 @@ class _OnlineArtwork extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _ArtworkDisplay extends StatelessWidget {
+  const _ArtworkDisplay({
+    required this.lowResImageUrl,
+    required this.artworkPath,
+    required this.size,
+    required this.isDurationAvailable,
+    required this.colorScheme,
+    required this.offlineStatus,
+    required this.likeStatus,
+    required this.duration,
+  });
+
+  final String lowResImageUrl;
+  final String? artworkPath;
+  final double size;
+  final bool isDurationAvailable;
+  final ColorScheme colorScheme;
+  final ValueListenable<bool> offlineStatus;
+  final ValueListenable<bool> likeStatus;
+  final dynamic duration;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: offlineStatus,
+      builder: (_, isOffline, __) {
+        if (isOffline && artworkPath != null) {
+          return _OfflineArtwork(
+            artworkPath: artworkPath!,
+            size: size,
+            colorScheme: colorScheme,
+          );
+        }
+
+        return ValueListenableBuilder<bool>(
+          valueListenable: likeStatus,
+          builder: (_, isLiked, __) {
+            return _OnlineArtwork(
+              lowResImageUrl: lowResImageUrl,
+              size: size,
+              isDurationAvailable: isDurationAvailable,
+              colorScheme: colorScheme,
+              duration: duration,
+              isOffline: isOffline,
+              isLiked: isLiked,
+            );
+          },
+        );
+      },
     );
   }
 }
