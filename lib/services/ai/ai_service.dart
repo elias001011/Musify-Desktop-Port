@@ -151,13 +151,6 @@ class AiService {
           logger.log('Musify AI provider ${provider.id} failed: ${e.message}');
           lastError = e.message;
 
-          // Our payload is wrong, not their key. Another provider would reject
-          // it identically, so stop instead of burning the whole rotation.
-          if (e.kind == AiFailureKind.badRequest) {
-            await turn.finishFailed();
-            return AiTurnOutcome.completed;
-          }
-
           // A side effect already landed this turn. Replaying it elsewhere
           // would queue the same song twice or create the playlist again.
           if (turn.hasSideEffects) {
@@ -165,6 +158,11 @@ class AiService {
             return AiTurnOutcome.completed;
           }
 
+          // Note: badRequest (400) does NOT stop the rotation here, because
+          // each provider speaks a different wire format (OpenAI-compatible vs
+          // Gemini Interactions API). A 400 from one does not mean another
+          // would reject the same request — the request body is provider-
+          // specific, so the other provider may still succeed.
           turn.reset();
         } catch (e, stackTrace) {
           logger.log(

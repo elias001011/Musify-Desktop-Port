@@ -4,23 +4,28 @@ import 'package:http/http.dart' as http;
 import 'package:musify/services/ai/ai_message.dart';
 import 'package:musify/services/ai/ai_provider.dart';
 
-/// Talks to Google's Gemini "Interactions" API
-/// (https://generativelanguage.googleapis.com/v1beta/interactions), which
-/// replaced the older generateContent endpoint. Musify AI calls it in
-/// stateless mode (full history resent every turn, no
-/// previous_interaction_id) so it slots into the same provider-agnostic
-/// fallback chain as Groq/OpenRouter. The function_call/function_result
-/// item shape below matches Google's documented example as of 2026-07-16;
-/// if Google adjusts it, this provider fails closed (AiProviderException)
-/// and the orchestrator falls back to the next configured provider rather
-/// than crashing the chat.
+/// Talks to Google's Gemini via the [Interactions
+/// API](https://ai.google.dev/api/interactions-api) at
+/// `POST /v1beta/interactions`.  Musify AI calls it in stateless mode (full
+/// history resent every turn, no `previous_interaction_id`) so it slots into
+/// the same provider-agnostic fallback chain as Groq/OpenRouter.
+///
+/// The body format follows the official Interactions API reference:
+///
+/// - `system_instruction` is a plain **string** (not the `{parts: …}` object
+///   that the legacy `generateContent` endpoint used).
+/// - The `input` array is kept homogeneous — every entry is a **Content**
+///   object (`{role, parts}`).  Tool calls and results are embedded **inside**
+///   `parts` as `functionCall` / `functionResponse` keys, never as bare steps
+///   at the top level of the array.
+/// - Tool results use `role: "function"` with a `functionResponse` part,
+///   matching the Interactions API spec.
 class GeminiProvider implements AiProvider {
   @override
   String get id => 'gemini';
 
-  // Kept on the non-streaming path deliberately. This endpoint's shape is
-  // reverse-engineered, so adding SSE parsing on top would double the surface
-  // that breaks when Google changes it.
+  // Kept on the non-streaming path deliberately.  Adding SSE parsing on top
+  // would double the surface that can drift from the API spec.
   @override
   bool get streams => false;
 
@@ -50,6 +55,146 @@ class GeminiProvider implements AiProvider {
     );
   }
 
+  // --------------------------------------------------------------------------
+  // Input assembly
+  // --------------------------------------------------------------------------
+
+  /// Builds a homogeneous array of **Content** objects for the `input` field.
+  ///
+  /// Every item has the shape `{role, parts}`.  Tool calls use
+  /// `functionCall` inside parts; tool results use `functionResponse` inside
+  /// parts with `role: "function"`.
+  List<Map<String, dynamic>> _buildInput(List<AiMessage> history) {
+    final input = <Map<String, dynamic>>[];
+
+    for (final message in history) {
+      switch (message.role) {
+        case AiRole.system:
+          continue; // Goes into system_instruction, not input.
+
+        case AiRole.user:
+          input.add({
+            'role': 'user',
+            'parts': [{'text': message.content}],
+          });
+
+        case AiRole.assistant:
+          final parts = <Map<String, dynamic>>[];
+          if (message.content.isNotEmpty) {
+            parts.add({'text': message.content});
+          }
+          for (final call in message.toolCalls) {
+            parts.add({
+              'functionCall': {
+                'name': call.name,
+                'args': call.arguments,
+              },
+            });
+          }
+          if (parts.isNotEmpty) {
+            input.add({'role': 'model', 'parts': parts});
+          }
+
+        case AiRole.tool:
+          // `message.content` is a JSON string from encodeToolResult().
+          // Decode it so the Gemini API receives a proper object.
+          Map<String, dynamic> decodedResponse;
+          try {
+            decodedResponse = jsonDecode(message.content) as Map<String, dynamic>;
+          } catch (_) {
+            decodedResponse = {'raw': message.content};
+          }
+          input.add({
+            'role': 'function',
+            'parts': [
+              {
+                'functionResponse': {
+                  'name': message.toolName,
+                  'response': decodedResponse,
+                },
+              },
+            ],
+          });
+      }
+    }
+
+    // The API requires the first content role to be "user" or "function".
+    // Drop leading model entries that can appear from migrated chats.
+    while (input.isNotEmpty && input.first['role'] == 'model') {
+      input.removeAt(0);
+    }
+
+    return input;
+  }
+
+  // --------------------------------------------------------------------------
+  // Response parsing
+  // --------------------------------------------------------------------------
+
+  /// Parses the Interactions API response.
+  ///
+  /// The response contains a `steps` array.  Each step has a `type`:
+  /// - `"function_call"`: the model wants to call a tool.
+  /// - `"model_output"`: the model produced text.  The step's `content` field
+  ///   is a Content object whose `parts` may contain text blocks.
+  ///
+  /// The `output_text` shorthand is also checked as a fallback for simple
+  /// single-turn cases where `steps` may be omitted.
+  (String, List<AiToolCall>) _parseSteps(Map<String, dynamic> decoded) {
+    final toolCalls = <AiToolCall>[];
+    final textBuffer = StringBuffer();
+    var toolCallIndex = 0;
+
+    final steps = decoded['steps'] as List?;
+    if (steps != null) {
+      for (final raw in steps) {
+        final step = raw as Map;
+        final type = step['type']?.toString();
+
+        if (type == 'function_call') {
+          final name = step['name']?.toString() ?? '';
+          final id = step['id']?.toString() ?? '${name}_${toolCallIndex++}';
+          toolCalls.add(
+            AiToolCall(
+              id: id,
+              name: name,
+              arguments: Map<String, dynamic>.from(
+                step['arguments'] as Map? ?? {},
+              ),
+            ),
+          );
+          continue;
+        }
+
+        if (type == 'model_output') {
+          final content = step['content'] as Map?;
+          if (content == null) continue;
+          final parts = content['parts'] as List? ?? [];
+          for (final p in parts) {
+            final pm = p as Map;
+            final text = pm['text']?.toString();
+            if (text != null && text.isNotEmpty) {
+              textBuffer.write(text);
+            }
+          }
+        }
+      }
+    }
+
+    // Some responses include `output_text` as a convenience field when there
+    // are no tool calls (single text-only turn).
+    final outputText = decoded['output_text']?.toString();
+    if (textBuffer.isEmpty && outputText != null) {
+      textBuffer.write(outputText);
+    }
+
+    return (textBuffer.toString(), toolCalls);
+  }
+
+  // --------------------------------------------------------------------------
+  // HTTP call
+  // --------------------------------------------------------------------------
+
   Future<_GeminiResult> _complete({
     required String systemPrompt,
     required List<AiMessage> history,
@@ -64,57 +209,16 @@ class GeminiProvider implements AiProvider {
       );
     }
 
-    final input = <Map<String, dynamic>>[];
-    for (final message in history) {
-      switch (message.role) {
-        case AiRole.system:
-          continue;
-        case AiRole.user:
-          input.add({
-            'role': 'user',
-            'parts': [
-              {'text': message.content},
-            ],
-          });
-        case AiRole.assistant:
-          if (message.toolCalls.isNotEmpty) {
-            for (final call in message.toolCalls) {
-              input.add({
-                'type': 'function_call',
-                'id': call.id,
-                'name': call.name,
-                'arguments': call.arguments,
-              });
-            }
-          } else {
-            input.add({
-              'role': 'model',
-              'parts': [
-                {'text': message.content},
-              ],
-            });
-          }
-        case AiRole.tool:
-          input.add({
-            'type': 'function_result',
-            'name': message.toolName,
-            'call_id': message.toolCallId,
-            'result': [
-              {'type': 'text', 'text': message.content},
-            ],
-          });
-      }
-    }
+    final input = _buildInput(history);
 
     final body = <String, dynamic>{
       'model': model,
-      'system_instruction': {
-        'parts': [
-          {'text': systemPrompt},
-        ],
-      },
+      if (systemPrompt.isNotEmpty) 'system_instruction': systemPrompt,
       'input': input,
       'store': false,
+      'generation_config': {
+        'max_output_tokens': 4096,
+      },
       if (tools.isNotEmpty)
         'tools': [
           for (final tool in tools)
@@ -127,13 +231,15 @@ class GeminiProvider implements AiProvider {
         ],
     };
 
+    final endpoint = Uri.parse(
+      'https://generativelanguage.googleapis.com/v1beta/interactions',
+    );
+
     http.Response response;
     try {
       response = await http
           .post(
-            Uri.parse(
-              'https://generativelanguage.googleapis.com/v1beta/interactions',
-            ),
+            endpoint,
             headers: {
               'x-goog-api-key': apiKey,
               'Content-Type': 'application/json',
@@ -167,13 +273,14 @@ class GeminiProvider implements AiProvider {
       );
     }
     if (response.statusCode >= 400) {
+      final errorDetails = utf8.decode(response.bodyBytes);
       throw AiProviderException(
-        'gemini: erro ${response.statusCode} (${response.body})',
+        'gemini: erro ${response.statusCode} ($errorDetails)',
         kind: AiFailureKind.badRequest,
       );
     }
 
-    late final Map<String, dynamic> decoded;
+    Map<String, dynamic> decoded;
     try {
       decoded =
           jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
@@ -184,49 +291,13 @@ class GeminiProvider implements AiProvider {
       );
     }
 
-    final toolCalls = <AiToolCall>[];
-    final textBuffer = StringBuffer();
-
-    final steps = decoded['steps'] as List?;
-    if (steps != null) {
-      for (final step in steps) {
-        final stepMap = step as Map;
-        if (stepMap['type'] == 'function_call') {
-          toolCalls.add(
-            AiToolCall(
-              id: (stepMap['id'] ?? stepMap['name']).toString(),
-              name: stepMap['name'].toString(),
-              arguments: Map<String, dynamic>.from(
-                stepMap['arguments'] as Map? ?? {},
-              ),
-            ),
-          );
-          continue;
-        }
-        final content = stepMap['content'] as List?;
-        if (content != null) {
-          for (final block in content) {
-            final blockMap = block as Map;
-            if (blockMap['type'] == 'text' && blockMap['text'] != null) {
-              textBuffer.write(blockMap['text']);
-            }
-          }
-        }
-      }
-    }
-
-    final outputText = decoded['output_text']?.toString();
-    final content = textBuffer.isNotEmpty
-        ? textBuffer.toString()
-        : (outputText ?? '');
-
-    return _GeminiResult(content: content, toolCalls: toolCalls);
+    final (text, toolCalls) = _parseSteps(decoded);
+    return _GeminiResult(content: text, toolCalls: toolCalls);
   }
 }
 
 class _GeminiResult {
   const _GeminiResult({required this.content, required this.toolCalls});
-
   final String content;
   final List<AiToolCall> toolCalls;
 }

@@ -128,7 +128,7 @@ abstract class OpenAiCompatibleProvider implements AiProvider {
       ],
       'stream': true,
       'temperature': 0.6,
-      'max_tokens': 1024,
+      'max_tokens': 4096,
       if (tools.isNotEmpty) ...{
         'tools': [
           for (final tool in tools)
