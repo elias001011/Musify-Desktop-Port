@@ -126,7 +126,42 @@ provider order with API keys and model per provider, and a switch per tool.
 Providers are tried in order, and each provider's keys are tried in turn, so a
 rate-limited key falls through to the next one. Groq and OpenRouter stream the
 final answer; Gemini does not (its endpoint is a reverse-engineered one and is
-kept on the simpler non-streaming path).
+kept on the simpler non-streaming path). The model picker only lists models that
+can actually call tools — picking a speech or embedding model left the assistant
+able to chat and unable to act, with nothing to explain why.
+
+### What it can do
+
+| Tool | |
+|---|---|
+| `search` | songs, playlists, albums, artists; optionally ordered by popularity |
+| `get_artist_top_tracks` | an artist's real most-played tracks from YouTube Music |
+| `get_library_index` / `get_library_item` | what the user has saved, and what is inside one of those |
+| `get_lyrics` | lyrics for a song |
+| `get_wrapped_insights` / `get_listening_stats` | the year, and any single month |
+| `play_song` / `play_collection` / `start_radio` | one song, a whole list, or a station seeded from a song |
+| `queue_action` / `playback_control` / `playback_settings` | queue edits, transport, and shuffle/repeat/seek/sleep timer |
+| `create_playlist` / `edit_playlist` / `delete_playlist` | playlists, temporary by default |
+| `like_item` / `offline_control` | favourites and downloads |
+| `navigate` | open a screen, from an allowlist |
+
+Every tool can be switched off individually. A disabled tool is not mentioned in
+the prompt at all, rather than described as unavailable: naming a tool the model
+cannot call is an invitation to hallucinate a call to it.
+
+### How a turn works
+
+One user message produces one assistant message, updated in place: a status line
+under it while tools run, the answer streaming into it, and at most one card for
+whatever it accomplished. The raw tool results are stored with the message, so
+the next turn is built from what actually happened rather than from a summary.
+
+Failures are handled without bothering the user with mechanics. A rate limit
+retries the same request with backoff before touching another key; an invalid
+key moves straight to the next one; a malformed request stops instead of burning
+every provider on a payload they will all reject. Once a tool with side effects
+has run, the turn is never replayed elsewhere — that replay is what used to
+create the same playlist twice.
 
 ## Future work
 

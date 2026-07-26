@@ -72,6 +72,8 @@ Map<String, dynamic> returnSongLayout(
   final artist = sep != -1 ? song.title.substring(0, sep) : song.author;
   final rawTitle = sep != -1 ? song.title.substring(sep + 3) : song.title;
   final title = formatSongTitle(rawTitle);
+  // YouTube's structured music panel; present on watch pages, empty otherwise.
+  final musicData = song.musicData.isEmpty ? null : song.musicData.first;
 
   return {
     'id': index,
@@ -85,6 +87,12 @@ Map<String, dynamic> returnSongLayout(
     'highResImage': playlistImage ?? song.thumbnails.maxResUrl,
     'duration': song.duration?.inSeconds,
     'isLive': song.isLive,
+    // Already fetched with the video and previously discarded. Popularity and
+    // the canonical album/artist are what let the assistant answer "the most
+    // popular one" or "from which album" without another request.
+    'views': song.engagement.viewCount,
+    if (musicData?.album != null) 'album': musicData!.album,
+    if (musicData?.artist != null) 'albumArtist': musicData!.artist,
   };
 }
 

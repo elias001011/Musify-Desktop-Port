@@ -166,13 +166,39 @@ Future<bool> _validateCachedUrl(String cachedUrl) async {
   }
 }
 
-Future<List> fetchSongsList(String searchQuery) async {
+/// Searches for songs, optionally ordered by view count instead of relevance.
+///
+/// Results are cached: the `search_` prefix picks up the shared 4-day search
+/// TTL in data_manager. This function had a "if not in cache" comment and no
+/// cache at all, so every search — including every one the assistant makes
+/// while building a playlist — was a live request.
+Future<List> fetchSongsList(
+  String searchQuery, {
+  bool orderByPopularity = false,
+}) async {
+  final normalizedQuery = searchQuery.trim().toLowerCase();
+  final cacheKey =
+      'search_songs_${orderByPopularity ? 'pop_' : ''}$normalizedQuery';
+
   try {
-    // If not in cache, perform the search
-    final List<Video> searchResults = await ytClient.search.search(searchQuery);
+    final cached = await getData('cache', cacheKey);
+    if (cached is List && cached.isNotEmpty) {
+      return List<Map<String, dynamic>>.from(
+        cached.map((song) => Map<String, dynamic>.from(song as Map)),
+      );
+    }
+
+    final List<Video> searchResults = await ytClient.search.search(
+      searchQuery,
+      filter: orderByPopularity ? SortFilters.viewCount : TypeFilters.video,
+    );
     final songsList = searchResults
         .map((video) => returnSongLayout(0, video))
         .toList();
+
+    if (songsList.isNotEmpty) {
+      unawaited(addOrUpdateData('cache', cacheKey, songsList));
+    }
 
     return songsList;
   } catch (e, stackTrace) {
@@ -575,6 +601,29 @@ Future<void> getSimilarSong(String songYtId) async {
       error: e,
       stackTrace: stackTrace,
     );
+  }
+}
+
+/// Returns several songs related to [songYtId], for building a station.
+///
+/// [getSimilarSong] fetches the same list and keeps only the first entry, which
+/// is all autoplay needs; a radio needs the rest of it.
+Future<List<Map<String, dynamic>>> getRelatedSongs(
+  String songYtId, {
+  int limit = 20,
+}) async {
+  try {
+    final song = await ytClient.videos.get(songYtId);
+    final related = await ytClient.videos.getRelatedVideos(song) ?? [];
+
+    return [
+      for (var i = 0; i < related.length && i < limit; i++)
+        returnSongLayout(i, related[i]),
+    ];
+  } catch (e, stackTrace) {
+    logger.log('Error while fetching related songs:',
+        error: e, stackTrace: stackTrace);
+    return const [];
   }
 }
 

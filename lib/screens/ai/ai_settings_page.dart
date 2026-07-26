@@ -28,6 +28,13 @@ const _toolLabels = {
   'offline_control': 'Baixar/remover offline',
   'get_lyrics': 'Ver letra da música',
   'get_wrapped_insights': 'Analisar seu Wrapped (gostos musicais)',
+  'play_collection': 'Tocar playlist/álbum inteiro',
+  'start_radio': 'Montar rádio a partir de uma música',
+  'playback_settings': 'Shuffle, repeat, avançar e sleep timer',
+  'navigate': 'Abrir telas do app',
+  'delete_playlist': 'Apagar playlist',
+  'get_listening_stats': 'Ver histórico por mês',
+  'get_artist_top_tracks': 'Ver os hits de um artista',
 };
 
 class AiSettingsPage extends StatefulWidget {
