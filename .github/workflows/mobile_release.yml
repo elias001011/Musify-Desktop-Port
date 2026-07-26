@@ -211,3 +211,29 @@ jobs:
             --method PATCH \
             "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
             -f make_latest=false >/dev/null
+
+      # make_latest=false only means "do not pin this one"; GitHub then falls back
+      # to the newest non-prerelease release, so a mobile build published after a
+      # desktop one still takes the Latest badge. Re-pin the desktop channel.
+      - name: Restore Latest on the desktop release channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          desktop_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq 'map(select(.draft == false and .prerelease == false and (.tag_name | startswith("desktop-v"))))
+                    | sort_by(.created_at) | last | .id // empty'
+          )"
+
+          if [[ -z "$desktop_id" ]]; then
+            echo "No published desktop-v* release to pin as Latest; leaving it as is."
+            exit 0
+          fi
+
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${desktop_id}" \
+            -f make_latest=true >/dev/null
+
+          echo "Latest is now $(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)."
