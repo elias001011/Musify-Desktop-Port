@@ -14,32 +14,32 @@ Future<Map<String, dynamic>?> showAiAttachmentPicker(BuildContext context) {
   return showModalBottomSheet<Map<String, dynamic>>(
     context: context,
     isScrollControlled: true,
+    showDragHandle: true,
     builder: (context) {
+      // The sheet has to shrink for the keyboard: at a fixed 75% of the screen
+      // the search results were squeezed out of view the moment it opened.
+      final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+      final maxHeight = MediaQuery.sizeOf(context).height * 0.75;
+
       return DefaultTabController(
         length: 2,
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.75,
-          child: Column(
-            children: [
-              const SizedBox(height: 8),
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(2),
+        child: Padding(
+          padding: EdgeInsets.only(bottom: viewInsets),
+          child: SizedBox(
+            height: (maxHeight - viewInsets).clamp(240.0, maxHeight),
+            child: const Column(
+              children: [
+                TabBar(
+                  tabs: [
+                    Tab(text: 'Buscar'),
+                    Tab(text: 'Biblioteca'),
+                  ],
                 ),
-              ),
-              const TabBar(
-                tabs: [
-                  Tab(text: 'Buscar'),
-                  Tab(text: 'Biblioteca'),
-                ],
-              ),
-              const Expanded(
-                child: TabBarView(children: [_SearchTab(), _LibraryTab()]),
-              ),
-            ],
+                Expanded(
+                  child: TabBarView(children: [_SearchTab(), _LibraryTab()]),
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -188,13 +188,32 @@ class _LibraryTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuilds when the library changes: reading .value once showed whatever
+    // the library looked like when the sheet opened.
+    return ValueListenableBuilder<List<Map>>(
+      valueListenable: userCustomPlaylists,
+      builder: (context, customPlaylists, _) {
+        return ValueListenableBuilder<List>(
+          valueListenable: userLikedSongsList,
+          builder: (context, liked, __) =>
+              _buildContent(context, customPlaylists, liked),
+        );
+      },
+    );
+  }
+
+  Widget _buildContent(
+    BuildContext context,
+    List<Map> customPlaylists,
+    List likedSongsSource,
+  ) {
     final playlists = [
-      ...userCustomPlaylists.value,
+      ...customPlaylists,
       ...getLikedPlaylistItems(),
       ...offlinePlaylistService.offlinePlaylists.value.cast<Map>(),
     ];
     final artists = getLikedArtistItems();
-    final likedSongs = userLikedSongsList.value.take(30).toList();
+    final likedSongs = likedSongsSource.take(30).toList();
 
     return ListView(
       children: [

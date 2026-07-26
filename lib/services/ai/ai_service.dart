@@ -532,6 +532,11 @@ class _TurnState {
   String _text = '';
   bool hasSideEffects = false;
 
+  /// Tokens arrive faster than a list needs to be rebuilt. Repainting the chat
+  /// on every one is jank for no benefit; ~60ms still reads as live typing.
+  static const _streamRepaintInterval = Duration(milliseconds: 60);
+  DateTime _lastStreamPaint = DateTime.fromMillisecondsSinceEpoch(0);
+
   void markSideEffect() => hasSideEffects = true;
   void addCard(Map<String, dynamic> card) => _cards.add(card);
   void addRound(Map<String, dynamic> round) => _rounds.add(round);
@@ -546,6 +551,11 @@ class _TurnState {
 
   Future<void> streamText(String text) async {
     _text = text;
+
+    final now = DateTime.now();
+    if (now.difference(_lastStreamPaint) < _streamRepaintInterval) return;
+    _lastStreamPaint = now;
+
     await store.updateMessage(chatId, messageId, {
       'content': _sanitize(text),
       'status': 'streaming',
