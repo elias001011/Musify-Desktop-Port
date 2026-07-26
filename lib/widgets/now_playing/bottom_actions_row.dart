@@ -134,22 +134,23 @@ class _BottomActionsRowState extends State<BottomActionsRow> {
 
         final actions = <Widget>[
           const DesktopVolumeControl(iconSize: 22),
-          _buildActionButton(
-            context: context,
-            icon: FluentIcons.cloud_arrow_down_24_regular,
-            activeIcon: FluentIcons.cloud_off_24_filled,
-            colorScheme: colorScheme,
-            size: responsiveIconSize,
-            statusNotifier: _songOfflineStatus,
-            onPressed: widget.audioId == null
-                ? null
-                : () => _toggleOffline(
-                    _songOfflineStatus,
-                    widget.audioId,
-                    widget.metadata,
-                  ),
-            tooltip: l10n.makeOffline,
-          ),
+          if (!isRadioStation)
+            _buildActionButton(
+              context: context,
+              icon: FluentIcons.cloud_arrow_down_24_regular,
+              activeIcon: FluentIcons.cloud_off_24_filled,
+              colorScheme: colorScheme,
+              size: responsiveIconSize,
+              statusNotifier: _songOfflineStatus,
+              onPressed: audioId == null
+                  ? null
+                  : () => _toggleOffline(
+                      _songOfflineStatus,
+                      audioId,
+                      widget.metadata,
+                    ),
+              tooltip: l10n.makeOffline,
+            ),
           _buildSleepTimerButton(context, colorScheme, responsiveIconSize),
           if (!offlineMode.value && !isRadioStation)
             _buildSimpleActionButton(
