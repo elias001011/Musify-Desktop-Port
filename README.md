@@ -6,10 +6,10 @@ Valeri Gokadze and contributors.
 
 <!-- download-counts:start -->
 [![Musify Desktop Port downloads](https://img.shields.io/badge/desktop%20downloads-45-2F6FE0?style=for-the-badge&logo=github)](https://github.com/elias001011/Musify-Desktop-Port/releases)
-[![Musify Cloud downloads](https://img.shields.io/badge/Musify%20Cloud-3-006A71?style=for-the-badge)](https://github.com/elias001011/Musify-Desktop-Port/releases)
+[![Musify Cloud downloads](https://img.shields.io/badge/Musify%20Cloud-4-006A71?style=for-the-badge)](https://github.com/elias001011/Musify-Desktop-Port/releases)
 [![Musify AI downloads](https://img.shields.io/badge/Musify%20AI-0-2F4FE0?style=for-the-badge)](https://github.com/elias001011/Musify-Desktop-Port/releases)
 
-<sub>48 downloads across every release of all three products. Updated daily.</sub>
+<sub>49 downloads across every release of all three products. Updated daily.</sub>
 <!-- download-counts:end -->
 
 The desktop port is what this repository is for. Two Android builds also live
