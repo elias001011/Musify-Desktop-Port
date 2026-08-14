@@ -19,6 +19,7 @@
  *     please visit: https://github.com/gokadzev/Musify
  */
 
+import 'package:audio_service/audio_service.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -27,12 +28,12 @@ import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
 import 'package:musify/screens/search_page.dart';
-import 'package:musify/services/backed_up_state_manager.dart';
 import 'package:musify/services/cloud_sync_manager.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/playlist_download_service.dart';
+import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/services/router_service.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/services/update_manager.dart';
@@ -119,32 +120,50 @@ class SettingsPage extends StatelessWidget {
           FluentIcons.data_histogram_24_regular,
           onTap: () => context.push('/settings/equalizer'),
         ),
-        CustomBar(
-          context.l10n!.dynamicColor,
-          FluentIcons.toggle_left_24_regular,
-          trailing: Switch(
-            value: useSystemColor.value,
-            onChanged: (value) => _toggleSystemColor(context, value),
-          ),
-        ),
         if (themeMode == ThemeMode.dark)
           CustomBar(
             context.l10n!.pureBlackTheme,
             FluentIcons.color_background_24_regular,
+            description: context.l10n!.pureBlackThemeDescription,
             trailing: Switch(
               value: usePureBlackColor.value,
               onChanged: (value) => _togglePureBlack(context, value),
             ),
           ),
+        CustomBar(
+          context.l10n!.dynamicColor,
+          FluentIcons.toggle_left_24_regular,
+          description: context.l10n!.dynamicColorDescription,
+          trailing: Switch(
+            value: useSystemColor.value,
+            onChanged: (value) => _toggleSystemColor(context, value),
+          ),
+        ),
         ValueListenableBuilder<bool>(
           valueListenable: predictiveBack,
           builder: (_, value, __) {
             return CustomBar(
               context.l10n!.predictiveBack,
               FluentIcons.position_backward_24_regular,
+              description: context.l10n!.predictiveBackDescription,
               trailing: Switch(
                 value: value,
                 onChanged: (value) => _togglePredictiveBack(context, value),
+              ),
+            );
+          },
+        ),
+
+        ValueListenableBuilder<bool>(
+          valueListenable: showAudioQualityBadge,
+          builder: (_, value, __) {
+            return CustomBar(
+              context.l10n!.audioQualityBadge,
+              FluentIcons.badge_24_regular,
+              description: context.l10n!.audioQualityBadgeDescription,
+              trailing: Switch(
+                value: value,
+                onChanged: (value) => _toggleAudioQualityBadge(context, value),
               ),
             );
           },
@@ -498,7 +517,32 @@ class SettingsPage extends StatelessWidget {
             try {
               final result = await restoreData(context);
               if (result.success) {
-                refreshBackedUpStateFromStorage();
+                reloadSettingsFromStorage();
+                reloadSongLibraryStateFromStorage();
+                reloadPlaylistLibraryStateFromStorage();
+                reloadSearchHistoryFromStorage();
+                listeningStatsService.reload();
+                await audioHandler.setShuffleMode(
+                  shuffleNotifier.value
+                      ? AudioServiceShuffleMode.all
+                      : AudioServiceShuffleMode.none,
+                );
+                await audioHandler.setRepeatMode(repeatNotifier.value);
+                themeMode = getThemeMode(themeModeSetting);
+                brightness = getBrightnessFromThemeMode(themeMode);
+                transitionsBuilder = predictiveBack.value
+                    ? const PredictiveBackPageTransitionsBuilder()
+                    : const CupertinoPageTransitionsBuilder();
+                if (context.mounted) {
+                  await Musify.updateAppState(
+                    context,
+                    newThemeMode: themeMode,
+                    newLocale: languageSetting,
+                    newAccentColor: primaryColorSetting,
+                    useSystemColor: useSystemColor.value,
+                  );
+                  NavigationManager.refreshRouter();
+                }
                 await CloudSyncManager.instance.rebindStorageListeners();
                 CloudSyncManager.instance.markBackedUpStateChanged();
               }
@@ -544,71 +588,45 @@ class SettingsPage extends StatelessWidget {
           icon: FluentIcons.heart_24_filled,
         ),
         Card(
-          margin: const EdgeInsets.only(bottom: 3),
+          margin: const EdgeInsets.only(bottom: 8),
           elevation: 0,
+          color: colorScheme.primaryContainer,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
+            borderRadius: BorderRadius.circular(16),
           ),
-          child: DecoratedBox(
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(15)),
-            child: Material(
-              color: colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(15),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(15),
-                onTap: () => launchURL(Uri.parse('https://ko-fi.com/gokadzev')),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 12,
-                    horizontal: 16,
-                  ),
-                  child: SizedBox(
-                    height: 45,
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: colorScheme.onPrimaryContainer.withValues(
-                              alpha: 0.15,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Icon(
-                            FluentIcons.heart_24_regular,
-                            color: colorScheme.onPrimaryContainer,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Text(
-                            context.l10n!.sponsorProject,
-                            style: TextStyle(
-                              color: colorScheme.onPrimaryContainer,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: colorScheme.onPrimaryContainer.withValues(
-                              alpha: 0.1,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            FluentIcons.arrow_right_24_regular,
-                            color: colorScheme.onPrimaryContainer,
-                            size: 16,
-                          ),
-                        ),
-                      ],
+          child: InkWell(
+            onTap: () => launchURL(Uri.parse('https://ko-fi.com/gokadzev')),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: colorScheme.onPrimaryContainer.withValues(
+                        alpha: 0.14,
+                      ),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      FluentIcons.heart_24_filled,
+                      color: colorScheme.onPrimaryContainer,
+                      size: 24,
                     ),
                   ),
-                ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      context.l10n!.sponsorProject,
+                      style: TextStyle(
+                        color: colorScheme.onPrimaryContainer,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -859,6 +877,12 @@ class SettingsPage extends StatelessWidget {
     showToast(context, context.l10n!.settingChangedMsg);
   }
 
+  void _toggleAudioQualityBadge(BuildContext context, bool value) {
+    addOrUpdateData<bool>('settings', 'showAudioQualityBadge', value);
+    showAudioQualityBadge.value = value;
+    showToast(context, context.l10n!.settingChangedMsg);
+  }
+
   Future<void> _toggleWrapped(BuildContext context, bool value) async {
     if (!value) {
       audioHandler.resetListeningStatsSession(
@@ -938,33 +962,7 @@ class SettingsPage extends StatelessWidget {
   }
 
   Future<void> _backupUserData(BuildContext context) async {
-    final colorScheme = Theme.of(context).colorScheme;
-
     try {
-      await showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            icon: Icon(
-              FluentIcons.info_24_regular,
-              color: colorScheme.primary,
-              size: 32,
-            ),
-            content: Text(
-              context.l10n!.folderRestrictions,
-              style: TextStyle(color: colorScheme.onSurfaceVariant),
-              textAlign: TextAlign.center,
-            ),
-            actionsAlignment: MainAxisAlignment.center,
-            actions: <Widget>[
-              FilledButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(context.l10n!.understand),
-              ),
-            ],
-          );
-        },
-      );
       final result = await backupData(context);
       if (context.mounted) {
         showToast(

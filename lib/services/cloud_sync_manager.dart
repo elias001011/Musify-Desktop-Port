@@ -129,7 +129,7 @@ class CloudSyncManager {
       await _putInternalSetting(_accountIdKey, accountId);
       await _putInternalSetting(_enabledKey, true);
       await _putInternalSetting(_automaticKey, true);
-      refreshSettingsFromStorage();
+      reloadSettingsFromStorage();
 
       final remoteSnapshot = await _downloadSnapshot(accountId);
       if (remoteSnapshot == null) {
@@ -160,7 +160,7 @@ class CloudSyncManager {
     }
 
     await _putInternalSetting(_enabledKey, enabled);
-    refreshSettingsFromStorage();
+    reloadSettingsFromStorage();
     cloudSyncStatus.value = enabled ? 'Cloud sync enabled' : 'Cloud sync off';
 
     if (enabled) {
@@ -181,7 +181,7 @@ class CloudSyncManager {
     bool enabled,
   ) async {
     await _putInternalSetting(_automaticKey, enabled);
-    refreshSettingsFromStorage();
+    reloadSettingsFromStorage();
     cloudSyncStatus.value = enabled
         ? 'Automatic cloud uploads enabled'
         : 'Automatic cloud uploads disabled';
@@ -285,7 +285,7 @@ class CloudSyncManager {
         _lastLocalChangeAtKey,
         updatedAt.toIso8601String(),
       );
-      refreshSettingsFromStorage();
+      reloadSettingsFromStorage();
       cloudSyncStatus.value = messagePrefix;
       return (message: messagePrefix, success: true);
     } catch (e) {

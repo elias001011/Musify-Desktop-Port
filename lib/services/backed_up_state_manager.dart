@@ -24,8 +24,8 @@ import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/services/settings_manager.dart';
 
 void refreshBackedUpStateFromStorage() {
-  refreshSettingsFromStorage();
-  refreshUserSongsFromStorage();
-  refreshPlaylistsFromStorage();
+  reloadSettingsFromStorage();
+  reloadSongLibraryStateFromStorage();
+  reloadPlaylistLibraryStateFromStorage();
   appStateReloadSignal.value++;
 }

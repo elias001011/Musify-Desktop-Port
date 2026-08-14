@@ -5,11 +5,11 @@ repository: https://github.com/elias001011/Musify-Desktop-Port
 issue_tracker: https://github.com/elias001011/Musify-Desktop-Port/issues
 
 publish_to: 'none'
-version: 10.1.1+176 # run update.sh after changing the version
+version: 10.2.0+177 # run update.sh after changing the version
 
 environment:
   sdk: '>=3.12.0 <4.0.0'
-  flutter: ^3.44.6
+  flutter: ^3.44.8
 
 dependencies:
   app_links: ^7.2.1
@@ -18,14 +18,14 @@ dependencies:
   cached_network_image: ^3.4.1
   crypto: ^3.0.7
   dynamic_color: ^1.8.1
-  file_picker: ^11.0.2
+  file_picker: ^11.0.3
   fluentui_system_icons: ^1.1.273
   flutter:
     sdk: flutter
   flutter_flip_card: ^0.0.6
   flutter_localizations:
     sdk: flutter
-  go_router: ^17.2.3
+  go_router: ^17.4.0
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   html: ^0.15.6

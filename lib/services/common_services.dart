@@ -58,12 +58,6 @@ ValueNotifier<List> userOfflineSongs = ValueNotifier<List>(
   Hive.box('userNoBackup').get('offlineSongs', defaultValue: []),
 );
 
-final currentLikedSongsLength = ValueNotifier<int>(userLikedSongsList.value.length);
-final currentRecentlyPlayedLength =
-    ValueNotifier<int>(userRecentlyPlayed.value.length);
-final currentOfflineSongsLength =
-    ValueNotifier<int>(userOfflineSongs.value.length);
-
 dynamic nextRecommendedSong;
 
 var _songLikeUpdateToken = 0;
@@ -72,18 +66,14 @@ final _latestSongLikeUpdateTokens = <String, int>{};
 final lyrics = ValueNotifier<String?>(null);
 String? lastFetchedLyrics;
 
-void refreshUserSongsFromStorage() {
+void reloadSongLibraryStateFromStorage() {
   final userBox = Hive.box('user');
-
-  userLikedSongsList.value = userBox.get('likedSongs', defaultValue: []);
-  userRecentlyPlayed.value = userBox.get('recentlyPlayedSongs', defaultValue: []);
-  userOfflineSongs.value = Hive.box(
-    'userNoBackup',
-  ).get('offlineSongs', defaultValue: []);
-
-  currentLikedSongsLength.value = userLikedSongsList.value.length;
-  currentRecentlyPlayedLength.value = userRecentlyPlayed.value.length;
-  currentOfflineSongsLength.value = userOfflineSongs.value.length;
+  userLikedSongsList.value = List.from(
+    userBox.get('likedSongs', defaultValue: []),
+  );
+  userRecentlyPlayed.value = List.from(
+    userBox.get('recentlyPlayedSongs', defaultValue: []),
+  );
 }
 
 // Timeouts and durations used across manifest fetching and cache validation.
@@ -499,39 +489,51 @@ Future<List<String>> getSearchSuggestions(String query) async {
   return suggestions;
 }
 
+// Throws on network, HTTP and parsing failure instead of swallowing it, so
+// callers that need to tell "confirmed no segments" apart from "failed to
+// fetch" (e.g. the offline cache, which must not persist a false negative)
+// can do so.
+Future<List<Map<String, int>>> _fetchSkipSegments(String id) async {
+  final res = await ProxyManager().getProxiedResponse(
+    Uri(
+      scheme: 'https',
+      host: 'sponsor.ajay.app',
+      path: '/api/skipSegments',
+      queryParameters: {
+        'videoID': id,
+        'category': [
+          'sponsor',
+          'selfpromo',
+          'interaction',
+          'intro',
+          'outro',
+          'music_offtopic',
+        ],
+        'actionType': 'skip',
+      },
+    ),
+  );
+  // 404 is how the API answers "this video has no segments", so it is a real
+  // empty result and safe to remember. Any other non-200 is a failure, and
+  // throwing keeps it from being stored as a confirmed "no segments".
+  if (res.statusCode == 404 || res.body == 'Not Found') return [];
+  if (res.statusCode != 200) {
+    throw HttpException('SponsorBlock responded ${res.statusCode} for $id');
+  }
+
+  final data = jsonDecode(res.body);
+  final segments = data.map((obj) {
+    return Map.castFrom<String, dynamic, String, int>({
+      'start': obj['segment'].first.toInt(),
+      'end': obj['segment'].last.toInt(),
+    });
+  }).toList();
+  return List.castFrom<dynamic, Map<String, int>>(segments);
+}
+
 Future<List<Map<String, int>>> getSkipSegments(String id) async {
   try {
-    final res = await ProxyManager().getProxiedResponse(
-      Uri(
-        scheme: 'https',
-        host: 'sponsor.ajay.app',
-        path: '/api/skipSegments',
-        queryParameters: {
-          'videoID': id,
-          'category': [
-            'sponsor',
-            'selfpromo',
-            'interaction',
-            'intro',
-            'outro',
-            'music_offtopic',
-          ],
-          'actionType': 'skip',
-        },
-      ),
-    );
-    if (res.statusCode == 200 && res.body != 'Not Found') {
-      final data = jsonDecode(res.body);
-      final segments = data.map((obj) {
-        return Map.castFrom<String, dynamic, String, int>({
-          'start': obj['segment'].first.toInt(),
-          'end': obj['segment'].last.toInt(),
-        });
-      }).toList();
-      return List.castFrom<dynamic, Map<String, int>>(segments);
-    } else {
-      return [];
-    }
+    return await _fetchSkipSegments(id);
   } catch (e, stackTrace) {
     logger.log('Error in getSkipSegments', error: e, stackTrace: stackTrace);
     return [];
@@ -557,6 +559,51 @@ Future<void> getSimilarSong(String songYtId) async {
   }
 }
 
+/// In-memory cache of the audio stream picked for a song at the current
+/// quality setting. The Hive cache only keeps the URL, so without this every
+/// caller that needs the stream itself (bitrate, codec) would fetch the
+/// manifest again right after playback already resolved it.
+final Map<String, ({AudioOnlyStreamInfo stream, DateTime resolvedAt})>
+_selectedAudioStreams = {};
+
+const _maxSelectedAudioStreams = 50;
+
+String _selectedAudioStreamKey(String songId) =>
+    '${songId}_${audioQualitySetting.value}';
+
+/// Returns the stream resolved earlier for a song, unless it is old enough
+/// that its URL may have expired.
+AudioOnlyStreamInfo? _getSelectedAudioStream(String songId) {
+  final key = _selectedAudioStreamKey(songId);
+  final entry = _selectedAudioStreams[key];
+  if (entry == null) return null;
+
+  if (DateTime.now().difference(entry.resolvedAt) > _cacheValidationDuration) {
+    _selectedAudioStreams.remove(key);
+    return null;
+  }
+
+  return entry.stream;
+}
+
+void _cacheSelectedAudioStream(String songId, AudioOnlyStreamInfo stream) {
+  if (_selectedAudioStreams.length >= _maxSelectedAudioStreams) {
+    _selectedAudioStreams.remove(_selectedAudioStreams.keys.first);
+  }
+
+  _selectedAudioStreams[_selectedAudioStreamKey(songId)] = (
+    stream: stream,
+    resolvedAt: DateTime.now(),
+  );
+}
+
+/// Drops both cached forms of a song's stream, so the next request resolves
+/// it again. Used when a cached URL turns out to be dead.
+Future<void> invalidateSongStreamCache(String songId) async {
+  _selectedAudioStreams.remove(_selectedAudioStreamKey(songId));
+  await deleteData('cache', 'song_${songId}_${audioQualitySetting.value}_url');
+}
+
 /// Fetches the best available audio stream for a song.
 Future<AudioOnlyStreamInfo?> fetchBestAudioStream(String? songId) async {
   try {
@@ -565,13 +612,21 @@ Future<AudioOnlyStreamInfo?> fetchBestAudioStream(String? songId) async {
       return null;
     }
 
+    final cachedStream = _getSelectedAudioStream(songId);
+    if (cachedStream != null) return cachedStream;
+
     final manifest = await _fetchStreamManifest(songId);
     final audioStream = manifest?.audioOnly;
     if (audioStream == null || audioStream.isEmpty) {
       logger.log('fetchBestAudioStream: no audio streams for $songId');
       return null;
     }
-    return selectAudioOnlyStreamForQuality(audioStream.sortByBitrate());
+
+    final selectedStream = selectAudioOnlyStreamForQuality(
+      audioStream.sortByBitrate(),
+    );
+    _cacheSelectedAudioStream(songId, selectedStream);
+    return selectedStream;
   } on TimeoutException catch (_) {
     logger.log('fetchBestAudioStream request timed out for $songId');
     return null;
@@ -607,17 +662,13 @@ Future<String?> fetchSongStreamUrl(String songId, bool isLive) async {
       return cachedUrl;
     }
 
-    // Get fresh URL
-    final manifest = await _fetchStreamManifest(songId);
-    final audioStreams = manifest?.audioOnly;
-    if (audioStreams == null || audioStreams.isEmpty) {
+    // Get fresh URL, reusing the stream already resolved for this song.
+    final selectedStream = await fetchBestAudioStream(songId);
+    if (selectedStream == null) {
       logger.log('fetchSongStreamUrl: no audio streams for $songId');
       return null;
     }
 
-    final selectedStream = selectAudioOnlyStreamForQuality(
-      audioStreams.sortByBitrate(),
-    );
     final url = selectedStream.url.toString();
 
     unawaited(addOrUpdateData<String>('cache', cacheKey, url));
@@ -685,6 +736,7 @@ Future<bool> makeSongOffline(dynamic song) async {
     if (isSongAlreadyOffline(ytid)) {
       final existingPath = FilePaths.getAudioPath(ytid);
       if (await File(existingPath).exists()) {
+        unawaited(cacheSponsorBlockSegments(ytid));
         return true;
       }
     }
@@ -697,6 +749,8 @@ Future<bool> makeSongOffline(dynamic song) async {
 
     await audioFile.parent.create(recursive: true);
 
+    int? audioBitrateKbps;
+    String? audioCodec;
     IOSink? fileStream;
     try {
       final audioManifest = await fetchBestAudioStream(ytid);
@@ -704,6 +758,8 @@ Future<bool> makeSongOffline(dynamic song) async {
         logger.log('makeSongOffline: audioManifest is null for $ytid');
         return false;
       }
+      audioBitrateKbps = audioManifest.bitrate.kiloBitsPerSecond.round();
+      audioCodec = audioManifest.audioCodec;
 
       final stream = ytClient.videos.streamsClient.get(audioManifest);
       fileStream = audioFile.openWrite();
@@ -749,6 +805,8 @@ Future<bool> makeSongOffline(dynamic song) async {
     }
 
     offlineSong['audioPath'] = audioFile.path;
+    offlineSong['audioBitrateKbps'] = audioBitrateKbps;
+    offlineSong['audioCodec'] = audioCodec;
     offlineSong['dateAdded'] = DateTime.now().millisecondsSinceEpoch;
 
     try {
@@ -771,6 +829,8 @@ Future<bool> makeSongOffline(dynamic song) async {
           userOfflineSongs.value,
         ),
       );
+
+      unawaited(cacheSponsorBlockSegments(ytid));
     } catch (e, st) {
       logger.log(
         'Error updating global offline songs list',
@@ -836,6 +896,81 @@ Future<bool> removeSongFromOffline(dynamic songId) async {
     );
     return false;
   }
+}
+
+const _sponsorCallSpacing = Duration(seconds: 1);
+Future<void> _sponsorSerialChain = Future.value();
+
+/// Runs SponsorBlock lookups one at a time, spaced out, so that a playlist
+/// download finishing several songs at once does not fire them all together.
+Future<T> _sponsorSerialCall<T>(Future<T> Function() action) {
+  final result = _sponsorSerialChain.then((_) => action());
+  _sponsorSerialChain = result
+      .then((_) {}, onError: (_) {})
+      .then((_) => Future<void>.delayed(_sponsorCallSpacing));
+  return result;
+}
+
+/// Stores the SponsorBlock segments of a downloaded song next to the download
+/// itself, so they last exactly as long as it does: they are not backed up,
+/// they never expire, and removing the song removes them.
+///
+/// Looked up once per song: a stored result — including a confirmed empty one —
+/// is never fetched again.
+Future<void> cacheSponsorBlockSegments(String ytid) async {
+  try {
+    if (getOfflineSongByYtid(ytid)['sponsorSegments'] != null) return;
+
+    // Two attempts, spaced out by the queue above; a failure stores nothing so
+    // it is not mistaken for a confirmed "no segments", and is looked up again
+    // the next time the song plays.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final segments = await _sponsorSerialCall(
+          () => _fetchSkipSegments(ytid),
+        );
+        await _storeSponsorBlockSegments(ytid, segments);
+        return;
+      } catch (_) {
+        continue;
+      }
+    }
+  } catch (e, stackTrace) {
+    logger.log(
+      'Error caching sponsor block for $ytid',
+      error: e,
+      stackTrace: stackTrace,
+    );
+  }
+}
+
+Future<void> _storeSponsorBlockSegments(
+  String ytid,
+  List<Map<String, int>> segments,
+) async {
+  final index = userOfflineSongs.value.indexWhere((s) => s['ytid'] == ytid);
+  // The song was removed while the lookup was in flight.
+  if (index == -1) return;
+
+  final updatedOfflineSongs = List.from(userOfflineSongs.value);
+  updatedOfflineSongs[index] = {
+    ...Map<String, dynamic>.from(updatedOfflineSongs[index] as Map),
+    'sponsorSegments': segments,
+  };
+  userOfflineSongs.value = updatedOfflineSongs;
+  await addOrUpdateData<List>(
+    'userNoBackup',
+    'offlineSongs',
+    userOfflineSongs.value,
+  );
+}
+
+/// The stored segments of a downloaded song, or null when it has none stored
+/// yet. An empty list means the song was looked up and has no segments.
+List<Map<String, int>>? getCachedSponsorBlockSegments(String ytid) {
+  final stored = getOfflineSongByYtid(ytid)['sponsorSegments'];
+  if (stored is! List) return null;
+  return [for (final segment in stored) Map<String, int>.from(segment as Map)];
 }
 
 Future<File?> _downloadAndSaveArtworkFile(String url, String filePath) async {
