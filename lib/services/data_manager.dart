@@ -23,8 +23,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart' show logger;
 
@@ -279,13 +279,11 @@ Future<({String message, bool success})> restoreData(
 ) async {
   final boxNames = ['user', 'settings'];
   final result = await FilePicker.pickFiles(
-    allowMultiple: true,
-    withData: true,
     type: FileType.custom,
     allowedExtensions: ['hive'],
   );
 
-  if (result == null || result.files.isEmpty) {
+  if (result.isEmpty) {
     return (message: '${context.l10n!.chooseBackupFiles}!', success: false);
   }
 
@@ -293,7 +291,7 @@ Future<({String message, bool success})> restoreData(
   final missingBoxNames = <String>[];
 
   for (final boxName in boxNames) {
-    final backupFile = await _findBackupFile(boxName, result.files);
+    final backupFile = await _findBackupFile(boxName, result);
     if (backupFile != null) {
       backupFiles[boxName] = backupFile;
     } else {

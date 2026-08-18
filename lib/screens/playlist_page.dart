@@ -22,8 +22,8 @@
 import 'dart:async';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
@@ -35,13 +35,13 @@ import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/app_utils.dart';
 import 'package:musify/utilities/flutter_toast.dart';
-import 'package:musify/utilities/playlist_dialogs.dart';
 import 'package:musify/utilities/playlist_utils.dart';
 import 'package:musify/utilities/song_filtering.dart';
 import 'package:musify/utilities/sort_utils.dart';
 import 'package:musify/widgets/edit_playlist_dialog.dart';
 import 'package:musify/widgets/mini_player_bottom_space.dart';
 import 'package:musify/widgets/playlist_cube.dart';
+import 'package:musify/widgets/playlist_page/add_to_playlist_button.dart';
 import 'package:musify/widgets/playlist_page/download_button.dart';
 import 'package:musify/widgets/playlist_page/empty_playlist_state.dart';
 import 'package:musify/widgets/playlist_page/like_button.dart';
@@ -177,15 +177,9 @@ class _PlaylistPageState extends State<PlaylistPage> {
 
   @override
   Widget build(BuildContext context) {
+    final showPlaylist = !_isInitializingPlaylist && _playlist != null;
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(FluentIcons.arrow_left_24_regular),
-          onPressed: () =>
-              Navigator.pop(context, widget.playlistData == _playlist),
-          tooltip: context.l10n!.back,
-        ),
-      ),
+      appBar: showPlaylist ? null : _buildAppBar(context),
       body: Padding(
         padding: commonSingleChildScrollViewPadding,
         child: _isInitializingPlaylist
@@ -196,6 +190,38 @@ class _PlaylistPageState extends State<PlaylistPage> {
             : _playlist != null
             ? CustomScrollView(
                 slivers: [
+                  SliverAppBar(
+                    leading: _buildBackButton(context),
+                    pinned: true,
+                    expandedHeight:
+                        MediaQuery.sizeOf(context).width >
+                            MediaQuery.sizeOf(context).height
+                        ? 380
+                        : 320,
+                    flexibleSpace: FlexibleSpaceBar(
+                      centerTitle: true,
+                      expandedTitleScale: 1.35,
+                      titlePadding: const EdgeInsetsDirectional.only(
+                        start: 64,
+                        end: 64,
+                        bottom: 16,
+                      ),
+                      title: Text(
+                        _playlistTitle,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: Theme.of(context).colorScheme.onSurface,
+                          letterSpacing: 0,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      background: Padding(
+                        padding: const EdgeInsets.only(top: 56, bottom: 64),
+                        child: Center(child: _buildPlaylistHeroArtwork()),
+                      ),
+                    ),
+                  ),
                   SliverToBoxAdapter(child: _buildHeaderSection()),
                   if ((_playlist['list'] as List? ?? const []).isNotEmpty) ...[
                     ValueListenableBuilder<String>(
@@ -234,6 +260,22 @@ class _PlaylistPageState extends State<PlaylistPage> {
     );
   }
 
+  PreferredSizeWidget _buildAppBar(BuildContext context) {
+    return AppBar(leading: _buildBackButton(context));
+  }
+
+  Widget _buildBackButton(BuildContext context) {
+    return IconButton(
+      icon: const Icon(FluentIcons.arrow_left_24_regular),
+      onPressed: () => Navigator.pop(context, widget.playlistData == _playlist),
+      tooltip: context.l10n!.back,
+    );
+  }
+
+  String get _playlistTitle => widget.isArtist
+      ? normalizeArtistDisplayTitle(_playlist['title']?.toString() ?? '')
+      : _playlist['title']?.toString() ?? '';
+
   Widget _buildPlaylistImage() {
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isLandscape = screenWidth > MediaQuery.sizeOf(context).height;
@@ -253,13 +295,26 @@ class _PlaylistPageState extends State<PlaylistPage> {
     );
   }
 
+  Widget _buildPlaylistHeroArtwork() {
+    final image = _buildPlaylistImage();
+    if (widget.isArtist) return ClipOval(child: image);
+
+    return ClipPath(
+      clipper: const ShapeBorderClipper(
+        shape: StarBorder(
+          points: 8,
+          pointRounding: 0.8,
+          valleyRounding: 0.2,
+          innerRadiusRatio: 0.6,
+        ),
+      ),
+      child: image,
+    );
+  }
+
   Widget _buildHeaderSection() {
     final songsLength = (_playlist['list'] as List? ?? const []).length;
     final isUserCreated = _playlist['source'] == 'user-created';
-    final playlistTitle = widget.isArtist
-        ? normalizeArtistDisplayTitle(_playlist['title']?.toString() ?? '')
-        : _playlist['title']?.toString() ?? '';
-
     final hasSecondaryActions =
         (widget.playlistId != null && !isUserCreated && !offlineMode.value) ||
         !offlineMode.value ||
@@ -269,10 +324,12 @@ class _PlaylistPageState extends State<PlaylistPage> {
       children: [
         PlaylistHeader(
           _buildPlaylistImage(),
-          playlistTitle,
+          _playlistTitle,
           songsLength: songsLength,
           isAlbum: _playlist['isAlbum'] == true,
           isArtist: widget.isArtist,
+          showImage: false,
+          showTitle: false,
         ),
         if (songsLength > 0)
           PlaylistActionButtons(
@@ -304,7 +361,9 @@ class _PlaylistPageState extends State<PlaylistPage> {
                   playlistData: () => _playlist,
                 ),
               if (!offlineMode.value) ...[
-                _buildAddToPlaylistButton(),
+                PlaylistAddToPlaylistButton(
+                  resolvePlaylist: () async => _playlist,
+                ),
                 if (!isUserCreated) _buildSyncButton(),
               ],
               if (songsLength > 0) _buildDownloadButton(),
@@ -382,28 +441,6 @@ class _PlaylistPageState extends State<PlaylistPage> {
       onPressed: _handleSyncPlaylist,
       tooltip: context.l10n!.update,
     );
-  }
-
-  Widget _buildAddToPlaylistButton() {
-    return IconButton.filledTonal(
-      icon: const Icon(FluentIcons.album_add_24_regular),
-      iconSize: 24,
-      onPressed: _handleAddFullPlaylistToPlaylist,
-      tooltip: context.l10n!.addToPlaylist,
-    );
-  }
-
-  void _handleAddFullPlaylistToPlaylist() {
-    if (_playlist != null && _playlist['list'] != null) {
-      final List<dynamic> tracks = _playlist['list'];
-      if (tracks.isEmpty) {
-        showToast(context, context.l10n!.noSongsInPlaylist);
-        return;
-      }
-      showAddToPlaylistDialog(context, songs: tracks);
-    } else {
-      showToast(context, context.l10n!.loading);
-    }
   }
 
   Widget _buildEditButton() {
@@ -534,6 +571,10 @@ class _PlaylistPageState extends State<PlaylistPage> {
         : isCachedPage
         ? await getPlaylistInfoForWidget(playlistId, forceRefresh: true)
         : await updatePlaylistList(context, playlistId);
+    if (updated?['catalogStatus'] == 'failed') {
+      if (mounted) showToast(context, context.l10n!.error);
+      return;
+    }
     if (updated != null && mounted) {
       setState(() {
         _playlist = updated;

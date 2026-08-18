@@ -20,7 +20,7 @@
  */
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/extensions/l10n.dart';
 
 /// The top of a playlist, album or artist page: artwork, title and the chips
@@ -33,6 +33,8 @@ class PlaylistHeader extends StatelessWidget {
     this.songsLength,
     this.isAlbum,
     this.isArtist = false,
+    this.showImage = true,
+    this.showTitle = true,
     this.monthlyListeners,
     this.description,
   });
@@ -44,6 +46,8 @@ class PlaylistHeader extends StatelessWidget {
   final int? songsLength;
   final bool? isAlbum;
   final bool isArtist;
+  final bool showImage;
+  final bool showTitle;
 
   /// Monthly listeners of an artist, already shortened, e.g. `447M`.
   final String? monthlyListeners;
@@ -60,33 +64,38 @@ class PlaylistHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
       child: Column(
         children: [
-          if (isArtist)
-            ClipOval(child: image)
-          else
-            ClipPath(
-              clipper: const ShapeBorderClipper(
-                shape: StarBorder(
-                  points: 8,
-                  pointRounding: 0.8,
-                  valleyRounding: 0.2,
-                  innerRadiusRatio: 0.6,
+          if (showImage) ...[
+            if (isArtist)
+              ClipOval(child: image)
+            else
+              ClipPath(
+                clipper: const ShapeBorderClipper(
+                  shape: StarBorder(
+                    points: 8,
+                    pointRounding: 0.8,
+                    valleyRounding: 0.2,
+                    innerRadiusRatio: 0.6,
+                  ),
                 ),
+                child: image,
               ),
-              child: image,
+          ],
+          if (showTitle) ...[
+            const SizedBox(height: 24),
+            Text(
+              title,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: colorScheme.secondary,
+                letterSpacing: 0,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+              textAlign: TextAlign.center,
             ),
-          const SizedBox(height: 24),
-          Text(
-            title,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: colorScheme.secondary,
-              letterSpacing: 0,
-            ),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 2,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 10),
+            const SizedBox(height: 10),
+          ] else
+            const SizedBox(height: 12),
           Wrap(
             alignment: WrapAlignment.center,
             spacing: 8,

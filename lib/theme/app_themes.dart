@@ -19,26 +19,17 @@
  *     please visit: https://github.com/gokadzev/Musify
  */
 
-import 'package:dynamic_color/dynamic_color.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' as flutter;
 import 'package:flutter/scheduler.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/services/settings_manager.dart';
-import 'package:musify/theme/dynamic_color_compat.dart';
 
 ThemeMode themeMode = getThemeMode(themeModeSetting);
 Brightness brightness = getBrightnessFromThemeMode(themeMode);
 
-PageTransitionsBuilder transitionsBuilder = predictiveBack.value
-    ? const PredictiveBackPageTransitionsBuilder()
-    : const CupertinoPageTransitionsBuilder();
-
 void refreshThemeSettingsFromStorage() {
   themeMode = getThemeMode(themeModeSetting);
   brightness = getBrightnessFromThemeMode(themeMode);
-  transitionsBuilder = predictiveBack.value
-      ? const PredictiveBackPageTransitionsBuilder()
-      : const CupertinoPageTransitionsBuilder();
 }
 
 Brightness getBrightnessFromThemeMode(ThemeMode themeMode) {
@@ -61,32 +52,76 @@ ThemeMode getThemeMode(int themeModeIndex) {
 }
 
 ColorScheme getAppColorScheme(
-  ColorScheme? lightColorScheme,
-  ColorScheme? darkColorScheme,
+  flutter.ColorScheme? lightColorScheme,
+  flutter.ColorScheme? darkColorScheme,
 ) {
-  if (useSystemColor.value &&
-      lightColorScheme != null &&
-      darkColorScheme != null) {
-    // Temporary fix until this will be fixed: https://github.com/material-foundation/flutter-packages/issues/582
-
-    (lightColorScheme, darkColorScheme) = tempGenerateDynamicColourSchemes(
-      lightColorScheme,
-      darkColorScheme,
-    );
-  }
-
   final selectedScheme = (brightness == Brightness.light)
       ? lightColorScheme
       : darkColorScheme;
 
   if (useSystemColor.value && selectedScheme != null) {
-    return selectedScheme;
+    return _toMaterialColorScheme(selectedScheme);
   } else {
     return ColorScheme.fromSeed(
       seedColor: primaryColorSetting,
       brightness: brightness,
-    ).harmonized();
+    );
   }
+}
+
+// TODO: Remove when dynamic_color supports material_ui ColorScheme directly
+
+ColorScheme _toMaterialColorScheme(flutter.ColorScheme source) {
+  return ColorScheme.fromSeed(
+    seedColor: source.primary,
+    brightness: source.brightness,
+    primary: source.primary,
+    onPrimary: source.onPrimary,
+    primaryContainer: source.primaryContainer,
+    onPrimaryContainer: source.onPrimaryContainer,
+    primaryFixed: source.primaryFixed,
+    primaryFixedDim: source.primaryFixedDim,
+    onPrimaryFixed: source.onPrimaryFixed,
+    onPrimaryFixedVariant: source.onPrimaryFixedVariant,
+    secondary: source.secondary,
+    onSecondary: source.onSecondary,
+    secondaryContainer: source.secondaryContainer,
+    onSecondaryContainer: source.onSecondaryContainer,
+    secondaryFixed: source.secondaryFixed,
+    secondaryFixedDim: source.secondaryFixedDim,
+    onSecondaryFixed: source.onSecondaryFixed,
+    onSecondaryFixedVariant: source.onSecondaryFixedVariant,
+    tertiary: source.tertiary,
+    onTertiary: source.onTertiary,
+    tertiaryContainer: source.tertiaryContainer,
+    onTertiaryContainer: source.onTertiaryContainer,
+    tertiaryFixed: source.tertiaryFixed,
+    tertiaryFixedDim: source.tertiaryFixedDim,
+    onTertiaryFixed: source.onTertiaryFixed,
+    onTertiaryFixedVariant: source.onTertiaryFixedVariant,
+    error: source.error,
+    onError: source.onError,
+    errorContainer: source.errorContainer,
+    onErrorContainer: source.onErrorContainer,
+    surface: source.surface,
+    onSurface: source.onSurface,
+    surfaceDim: source.surfaceDim,
+    surfaceBright: source.surfaceBright,
+    surfaceContainerLowest: source.surfaceContainerLowest,
+    surfaceContainerLow: source.surfaceContainerLow,
+    surfaceContainer: source.surfaceContainer,
+    surfaceContainerHigh: source.surfaceContainerHigh,
+    surfaceContainerHighest: source.surfaceContainerHighest,
+    onSurfaceVariant: source.onSurfaceVariant,
+    outline: source.outline,
+    outlineVariant: source.outlineVariant,
+    inverseSurface: source.inverseSurface,
+    onInverseSurface: source.onInverseSurface,
+    inversePrimary: source.inversePrimary,
+    shadow: source.shadow,
+    scrim: source.scrim,
+    surfaceTint: source.surfaceTint,
+  );
 }
 
 ThemeData getAppTheme(ColorScheme colorScheme) {
@@ -268,10 +303,5 @@ ThemeData getAppTheme(ColorScheme colorScheme) {
     ),
     visualDensity: VisualDensity.adaptivePlatformDensity,
     useMaterial3: true,
-    pageTransitionsTheme: PageTransitionsTheme(
-      builders: <TargetPlatform, PageTransitionsBuilder>{
-        TargetPlatform.android: transitionsBuilder,
-      },
-    ),
   );
 }

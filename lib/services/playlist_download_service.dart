@@ -25,8 +25,8 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
 import 'package:musify/services/common_services.dart';
@@ -64,6 +64,15 @@ class OfflinePlaylistService {
     return offlinePlaylists.value.any(
       (playlist) => playlist['ytid'] == playlistId,
     );
+  }
+
+  Map? getOfflinePlaylist(String playlistId) {
+    for (final playlist in offlinePlaylists.value) {
+      if (playlist is Map && playlist['ytid']?.toString() == playlistId) {
+        return playlist;
+      }
+    }
+    return null;
   }
 
   bool isPlaylistDownloading(String playlistId) {

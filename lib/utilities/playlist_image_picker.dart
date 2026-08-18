@@ -20,23 +20,23 @@
  */
 
 import 'dart:convert';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/extensions/l10n.dart';
 
 Future<String?> pickImage() async {
-  final result = await FilePicker.pickFiles(
-    type: FileType.image,
-    withData: true,
-  );
+  final file = await FilePicker.pickFile(type: FileType.image);
 
-  if (result != null && result.files.single.bytes != null) {
-    final file = result.files.single;
+  if (file != null) {
+    final bytes = await file.readAsBytes();
     String? mimeType;
 
-    if (file.extension != null) {
-      switch (file.extension!.toLowerCase()) {
+    final fileName = file.name;
+    final extensionStart = fileName.lastIndexOf('.') + 1;
+    if (extensionStart > 0 && extensionStart < fileName.length) {
+      switch (fileName.substring(extensionStart).toLowerCase()) {
         case 'jpg':
         case 'jpeg':
           mimeType = 'image/jpeg';
@@ -60,7 +60,7 @@ Future<String?> pickImage() async {
       mimeType = 'application/octet-stream';
     }
 
-    return 'data:$mimeType;base64,${base64Encode(file.bytes!)}';
+    return 'data:$mimeType;base64,${base64Encode(bytes)}';
   }
 
   return null;

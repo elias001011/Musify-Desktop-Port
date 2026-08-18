@@ -25,8 +25,8 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
 import 'package:musify/services/common_services.dart';
@@ -46,6 +46,7 @@ List<PopupMenuEntry<String>> _buildSongMenuItems({
   required ColorScheme colorScheme,
   required ValueListenable<bool> songLikeStatus,
   required ValueListenable<bool> songOfflineStatus,
+  required ValueNotifier<bool> songDownloadStatus,
   required bool showQueueActions,
   bool isRecentSong = false,
   bool canRename = false,
@@ -170,6 +171,7 @@ Future<void> _handleSongMenuAction({
   required String ytid,
   required ValueNotifier<bool> songLikeStatus,
   required ValueNotifier<bool> songOfflineStatus,
+  required ValueNotifier<bool> songDownloadStatus,
   VoidCallback? onRemove,
   FutureOr<void> Function()? onRename,
 }) async {
@@ -236,7 +238,13 @@ Future<void> _handleSongMenuAction({
       }
       break;
     case 'offline':
-      await _toggleSongOfflineStatus(context, song, ytid, songOfflineStatus);
+      await _toggleSongOfflineStatus(
+        context,
+        song,
+        ytid,
+        songOfflineStatus,
+        songDownloadStatus,
+      );
       break;
   }
 }
@@ -246,9 +254,9 @@ Future<void> _toggleSongOfflineStatus(
   dynamic song,
   String ytid,
   ValueNotifier<bool> songOfflineStatus,
+  ValueNotifier<bool> songDownloadStatus,
 ) async {
   final originalValue = songOfflineStatus.value;
-  songOfflineStatus.value = !originalValue;
 
   try {
     final bool success;
@@ -258,16 +266,19 @@ Future<void> _toggleSongOfflineStatus(
         showToast(context, context.l10n!.songRemovedFromOffline);
       }
     } else {
+      songDownloadStatus.value = true;
       success = await makeSongOffline(song);
       if (success && context.mounted) {
         showToast(context, context.l10n!.songAddedToOffline);
       }
+      songDownloadStatus.value = false;
     }
 
     if (!success) {
       songOfflineStatus.value = originalValue;
     }
   } catch (e) {
+    songDownloadStatus.value = false;
     songOfflineStatus.value = originalValue;
     logger.log('Error toggling offline status', error: e);
     if (context.mounted) {
@@ -329,6 +340,7 @@ class _SongBarState extends State<SongBar> {
 
   late final ValueNotifier<bool> _songLikeStatus;
   late final ValueNotifier<bool> _songOfflineStatus;
+  late final ValueNotifier<bool> _songDownloadStatus;
   late String _songTitle;
   late String _songArtist;
   late final String? _artworkPath;
@@ -342,14 +354,24 @@ class _SongBarState extends State<SongBar> {
     // Cache frequently accessed values
     _songTitle = widget.song['title'] ?? '';
     _songArtist = widget.song['artist']?.toString() ?? '';
-    _artworkPath = widget.song['artworkPath'];
-    _lowResImageUrl = widget.song['lowResImage']?.toString() ?? '';
+    _artworkPath = _firstNonEmptyString([
+      widget.song['artworkPath'],
+      widget.song['artWorkPath'],
+    ]);
+    _lowResImageUrl =
+        _firstNonEmptyString([
+          widget.song['lowResImage'],
+          widget.song['image'],
+          widget.song['highResImage'],
+        ]) ??
+        '';
     _ytid = widget.song['ytid'] ?? '';
 
     // Initialize ValueNotifiers only once
     _songLikeStatus = ValueNotifier(isSongAlreadyLiked(_ytid));
     final isOffline = isSongAlreadyOffline(_ytid);
     _songOfflineStatus = ValueNotifier(isOffline);
+    _songDownloadStatus = ValueNotifier(false);
     userLikedSongsList.addListener(_syncLikeStatus);
     userOfflineSongs.addListener(_syncOfflineStatus);
   }
@@ -390,6 +412,7 @@ class _SongBarState extends State<SongBar> {
     userOfflineSongs.removeListener(_syncOfflineStatus);
     _songLikeStatus.dispose();
     _songOfflineStatus.dispose();
+    _songDownloadStatus.dispose();
     super.dispose();
   }
 
@@ -454,6 +477,7 @@ class _SongBarState extends State<SongBar> {
                   ytid: _ytid,
                   songLikeStatus: _songLikeStatus,
                   songOfflineStatus: _songOfflineStatus,
+                  songDownloadStatus: _songDownloadStatus,
                   onRemove: widget.onRemove,
                   onRename: () => _handleRenameSong(context),
                 ),
@@ -492,15 +516,51 @@ class _SongBarState extends State<SongBar> {
     final isDurationAvailable =
         widget.showMusicDuration && widget.song['duration'] != null;
 
-    return _ArtworkDisplay(
-      lowResImageUrl: _lowResImageUrl,
-      artworkPath: _artworkPath,
-      size: size,
-      isDurationAvailable: isDurationAvailable,
-      colorScheme: colorScheme,
-      offlineStatus: _songOfflineStatus,
-      likeStatus: _songLikeStatus,
-      duration: widget.song['duration'],
+    return ValueListenableBuilder<bool>(
+      valueListenable: _songDownloadStatus,
+      builder: (context, isDownloading, _) => Stack(
+        alignment: Alignment.center,
+        children: [
+          _ArtworkDisplay(
+            lowResImageUrl: _lowResImageUrl,
+            artworkPath: _artworkPath,
+            size: size,
+            isDurationAvailable: isDurationAvailable,
+            colorScheme: colorScheme,
+            offlineStatus: _songOfflineStatus,
+            likeStatus: _songLikeStatus,
+            duration: widget.song['duration'],
+          ),
+          if (isDownloading)
+            Positioned.fill(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: ColoredBox(
+                  color: colorScheme.scrim.withValues(alpha: 0.42),
+                  child: Center(
+                    child: Material(
+                      color: colorScheme.primaryContainer,
+                      elevation: 2,
+                      shape: const CircleBorder(),
+                      child: Padding(
+                        padding: const EdgeInsets.all(7),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: colorScheme.onPrimaryContainer,
+                            backgroundColor: colorScheme.primaryContainer,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -571,6 +631,7 @@ class _SongBarState extends State<SongBar> {
       colorScheme: colorScheme,
       songLikeStatus: _songLikeStatus,
       songOfflineStatus: _songOfflineStatus,
+      songDownloadStatus: _songDownloadStatus,
       showQueueActions: widget.showQueueActions,
       isRecentSong: widget.isRecentSong == true,
       canRename: canRename,
@@ -652,6 +713,14 @@ class _SongInfo extends StatelessWidget {
       ],
     );
   }
+}
+
+String? _firstNonEmptyString(Iterable<Object?> values) {
+  for (final value in values) {
+    final stringValue = value?.toString().trim();
+    if (stringValue != null && stringValue.isNotEmpty) return stringValue;
+  }
+  return null;
 }
 
 class _OfflineArtwork extends StatelessWidget {
