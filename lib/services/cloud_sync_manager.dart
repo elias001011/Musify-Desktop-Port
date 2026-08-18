@@ -133,7 +133,7 @@ class CloudSyncManager {
 
       final remoteSnapshot = await _downloadSnapshot(accountId);
       if (remoteSnapshot == null) {
-        return uploadNow(messagePrefix: 'Created cloud backup');
+        return await uploadNow(messagePrefix: 'Created cloud backup');
       }
 
       await _applySnapshot(remoteSnapshot);
@@ -221,7 +221,7 @@ class CloudSyncManager {
             success: false,
           );
         }
-        return uploadNow(messagePrefix: 'Uploaded first cloud backup');
+        return await uploadNow(messagePrefix: 'Uploaded first cloud backup');
       }
 
       final remoteUpdatedAt = _snapshotUpdatedAt(remoteSnapshot);
@@ -243,7 +243,7 @@ class CloudSyncManager {
         );
       }
 
-      return uploadNow(messagePrefix: 'Uploaded latest local backup');
+      return await uploadNow(messagePrefix: 'Uploaded latest local backup');
     } catch (e) {
       cloudSyncStatus.value = 'Cloud sync failed';
       return (message: 'Cloud sync failed: $e', success: false);
