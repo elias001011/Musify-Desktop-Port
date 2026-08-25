@@ -154,6 +154,9 @@ class MusicClient {
   /// Search filter that restricts results to artists only.
   static const _artistsSearchParams = 'EgWKAQIgAWoMEA4QChADEAQQCRAF';
 
+  /// Search filter for the dedicated "Songs" shelf.
+  static const _songsSearchParams = 'EgWKAQIIAWoMEA4QChADEAQQCRAF';
+
   static const _artistPageType = 'MUSIC_PAGE_TYPE_ARTIST';
 
   /// Stands in for the channel of a track whose artist page is unknown.
@@ -209,27 +212,26 @@ class MusicClient {
     return results;
   }
 
-  /// Searches YouTube Music for a track matching [query] and returns the
-  /// best match, or `null` if nothing resolves to a playable video.
+  /// Searches the YouTube Music "Songs" shelf for [query].
   ///
-  /// Goes through the same `WEB_REMIX` browse/search endpoints as
-  /// [getArtistProfile] instead of the public search results page, which is
-  /// what keeps this from tripping YouTube's anti-scraping rate limiting the
-  /// way scraping `youtube.com/results` repeatedly does.
-  ///
-  /// Unlike an artist page's "Top songs" shelf, a search result row's second
-  /// column is a single `Song • Artist • Album` (or `Video • Channel •
-  /// Views`) line rather than a bare artist name, so it has to be split on
-  /// the bullet separator first.
-  Future<Video?> searchSong(String query) async {
+  /// When supplied, [expectedArtist] and [expectedTitle] must loosely match
+  /// the result's credited artist and title. This prevents common-title
+  /// searches from returning the wrong recording.
+  Future<Video?> searchSong(
+    String query, {
+    String? expectedArtist,
+    String? expectedTitle,
+  }) async {
     final normalizedQuery = query.trim();
     if (normalizedQuery.isEmpty) return null;
 
     final root = await _httpClient.sendPost('search', {
       'context': _remixContext,
       'query': normalizedQuery,
+      'params': _songsSearchParams,
     }, validate: true);
 
+    final isValidating = expectedArtist != null || expectedTitle != null;
     Video? fallback;
     for (final item in _findRenderers(
       root,
@@ -242,19 +244,23 @@ class MusicClient {
       if (title == null || title.isEmpty) continue;
 
       final subtitleParts = _splitBullets(_flexColumnText(item, 1));
-      final type = subtitleParts.isNotEmpty
-          ? subtitleParts.first.toLowerCase()
-          : '';
-      final artist = subtitleParts.length >= 2
-          ? subtitleParts[1]
-          : (subtitleParts.isNotEmpty ? subtitleParts.first : '');
+      final artist = subtitleParts.isNotEmpty ? subtitleParts.first : '';
 
       final video = _trackVideo(item, videoId, title, artist, null);
-      // Prefer a canonical "Song" row over a "Video"/other row further down.
-      if (type == 'song') return video;
       fallback ??= video;
+
+      if (expectedArtist != null && !_looselyMatch(artist, expectedArtist)) {
+        continue;
+      }
+      if (expectedTitle != null && !_looselyMatch(title, expectedTitle)) {
+        continue;
+      }
+
+      return video;
     }
-    return fallback;
+
+    // Only use the first result when no expected values were provided.
+    return isValidating ? null : fallback;
   }
 
   /// Splits a `Song • Artist • Album` style subtitle line on its bullet
@@ -267,6 +273,65 @@ class MusicClient {
         .where((part) => part.isNotEmpty)
         .toList();
   }
+
+  /// Compares normalized word sets, allowing word-order and credit changes.
+  bool _looselyMatch(String candidate, String expected) {
+    final a = _wordsForMatch(candidate);
+    final b = _wordsForMatch(expected);
+    if (a.isEmpty || b.isEmpty) return true;
+    final shorter = a.length <= b.length ? a : b;
+    final longer = identical(shorter, a) ? b : a;
+    return shorter.every(longer.contains);
+  }
+
+  Set<String> _wordsForMatch(String input) =>
+      _foldDiacritics(input.toLowerCase())
+          // Keep Unicode letters and numbers so non-Latin titles remain
+          // matchable.
+          .replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), ' ')
+          .split(RegExp(r'\s+'))
+          .where((word) => word.isNotEmpty)
+          .toSet();
+
+  /// Folds common Latin accents to improve matching across spellings.
+  String _foldDiacritics(String input) {
+    final buffer = StringBuffer();
+    for (final rune in input.runes) {
+      final char = String.fromCharCode(rune);
+      buffer.write(_diacriticFold[char] ?? char);
+    }
+    return buffer.toString();
+  }
+
+  static const _diacriticFold = {
+    'á': 'a',
+    'à': 'a',
+    'â': 'a',
+    'ã': 'a',
+    'ä': 'a',
+    'å': 'a',
+    'é': 'e',
+    'è': 'e',
+    'ê': 'e',
+    'ë': 'e',
+    'í': 'i',
+    'ì': 'i',
+    'î': 'i',
+    'ï': 'i',
+    'ó': 'o',
+    'ò': 'o',
+    'ô': 'o',
+    'õ': 'o',
+    'ö': 'o',
+    'ú': 'u',
+    'ù': 'u',
+    'û': 'u',
+    'ü': 'u',
+    'ý': 'y',
+    'ÿ': 'y',
+    'ç': 'c',
+    'ñ': 'n',
+  };
 
   /// Returns a YouTube Music artist page: header details, top songs, the full
   /// discography and the artists it points to.

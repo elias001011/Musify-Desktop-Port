@@ -14,6 +14,9 @@ import 'package:musify/utilities/url_launcher.dart';
 import 'package:musify/widgets/mini_player.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
+/// A CSV row and its original position, used to preserve playlist order.
+typedef _ImportRow = ({int index, String title, String artist});
+
 class ImportSpotifyPlaylistPage extends StatefulWidget {
   const ImportSpotifyPlaylistPage({super.key});
 
@@ -26,6 +29,10 @@ class _ImportSpotifyPlaylistPageState extends State<ImportSpotifyPlaylistPage> {
   // Shared across page instances so navigating away and reopening the page
   // can't spawn a second import running concurrently with the first.
   static bool _importRunning = false;
+
+  // Limit concurrency and leave a short pause between batches.
+  static const _batchSize = 12;
+  static const _batchPause = Duration(milliseconds: 150);
 
   final _csvController = TextEditingController();
   final _playlistNameController = TextEditingController();
@@ -104,63 +111,60 @@ class _ImportSpotifyPlaylistPageState extends State<ImportSpotifyPlaylistPage> {
       return;
     }
 
+    final rows = songs.indexed
+        .map(
+          (entry) => (
+            index: entry.$1,
+            title: entry.$2[songIndex].trim(),
+            artist: entry.$2[artistIndex].trim(),
+          ),
+        )
+        .toList();
+
     _importRunning = true;
     setState(() {
       _isImporting = true;
       _processedCount = 0;
-      _totalCount = songs.length;
+      _totalCount = rows.length;
     });
 
-    final foundSongs = <Map>[];
-    final missingSongs = <String>[];
+    // Key results by their CSV position so retry results remain ordered.
+    final foundByIndex = <int, Map>{};
+    List<_ImportRow> missingRows;
     var rateLimited = false;
     try {
-      const batchSize = 2;
-      for (var i = 0; i < songs.length; i += batchSize) {
-        final batch = songs.skip(i).take(batchSize).toList();
-        final batchResults = await Future.wait(
-          batch.map((row) async {
-            final title = row[songIndex].trim();
-            final artist = row.length > artistIndex
-                ? row[artistIndex].trim()
-                : '';
-            final (match, wasRateLimited) = await _findSongWithRetry(
-              '$title $artist',
-            );
-            return (title, artist, match, wasRateLimited);
-          }),
+      final firstPass = await _searchBatch(
+        rows,
+        onProgress: (n) {
+          if (mounted) setState(() => _processedCount += n);
+        },
+      );
+      foundByIndex.addAll(firstPass.found);
+      missingRows = firstPass.missing;
+      rateLimited = firstPass.rateLimited;
+
+      // Retry misses once, unless the service is actively rate-limiting us.
+      if (!rateLimited && missingRows.isNotEmpty) {
+        // Include the retry work in the progress total.
+        if (mounted) setState(() => _totalCount += missingRows.length);
+        final retryPass = await _searchBatch(
+          missingRows,
+          onProgress: (n) {
+            if (mounted) setState(() => _processedCount += n);
+          },
         );
-        var batchRateLimited = false;
-        for (final (title, artist, match, wasRateLimited) in batchResults) {
-          if (wasRateLimited) batchRateLimited = true;
-          if (match == null) {
-            missingSongs.add('$title - $artist');
-          } else {
-            foundSongs.add(match);
-          }
-        }
-        if (mounted) setState(() => _processedCount += batchResults.length);
-        if (batchRateLimited) {
-          // YouTube is actively blocking this device; grinding through the
-          // rest of the playlist one retry at a time would just take
-          // forever, so stop early and hand back whatever was found so far.
-          rateLimited = true;
-          for (final row in songs.skip(i + batchSize)) {
-            final title = row[songIndex].trim();
-            final artist = row.length > artistIndex
-                ? row[artistIndex].trim()
-                : '';
-            missingSongs.add('$title - $artist');
-          }
-          break;
-        }
-        // Small pause between batches to avoid tripping YouTube's rate
-        // limiter in the first place.
-        await Future.delayed(const Duration(milliseconds: 400));
+        foundByIndex.addAll(retryPass.found);
+        missingRows = retryPass.missing;
+        rateLimited = retryPass.rateLimited;
       }
     } finally {
       _importRunning = false;
     }
+
+    final foundSongs = [
+      for (final row in rows)
+        if (foundByIndex[row.index] case final song?) song,
+    ];
 
     if (!mounted) return;
     final (_, playlistId) = createCustomPlaylist(playlistName, null, context);
@@ -168,13 +172,15 @@ class _ImportSpotifyPlaylistPageState extends State<ImportSpotifyPlaylistPage> {
     setState(() => _isImporting = false);
 
     final resultText = rateLimited
-        ? '${context.l10n!.spotifyPlaylistImportFailed}\n${context.l10n!.spotifyPlaylistImportResult(foundSongs.length, songs.length)}'
+        ? '${context.l10n!.spotifyPlaylistImportFailed}\n${context.l10n!.spotifyPlaylistImportResult(foundSongs.length, rows.length)}'
         : context.l10n!.spotifyPlaylistImportResult(
             foundSongs.length,
-            songs.length,
+            rows.length,
           );
-    if (missingSongs.isNotEmpty) {
-      final missingText = missingSongs.join('\n');
+    if (missingRows.isNotEmpty) {
+      final missingText = missingRows
+          .map((row) => '${row.title} - ${row.artist}')
+          .join('\n');
       await Clipboard.setData(ClipboardData(text: missingText));
       if (mounted) {
         showToastWithButton(
@@ -191,15 +197,63 @@ class _ImportSpotifyPlaylistPageState extends State<ImportSpotifyPlaylistPage> {
     }
   }
 
+  /// Resolves [rows] in batches and stops when rate limiting is detected.
+  /// Results are keyed by the rows' original positions for retry merging.
+  Future<({Map<int, Map> found, List<_ImportRow> missing, bool rateLimited})>
+  _searchBatch(
+    List<_ImportRow> rows, {
+    required void Function(int processedCount) onProgress,
+  }) async {
+    final found = <int, Map>{};
+    final missing = <_ImportRow>[];
+    for (var i = 0; i < rows.length; i += _batchSize) {
+      final batch = rows.skip(i).take(_batchSize).toList();
+      final batchResults = await Future.wait(
+        batch.map((row) async {
+          final (match, wasRateLimited) = await _findSongWithRetry(
+            '${row.title} ${row.artist}',
+            expectedArtist: row.artist,
+            expectedTitle: row.title,
+          );
+          return (row, match, wasRateLimited);
+        }),
+      );
+      var batchRateLimited = false;
+      for (final (row, match, wasRateLimited) in batchResults) {
+        if (wasRateLimited) batchRateLimited = true;
+        if (match == null) {
+          missing.add(row);
+        } else {
+          found[row.index] = match;
+        }
+      }
+      onProgress(batchResults.length);
+      if (batchRateLimited) {
+        missing.addAll(rows.skip(i + _batchSize));
+        return (found: found, missing: missing, rateLimited: true);
+      }
+      await Future.delayed(_batchPause);
+    }
+    return (found: found, missing: missing, rateLimited: false);
+  }
+
   /// Returns the best match for [query], or `null` if none was found.
   /// The second value is `true` when YouTube is actively rate-limiting this
   /// device, so the caller can stop the whole import instead of retrying
   /// every remaining song for minutes on end.
-  Future<(Map<String, dynamic>?, bool)> _findSongWithRetry(String query) async {
+  Future<(Map<String, dynamic>?, bool)> _findSongWithRetry(
+    String query, {
+    String? expectedArtist,
+    String? expectedTitle,
+  }) async {
     const maxAttempts = 2;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        final video = await ytMusicClient.music.searchSong(query);
+        final video = await ytMusicClient.music.searchSong(
+          query,
+          expectedArtist: expectedArtist,
+          expectedTitle: expectedTitle,
+        );
         if (video == null) return (null, false);
         return (Map<String, dynamic>.from(returnSongLayout(0, video)), false);
       } on RequestLimitExceededException {
