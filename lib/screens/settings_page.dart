@@ -531,7 +531,7 @@ class SettingsPage extends StatelessWidget {
                   NavigationManager.refreshRouter();
                 }
                 await CloudSyncManager.instance.rebindStorageListeners();
-                CloudSyncManager.instance.markBackedUpStateChanged();
+                await CloudSyncManager.instance.markBackedUpStateChanged();
               }
               if (context.mounted) {
                 showToast(
@@ -983,7 +983,78 @@ class SettingsPage extends StatelessWidget {
 
     await _runCloudSyncAction(
       context,
-      CloudSyncManager.instance.setEnabled(value),
+      CloudSyncManager.instance.setEnabled(
+        value,
+        onMergeConflict: value
+            ? (conflict) => _promptCloudSyncMerge(context, conflict)
+            : null,
+      ),
+    );
+  }
+
+  Future<CloudSyncMergeChoice?> _promptCloudSyncMerge(
+    BuildContext context,
+    CloudSyncMergeConflict conflict,
+  ) {
+    if (!context.mounted) {
+      return Future.value(CloudSyncMergeChoice.keepCloud);
+    }
+
+    String formatMoment(DateTime? value) {
+      if (value == null) {
+        return 'unknown';
+      }
+      final local = value.toLocal();
+      String pad(int number, [int width = 2]) =>
+          number.toString().padLeft(width, '0');
+      return '${pad(local.year, 4)}-${pad(local.month)}-${pad(local.day)} '
+          '${pad(local.hour)}:${pad(local.minute)}';
+    }
+
+    return showDialog<CloudSyncMergeChoice>(
+      context: context,
+      builder: (dialogContext) {
+        final colorScheme = Theme.of(dialogContext).colorScheme;
+
+        return AlertDialog(
+          icon: Icon(
+            FluentIcons.cloud_sync_24_regular,
+            color: colorScheme.primary,
+            size: 32,
+          ),
+          title: const Text('Which copy do you want to keep?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This device and the cloud each already have a backup. Keep one '
+                'copy now; the other one is replaced.',
+              ),
+              const SizedBox(height: 16),
+              Text('Cloud backup: ${formatMoment(conflict.remoteUpdatedAt)}'),
+              Text('This device: ${formatMoment(conflict.localChangedAt)}'),
+            ],
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(context.l10n!.cancel),
+            ),
+            OutlinedButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, CloudSyncMergeChoice.keepLocal),
+              child: const Text('Keep this device'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, CloudSyncMergeChoice.keepCloud),
+              child: const Text('Use cloud copy'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -1015,7 +1086,7 @@ class SettingsPage extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Use the same passphrase on every device. If a backup already exists, Musify will load it from the cloud.',
+                  'Use the same passphrase on every device. If a backup already exists, Musify asks whether to keep the cloud copy or this device.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
@@ -1061,7 +1132,10 @@ class SettingsPage extends StatelessWidget {
     Navigator.pop(dialogContext);
     await _runCloudSyncAction(
       context,
-      CloudSyncManager.instance.connect(controller.text),
+      CloudSyncManager.instance.connect(
+        controller.text,
+        onMergeConflict: (conflict) => _promptCloudSyncMerge(context, conflict),
+      ),
     );
   }
 

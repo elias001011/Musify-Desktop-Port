@@ -31,6 +31,29 @@ import 'package:http/http.dart' as http;
 import 'package:musify/services/backed_up_state_manager.dart';
 import 'package:musify/services/settings_manager.dart';
 
+/// The copy the user chose to keep when both this device and the cloud already
+/// hold a backup while cloud sync is being turned on.
+enum CloudSyncMergeChoice { keepCloud, keepLocal }
+
+/// Snapshot timestamps handed to the UI so it can explain the pending conflict
+/// before the user decides which copy wins.
+class CloudSyncMergeConflict {
+  const CloudSyncMergeConflict({
+    required this.remoteUpdatedAt,
+    required this.localChangedAt,
+    required this.lastSyncedAt,
+  });
+
+  final DateTime? remoteUpdatedAt;
+  final DateTime? localChangedAt;
+  final DateTime? lastSyncedAt;
+}
+
+/// Asks the user which copy to keep. Returning `null` cancels turning cloud
+/// sync on and leaves both the local and the cloud copy untouched.
+typedef CloudSyncMergeResolver =
+    Future<CloudSyncMergeChoice?> Function(CloudSyncMergeConflict conflict);
+
 class CloudSyncManager {
   CloudSyncManager._();
 
@@ -103,11 +126,22 @@ class CloudSyncManager {
     ).watch().listen((event) => _handleLocalChange('user', event.key));
   }
 
-  void markBackedUpStateChanged() {
-    _handleLocalChange('user', 'manualRestore');
+  Future<void> markBackedUpStateChanged() async {
+    final now = DateTime.now().toUtc();
+    await _putInternalSetting(_lastLocalChangeAtKey, now.toIso8601String());
+
+    if (!offlineMode.value &&
+        cloudSyncEnabled.value &&
+        cloudSyncAutomatic.value &&
+        _accountId.isNotEmpty) {
+      _scheduleUpload();
+    }
   }
 
-  Future<({String message, bool success})> connect(String passphrase) async {
+  Future<({String message, bool success})> connect(
+    String passphrase, {
+    CloudSyncMergeResolver? onMergeConflict,
+  }) async {
     final trimmedPassphrase = passphrase.trim();
     if (!isAvailable) {
       return (
@@ -124,6 +158,10 @@ class CloudSyncManager {
 
     cloudSyncStatus.value = 'Connecting to cloud sync...';
 
+    final previousAccountId = _accountId;
+    final previousEnabled = cloudSyncEnabled.value;
+    final previousAutomatic = cloudSyncAutomatic.value;
+
     try {
       final accountId = _accountIdForPassphrase(trimmedPassphrase);
       await _putInternalSetting(_accountIdKey, accountId);
@@ -131,21 +169,31 @@ class CloudSyncManager {
       await _putInternalSetting(_automaticKey, true);
       reloadSettingsFromStorage();
 
-      final remoteSnapshot = await _downloadSnapshot(accountId);
-      if (remoteSnapshot == null) {
-        return await uploadNow(messagePrefix: 'Created cloud backup');
+      final outcome = await _reconcileWithCloud(
+        onMergeConflict: onMergeConflict,
+        cancelMessage: 'Cloud sync setup cancelled. Nothing was changed.',
+        firstConnect: true,
+      );
+
+      if (outcome.cancelled) {
+        await _putInternalSetting(_accountIdKey, previousAccountId);
+        await _putInternalSetting(_enabledKey, previousEnabled);
+        await _putInternalSetting(_automaticKey, previousAutomatic);
+        reloadSettingsFromStorage();
+        _uploadTimer?.cancel();
       }
 
-      await _applySnapshot(remoteSnapshot);
-      cloudSyncStatus.value = 'Loaded backup from cloud';
-      return (message: 'Loaded backup from cloud', success: true);
+      return (message: outcome.message, success: outcome.success);
     } catch (e) {
       cloudSyncStatus.value = 'Cloud sync setup failed';
       return (message: 'Cloud sync setup failed: $e', success: false);
     }
   }
 
-  Future<({String message, bool success})> setEnabled(bool enabled) async {
+  Future<({String message, bool success})> setEnabled(
+    bool enabled, {
+    CloudSyncMergeResolver? onMergeConflict,
+  }) async {
     if (enabled && _accountId.isEmpty) {
       return (
         message: 'Enter your cloud sync passphrase first',
@@ -159,21 +207,100 @@ class CloudSyncManager {
       );
     }
 
-    await _putInternalSetting(_enabledKey, enabled);
-    reloadSettingsFromStorage();
-    cloudSyncStatus.value = enabled ? 'Cloud sync enabled' : 'Cloud sync off';
-
-    if (enabled) {
-      unawaited(
-        synchronize(allowUpload: cloudSyncAutomatic.value, reason: 'enabled'),
-      );
-    } else {
+    if (!enabled) {
+      await _putInternalSetting(_enabledKey, false);
+      reloadSettingsFromStorage();
       _uploadTimer?.cancel();
+      cloudSyncStatus.value = 'Cloud sync off';
+      return (message: 'Cloud sync disabled', success: true);
     }
 
-    return (
-      message: enabled ? 'Cloud sync enabled' : 'Cloud sync disabled',
-      success: true,
+    await _putInternalSetting(_enabledKey, true);
+    reloadSettingsFromStorage();
+    cloudSyncStatus.value = 'Cloud sync enabled';
+
+    try {
+      final outcome = await _reconcileWithCloud(
+        onMergeConflict: onMergeConflict,
+        cancelMessage: 'Cloud sync stays off until you pick which copy to keep',
+      );
+
+      if (outcome.cancelled) {
+        await _putInternalSetting(_enabledKey, false);
+        reloadSettingsFromStorage();
+        _uploadTimer?.cancel();
+      }
+
+      return (message: outcome.message, success: outcome.success);
+    } catch (e) {
+      await _putInternalSetting(_enabledKey, false);
+      reloadSettingsFromStorage();
+      _uploadTimer?.cancel();
+      cloudSyncStatus.value = 'Cloud sync failed';
+      return (message: 'Cloud sync failed: $e', success: false);
+    }
+  }
+
+  /// Runs the initial reconciliation when cloud sync is switched on.
+  ///
+  /// Unlike [synchronize], which silently lets the newest snapshot win, this
+  /// path asks the user which copy to keep whenever a cloud backup already
+  /// exists, so turning sync on can never overwrite local data without consent.
+  Future<({bool cancelled, String message, bool success})> _reconcileWithCloud({
+    required CloudSyncMergeResolver? onMergeConflict,
+    required String cancelMessage,
+    bool firstConnect = false,
+  }) async {
+    if (!_canSync) {
+      return (cancelled: false, message: _unavailableMessage, success: false);
+    }
+
+    cloudSyncStatus.value = 'Checking cloud backup...';
+
+    final remoteSnapshot = await _downloadSnapshot(_accountId);
+    if (remoteSnapshot == null) {
+      final uploaded = await uploadNow(
+        messagePrefix: firstConnect
+            ? 'Created cloud backup'
+            : 'Uploaded first cloud backup',
+      );
+      return (
+        cancelled: false,
+        message: uploaded.message,
+        success: uploaded.success,
+      );
+    }
+
+    final choice = onMergeConflict == null
+        ? CloudSyncMergeChoice.keepCloud
+        : await onMergeConflict(_mergeConflictFor(remoteSnapshot));
+
+    if (choice == null) {
+      cloudSyncStatus.value = cancelMessage;
+      return (cancelled: true, message: cancelMessage, success: false);
+    }
+
+    if (choice == CloudSyncMergeChoice.keepLocal) {
+      final uploaded = await uploadNow(
+        messagePrefix: 'Kept this device and replaced the cloud backup',
+      );
+      return (
+        cancelled: false,
+        message: uploaded.message,
+        success: uploaded.success,
+      );
+    }
+
+    await _applySnapshot(remoteSnapshot);
+    cloudSyncStatus.value = 'Loaded backup from cloud';
+    return (cancelled: false, message: 'Loaded backup from cloud', success: true);
+  }
+
+  CloudSyncMergeConflict _mergeConflictFor(Map<String, dynamic> remoteSnapshot) {
+    return CloudSyncMergeConflict(
+      remoteUpdatedAt: _snapshotUpdatedAt(remoteSnapshot),
+      localChangedAt: _readDateTimeSetting(_lastLocalChangeAtKey),
+      lastSyncedAt: _readDateTimeSetting(_lastSyncedAtKey),
     );
   }
 

@@ -131,7 +131,20 @@ export default {
 
 ## Current Merge Behavior
 
-This first version is intentionally simple: latest snapshot wins.
+Turning cloud sync on is an explicit choice, not an automatic overwrite:
+
+- When you connect a passphrase or flip the cloud sync switch back on and a
+  cloud backup already exists, Musify asks which copy to keep:
+  - **Use cloud copy** downloads the cloud backup and replaces local data.
+  - **Keep this device** uploads the current local data and replaces the cloud
+    backup.
+  - **Cancel** leaves both copies untouched and does not turn sync on.
+- This is what makes "restore a local backup while sync is off, then turn sync
+  on" safe: pick **Keep this device** and your restored data is pushed up
+  instead of being overwritten by the old cloud snapshot.
+
+Once sync is running, ongoing reconciliation is intentionally simple: latest
+snapshot wins.
 
 - On startup, Musify checks the cloud backup.
 - If the cloud backup is newer than the local state, it is applied locally.
