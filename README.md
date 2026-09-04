@@ -1,183 +1,260 @@
-<div align="center">
-<img src="https://github.com/gokadzev/Musify/raw/master/.github/assets/Musify-banner.png" width="100%">
+# Musify Desktop Port
+
+Unofficial Windows and Linux desktop port of
+[Musify](https://github.com/gokadzev/Musify), created and maintained upstream by
+Valeri Gokadze and contributors.
+
+<!-- download-counts:start -->
+[![Musify Desktop Port downloads](https://img.shields.io/badge/desktop%20downloads-61-2F6FE0?style=for-the-badge&logo=github)](https://github.com/elias001011/Musify-Desktop-Port/releases)
+[![Musify Cloud downloads](https://img.shields.io/badge/Musify%20Cloud-4-006A71?style=for-the-badge)](https://github.com/elias001011/Musify-Desktop-Port/releases)
+
+<sub>65 downloads across every release of both products. Updated daily.</sub>
+<!-- download-counts:end -->
+
+This repository exists to ship **Musify for Windows and Linux**. The Android
+companion **Musify Cloud** also lives here because the desktop port's optional
+cloud sync needs a phone end — see [Musify Cloud](#musify-cloud) below.
+
+None of these are official Musify releases. Nothing here tries to turn Musify
+into a different app — upstream code is kept as close to original as it can be.
+
+| | | |
+|---|---|---|
+| **Musify Desktop Port** | Windows, Linux | the actual port. `desktop-v*` releases, `master` branch |
+| **Musify Cloud** | Android | original Musify + the other end of cloud sync. `mobile-v*`, `mobile-cloud-sync` |
+
+---
+
+# The desktop port
+
+## Downloads
+
+Every `desktop-v*` release ships:
+
+- `Musify-linux-x64.deb` for Debian/Ubuntu based distributions.
+- `Musify-linux-x64.tar.gz` for portable Linux use.
+- `Musify-windows-x64-setup.exe` for Windows installation.
+- `Musify-windows-x64-portable.zip` for portable Windows use.
+- `SHA256SUMS.txt` for artifact verification.
+
+[Download the latest desktop release](https://github.com/elias001011/Musify-Desktop-Port/releases/latest)
+and pick the files for your platform.
+
+The in-app updater follows this channel, which is why `desktop-v*` releases are
+the ones allowed to be GitHub **Latest**.
+
+## What changes from original Musify
+
+Upstream Musify is an Android app. Everything below exists because of that — it
+is porting work and desktop plumbing, not a redesign. Two kinds of change: what
+is *required* to make Musify run on a PC at all, and what is *added* on top as
+an optional desktop convenience.
+
+### Required: making it run on a PC
+
+**The desktop runners.** Flutter needs a native host per platform, and upstream
+has only the Android one. This repository adds the `linux/` and `windows/`
+trees: CMake builds, a GTK application for Linux, a Win32 window for Windows,
+the generated plugin registrants, and a Windows app icon and manifest. That is
+around 2,800 lines of platform scaffolding that upstream has no reason to carry.
+
+**Audio playback.** `just_audio`, which Musify uses for everything, has no
+native desktop implementation. Playback goes through
+[`just_audio_media_kit`](https://pub.dev/packages/just_audio_media_kit) instead,
+backed by libmpv via `media_kit_libs_linux` and `media_kit_libs_windows_audio`,
+initialised with a single `JustAudioMediaKit.ensureInitialized()` at startup.
+This also pins `just_audio` to exactly `0.10.5` rather than tracking upstream's
+`^0.10.6`, because the media_kit bridge is built against that version — the pin
+is deliberate and is the reason a version bump can need attention on sync.
+
+**Android-only APIs that used to run unconditionally.** Two of them would crash
+or hang a desktop build at startup:
+
+- *The equalizer.* Upstream constructs an `AndroidEqualizer()` and installs it in
+  the audio pipeline with no platform check. Here it is created only on Android,
+  the field is nullable, and every call site handles its absence, so the
+  equalizer screen simply reports itself unavailable off Android.
+- *Share intents.* Upstream subscribes to `ReceiveSharingIntent.getTextStream()`
+  during init, which only exists on Android and iOS. The subscription is now
+  optional and only made on those platforms.
+
+**The updater.** Upstream checks a JSON file on its own `update` branch and
+points users at Android releases. The desktop updater reads this repository's
+release list, keeps only `desktop-v*` tags, detects the CPU architecture with
+`uname -m`, and picks the matching asset — falling back to the release page if
+it cannot match one.
+
+### Added: optional desktop conveniences
+
+**Volume control.** A phone has hardware volume buttons; a desktop app is
+expected to have its own. The miniplayer and the expanded player show a speaker
+button that expands into an inline slider, wired to the audio handler's volume
+stream. It renders only on Windows, Linux and macOS.
+
+**Packaging.** The Linux `.deb` declares its real runtime needs
+(`libgtk-3-0`, `libstdc++6`, and `libmpv2 | libmpv1 | libmpv-dev`) so libmpv
+arrives with the package instead of failing at first play. Windows gets an Inno
+Setup installer and a portable zip.
+
+**Cloud Sync**, which is its own section below.
+
+### What it deliberately does not change
+
+Search, playback logic, the library, playlists, offline downloads, lyrics, the
+theme and the general UI are upstream's. The port keeps startup and core changes
+small on purpose: the smaller the diff, the less often an upstream release
+conflicts with it, and the sync workflow can stay automatic.
+
+## Cloud Sync
+
+Optional and off by default. It exists so one person's library can follow them
+between a desktop and a phone, and it is the reason Musify Cloud exists at all.
+
+### How it works
+
+**A passphrase, not an account.** You type the same passphrase on both devices.
+The app never sends it: it is hashed with SHA-256 into an account id, and only
+that hash reaches the server. There is no sign-up, no email, no password reset —
+lose the passphrase and the backup is unreachable.
+
+**One record per passphrase.** The account id is the storage key: the backend
+keeps a single JSON document per id, and both devices read and write that one
+document.
+
+**What a snapshot contains.** A full dump of the app's two Hive boxes,
+`settings` and `user` — so preferences, playlists, liked songs, liked artists,
+recently played, and most-played data. A few keys are excluded and stay on the
+device: internal sync bookkeeping and offline mode.
+
+**Transport.** JSON, gzipped and base64-wrapped when it is large enough to be
+worth it. A library big enough to exceed the backend's size limit gets a clear
+error rather than a silent truncation.
+
+**When it uploads.** With automatic uploads on, the manager watches both Hive
+boxes and uploads about 20 seconds after the last change, so editing a playlist
+produces one upload rather than one per song. You can also sync manually from
+Settings.
+
+**How a conflict resolves.** It does not merge. Each snapshot carries a
+timestamp, and the newer one wins, whole. Change a playlist on your phone and a
+different playlist on your desktop without syncing in between, and the second
+upload replaces the first — one of the two sets of changes is gone. That is a
+real limitation, not a bug to be worked around: this is a personal
+one-user-two-devices feature, not a multi-device database.
+
+**After a restore.** Replacing local data would otherwise leave the running app
+showing stale lists, so a restore refreshes settings, songs and playlists from
+storage and bumps a signal the UI listens to.
+
+### Limits worth knowing
+
+- Not end-to-end encrypted. The backend stores readable JSON, so treat it as
+  private-but-not-secret. See [docs/cloud-sync.md](docs/cloud-sync.md).
+- Last-writer-wins at the whole-backup level, as above.
+- One backup per passphrase: no history, no rollback.
+
+### Running your own backend
+
+Cloud sync needs a backend URL compiled in:
+
+```bash
+flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL=https://example.com
+```
+
+For GitHub Actions releases, set the repository variable
+`MUSIFY_CLOUD_SYNC_URL`. With no value the app still builds, and the sync screen
+explains that no backend is configured. The reference backend is a Cloudflare
+Worker over KV; setup is in [docs/cloud-sync.md](docs/cloud-sync.md).
+
+---
 
 # Musify Cloud
 
-Unofficial Musify mobile companion build for the desktop port, with optional
-Cloud Sync.
+The Android companion to the desktop port. Original mobile Musify with the same
+optional Cloud Sync described above, and nothing else. It exists because sync
+needs two ends: the desktop port talks to a server, and this is the phone that
+can share the same backup with it.
 
-Musify Cloud tracks [gokadzev/Musify](https://github.com/gokadzev/Musify), keeps
-the upstream app experience, and adds a separate Android package, distinct icon,
-our update channel, and optional sync for multi-device use. It should otherwise
-behave like the original mobile Musify app.
+It uses its own application id (`com.elias001011.musifycloud`), name and icon, so
+it installs beside original Musify rather than replacing it. Downloads are
+`MusifyCloud.apk` on `mobile-v*` releases.
 
-[![Stars](https://img.shields.io/github/stars/elias001011/Musify-Desktop-Port?style=flat-square&color=008F8C)](https://github.com/elias001011/Musify-Desktop-Port/stargazers)
-[![Forks](https://img.shields.io/github/forks/elias001011/Musify-Desktop-Port?style=flat-square&color=008F8C)](https://github.com/elias001011/Musify-Desktop-Port/fork)
-[![Downloads](https://img.shields.io/github/downloads/elias001011/Musify-Desktop-Port/total?style=flat-square&color=008F8C)](https://github.com/elias001011/Musify-Desktop-Port/releases)
-[![GitHub release](https://img.shields.io/github/v/release/elias001011/Musify-Desktop-Port?color=008F8C)](https://github.com/elias001011/Musify-Desktop-Port/releases)
-[![License](https://img.shields.io/github/license/gokadzev/Musify?color=D3BEAB)](LICENSE)
+## How to get both
 
----
+| Want | Get |
+|---|---|
+| Desktop app for Windows/Linux | [desktop-v* releases](https://github.com/elias001011/Musify-Desktop-Port/releases) — `Musify-linux-x64.deb`, `Musify-linux-x64.tar.gz`, `Musify-windows-x64-setup.exe`, `Musify-windows-x64-portable.zip` |
+| Phone app that syncs with it | [mobile-v* releases](https://github.com/elias001011/Musify-Desktop-Port/releases) — `MusifyCloud.apk` |
 
-<a href="https://ko-fi.com/gokadzev" target="_blank" title="ko-fi">
-  <img src="https://github.com/user-attachments/assets/1c204507-d124-4b34-878b-96c39c9bb3f8"  alt="ko-fi badge" style="width: 150px;">
-</a>
-
-
+Install the desktop build, install Musify Cloud on your phone, type the same
+passphrase into Cloud Sync on both, and your playlists and settings follow you
+between the two.
 
 ---
 
-## Features
+# Releases and maintenance
 
-<center>
+## Release channels
 
-Online song search with suggestions <br/>
-Offline listening support <br/>
-Import & export your data and never lose it <br/>
-Add custom playlists with link <br/>
-Optimized sound experience <br/>
-SponsorBlock support <br/>
-Lyrics support <br/>
-No ads <br/>
-No subscriptions <br/>
-Built-in updater <br/>
-Built-in equalizer with presets <br/>
-21 supported languages <br/>
-Material UI & accent colors & dynamic colors (Android 12+) <br/>
-Optional Cloud Sync for settings, playlists, liked songs and play history <br/>
-Separate package name, app name and icon so original Musify can stay installed <br/>
+Two families in one release list:
 
-</center>
+- `desktop-v*` — Windows/Linux. Allowed to be GitHub **Latest**, because the
+  desktop updater follows the repository's latest release.
+- `mobile-v*` — Musify Cloud Android.
 
+The Android channel is deliberately **never** marked Latest, and the release
+workflow re-pins the newest `desktop-v*` release afterwards. Without that, GitHub
+promotes whichever release was published most recently and the desktop updater
+starts offering desktop users an APK. Each app also filters releases by tag
+prefix, so it only ever sees its own channel.
 
----
+## How the two stay in sync
 
-## Screenshots
+```
+gokadzev/Musify publishes a release
+        |
+        +---> Sync Desktop Upstream Release ---> master ------------> desktop-v*
+        |
+        +---> Sync Mobile Upstream Release ----> mobile-cloud-sync --> mobile-v*
+```
 
-| ![Screenshot 1](https://raw.githubusercontent.com/gokadzev/Musify/master/fastlane/metadata/android/en-US/images/phoneScreenshots/01.jpg) | ![Screenshot 2](https://raw.githubusercontent.com/gokadzev/Musify/master/fastlane/metadata/android/en-US/images/phoneScreenshots/02.jpg) | ![Screenshot 3](https://raw.githubusercontent.com/gokadzev/Musify/master/fastlane/metadata/android/en-US/images/phoneScreenshots/03.jpg) | ![Screenshot 4](https://raw.githubusercontent.com/gokadzev/Musify/master/fastlane/metadata/android/en-US/images/phoneScreenshots/04.jpg) |
-|----------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+Every sync merges plainly and **stops on conflict**. Earlier versions retried
+with `-X ours`/`-X theirs`, which reported success while keeping fork code that
+called a refactored upstream API — that is how a release once shipped that could
+not build. Nothing is pushed unless `flutter analyze` is clean, and the release
+build is dispatched against that exact validated commit. When a merge does
+conflict the run lists the files and fails, because Actions cannot guess the
+right answer.
 
+See [docs/maintenance.md](docs/maintenance.md) for the full release flow.
 
----
+## Downstream adjustments
 
-## Download Musify Cloud
+Maintenance details rather than features:
 
-
-[<img src="https://github.com/gokadzev/Musify/raw/master/.github/assets/get-it-on-github.png" alt="Get it on Github" height="80">](https://github.com/elias001011/Musify-Desktop-Port/releases)
-
-Original Musify downloads remain available from
-[gokadzev/Musify](https://github.com/gokadzev/Musify/releases).
-
----
-
-## Release Channels
-
-This repository publishes two release families:
-
-- `mobile-v*` is the Musify Cloud Android channel. These releases are not
-  marked as GitHub Latest, so desktop builds do not accidentally detect Android
-  packages as updates.
-- `desktop-v*` is the desktop channel for Windows and Linux. Those releases are
-  allowed to be GitHub Latest.
-
-Musify Cloud only checks `mobile-v*` releases when looking for Android updates.
-
----
-
-## Optional Cloud Sync
-
-Cloud Sync is off by default. Users enable it in Settings with a passphrase.
-Using the same passphrase on desktop and mobile loads the same cloud backup.
-When automatic uploads are enabled, new local changes replace the previous cloud
-backup after a short debounce.
-
-Release builds read the backend URL from `MUSIFY_CLOUD_SYNC_URL`. See
-[docs/cloud-sync.md](docs/cloud-sync.md) for the Cloudflare Worker/KV setup.
-
-Current behavior is intentionally simple: the newest full backup wins. If a
-device has newer local changes, it uploads them; if the cloud backup is newer,
-the app loads it. See [docs/cloud-sync.md](docs/cloud-sync.md) for the security
-model, limits and conflict notes.
-
----
-
-## Upstream Sync
-
-The `mobile-cloud-sync` branch is kept close to
-[gokadzev/Musify](https://github.com/gokadzev/Musify). Our changes are layered
-on top: Cloud Sync, separate Android identity, update channel changes, release
-workflows, and sync compatibility fixes. It intentionally does not carry the
-desktop branch's desktop-only features.
-
-Automation checks upstream releases every six hours:
-
-- if upstream publishes a new release, the workflow merges that upstream tag
-  into `mobile-cloud-sync`;
-- it runs dependency restore and `flutter analyze`;
-- if validation passes, it dispatches the Android release workflow;
-- the Android workflow publishes a new `mobile-v*` release without marking it
-  as GitHub Latest.
-
-If the upstream merge conflicts, GitHub Actions cannot safely guess the right
-resolution. The workflow fails and opens an issue pointing to the failed run so
-the conflict can be resolved manually.
-
-See [docs/maintenance.md](docs/maintenance.md) for the release flow.
-
----
-
-## Contributors
-
-Special thanks to all contributors for their time and effort.
-
-<a href="https://github.com/gokadzev/Musify/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=gokadzev/Musify" alt="Contributors"/>
-</a>
-
-
----
-
-## Contribute
-
-Contributions are always welcome. Please read our [contributing guidelines](https://github.com/gokadzev/Musify/blob/master/CONTRIBUTING.md) before contributing.
-
----
-
-## F.A.Q
-
-You can see frequently asked questions and their answers [here](https://github.com/gokadzev/Musify/discussions/728).
+- GitHub Actions workflows for desktop packaging, Musify Cloud packaging, and
+  the upstream syncs.
+- Workflow refs are written as `refs/heads/...` where possible, and upstream sync
+  fetches only the selected release tag. Upstream has a historical tag named
+  `master`, and fetching it makes the local branch name ambiguous inside a job.
 
 ---
 
 ## Credits
 
-[Musify](https://github.com/Harsh-23/Musify) - Original inspiration for the concept and name. It is now completely reimplemented with new design and branding.
+All core Musify application work belongs to the upstream project:
 
+- Upstream repository: https://github.com/gokadzev/Musify
+- Original author/maintainer: Valeri Gokadze
+- Upstream contributors: https://github.com/gokadzev/Musify/graphs/contributors
 
----
+This desktop port is an unofficial downstream packaging and compatibility effort.
+It is not a replacement for the upstream project and is not presented as an
+official Musify release channel.
 
 ## License
 
-```
-Copyright © 2026 Valeri Gokadze
+Musify is free software licensed under GPL v3.0. This desktop port keeps the same
+license and copyright notices as the upstream project.
 
-Musify is free software licensed under GPL v3.0. You may use, modify, and distribute
-this software freely, but must keep the source code open and publicly available, retain
-all copyright notices, disclose all changes made, and use the same GPL v3.0 license.
-
-Prohibited: Closed-source distributions or commercial redistribution of modified versions.
-```
-
-See the [GNU General Public License](https://github.com/gokadzev/Musify/blob/master/LICENSE) for full details.
-
----
-
-## Disclaimer
-
-```
-Musify and its contributors do not host, own, or distribute any copyrighted audio content.
-The app provides access to content through plugins and external sources. All trademarks, songs, audio files, and related content remain the property of their respective owners and are protected by applicable copyright laws.
-Included plugins are provided for interoperability and educational purposes only. Users are solely responsible for ensuring that their use of the app complies with local laws, copyright regulations, and the terms of service of the respective content providers.
-The developers of Musify do not encourage or endorse copyright infringement and assume no liability for misuse of the software or third-party plugins.
-```
----
+See [LICENSE](LICENSE) for the full license text.
