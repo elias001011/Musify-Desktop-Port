@@ -7,9 +7,8 @@ Valeri Gokadze and contributors.
 <!-- download-counts:start -->
 [![Musify Desktop Port downloads](https://img.shields.io/badge/desktop%20downloads-61-2F6FE0?style=for-the-badge&logo=github)](https://github.com/elias001011/Musify-Desktop-Port/releases)
 [![Musify Cloud downloads](https://img.shields.io/badge/Musify%20Cloud-4-006A71?style=for-the-badge)](https://github.com/elias001011/Musify-Desktop-Port/releases)
-[![Musify AI downloads](https://img.shields.io/badge/Musify%20AI-0-2F4FE0?style=for-the-badge)](https://github.com/elias001011/Musify-Desktop-Port/releases)
 
-<sub>65 downloads across every release of all three products. Updated daily.</sub>
+<sub>65 downloads across every release of both products. Updated daily.</sub>
 <!-- download-counts:end -->
 
 This repository exists to ship **Musify for Windows and Linux**. The Android
@@ -125,8 +124,7 @@ document.
 **What a snapshot contains.** A full dump of the app's two Hive boxes,
 `settings` and `user` — so preferences, playlists, liked songs, liked artists,
 recently played, and most-played data. A few keys are excluded and stay on the
-device: internal sync bookkeeping, offline mode, and (in Musify AI) the AI
-provider API keys.
+device: internal sync bookkeeping and offline mode.
 
 **Transport.** JSON, gzipped and base64-wrapped when it is large enough to be
 worth it. A library big enough to exceed the backend's size limit gets a clear

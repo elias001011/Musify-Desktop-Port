@@ -2,10 +2,10 @@ name: Update download counts
 
 # Keeps the download badges in README.md accurate.
 #
-# shields.io can only total a whole repository, and this one publishes three
+# shields.io can only total a whole repository, and this one publishes two
 # products from one release list, so a repo-wide badge would report Musify
-# Cloud and Musify AI downloads as desktop ones. This sums per tag prefix and
-# writes the numbers into the badge URLs instead.
+# Cloud downloads as desktop ones. This sums per tag prefix and writes the
+# numbers into the badge URLs instead.
 
 on:
   schedule:
@@ -53,20 +53,17 @@ jobs:
 
           desktop="$(count_for 'desktop-v')"
           cloud="$(count_for 'mobile-v')"
-          ai="$(count_for 'musifyai-v')"
 
           echo "desktop=${desktop}" >> "$GITHUB_OUTPUT"
           echo "cloud=${cloud}" >> "$GITHUB_OUTPUT"
-          echo "ai=${ai}" >> "$GITHUB_OUTPUT"
-          echo "total=$((desktop + cloud + ai))" >> "$GITHUB_OUTPUT"
+          echo "total=$((desktop + cloud))" >> "$GITHUB_OUTPUT"
 
-          echo "desktop=${desktop} cloud=${cloud} ai=${ai}"
+          echo "desktop=${desktop} cloud=${cloud}"
 
       - name: Rewrite the badge block
         env:
           DESKTOP: ${{ steps.counts.outputs.desktop }}
           CLOUD: ${{ steps.counts.outputs.cloud }}
-          AI: ${{ steps.counts.outputs.ai }}
           TOTAL: ${{ steps.counts.outputs.total }}
         shell: bash
         run: |
@@ -76,7 +73,6 @@ jobs:
 
           desktop = os.environ['DESKTOP']
           cloud = os.environ['CLOUD']
-          ai = os.environ['AI']
           total = os.environ['TOTAL']
 
           badges = (
@@ -88,12 +84,8 @@ jobs:
               f'(https://img.shields.io/badge/Musify%20Cloud-{cloud}-006A71'
               f'?style=for-the-badge)]'
               f'(https://github.com/elias001011/Musify-Desktop-Port/releases)\n'
-              f'[![Musify AI downloads]'
-              f'(https://img.shields.io/badge/Musify%20AI-{ai}-2F4FE0'
-              f'?style=for-the-badge)]'
-              f'(https://github.com/elias001011/Musify-Desktop-Port/releases)\n'
               f'\n'
-              f'<sub>{total} downloads across every release of all three '
+              f'<sub>{total} downloads across every release of both '
               f'products. Updated daily.</sub>'
           )
 
