@@ -12,11 +12,9 @@ Valeri Gokadze and contributors.
 <sub>65 downloads across every release of all three products. Updated daily.</sub>
 <!-- download-counts:end -->
 
-The desktop port is what this repository is for. Two Android builds also live
-here, and both exist to serve the desktop port rather than to compete with it:
-**Musify Cloud** is the phone end of the desktop port's optional cloud sync, and
-**Musify AI** is an experimental personal build of Musify Cloud with an AI
-assistant bolted on.
+This repository exists to ship **Musify for Windows and Linux**. The Android
+companion **Musify Cloud** also lives here because the desktop port's optional
+cloud sync needs a phone end — see [Musify Cloud](#musify-cloud) below.
 
 None of these are official Musify releases. Nothing here tries to turn Musify
 into a different app — upstream code is kept as close to original as it can be.
@@ -25,7 +23,6 @@ into a different app — upstream code is kept as close to original as it can be
 |---|---|---|
 | **Musify Desktop Port** | Windows, Linux | the actual port. `desktop-v*` releases, `master` branch |
 | **Musify Cloud** | Android | original Musify + the other end of cloud sync. `mobile-v*`, `mobile-cloud-sync` |
-| **Musify AI** | Android | Musify Cloud + an experimental assistant. `musifyai-v*`, `feature/musify-ai` |
 
 ---
 
@@ -41,15 +38,20 @@ Every `desktop-v*` release ships:
 - `Musify-windows-x64-portable.zip` for portable Windows use.
 - `SHA256SUMS.txt` for artifact verification.
 
+[Download the latest desktop release](https://github.com/elias001011/Musify-Desktop-Port/releases/latest)
+and pick the files for your platform.
+
 The in-app updater follows this channel, which is why `desktop-v*` releases are
 the ones allowed to be GitHub **Latest**.
 
 ## What changes from original Musify
 
 Upstream Musify is an Android app. Everything below exists because of that — it
-is porting work and desktop plumbing, not a redesign.
+is porting work and desktop plumbing, not a redesign. Two kinds of change: what
+is *required* to make Musify run on a PC at all, and what is *added* on top as
+an optional desktop convenience.
 
-### Making it run at all
+### Required: making it run on a PC
 
 **The desktop runners.** Flutter needs a native host per platform, and upstream
 has only the Android one. This repository adds the `linux/` and `windows/`
@@ -83,7 +85,7 @@ release list, keeps only `desktop-v*` tags, detects the CPU architecture with
 `uname -m`, and picks the matching asset — falling back to the release page if
 it cannot match one.
 
-### What it adds for desktop use
+### Added: optional desktop conveniences
 
 **Volume control.** A phone has hardware volume buttons; a desktop app is
 expected to have its own. The miniplayer and the expanded player show a speaker
@@ -168,33 +170,27 @@ Worker over KV; setup is in [docs/cloud-sync.md](docs/cloud-sync.md).
 
 ---
 
-# The two Android builds
+# Musify Cloud
 
-## Musify Cloud
-
-Original mobile Musify with the same Cloud Sync described above, and nothing
-else. It exists because sync needs two ends: the feature lives in the desktop
-port, and this is the phone that can talk to it.
+The Android companion to the desktop port. Original mobile Musify with the same
+optional Cloud Sync described above, and nothing else. It exists because sync
+needs two ends: the desktop port talks to a server, and this is the phone that
+can share the same backup with it.
 
 It uses its own application id (`com.elias001011.musifycloud`), name and icon, so
 it installs beside original Musify rather than replacing it. Downloads are
 `MusifyCloud.apk` on `mobile-v*` releases.
 
-## Musify AI
+## How to get both
 
-Experimental and personal. Musify Cloud plus an assistant that can drive the
-app: search, play a song or a whole album, build playlists, start a station from
-a track, manage the library and downloads, read listening history, open screens.
-It needs an API key from a provider you choose (Groq, Gemini or OpenRouter).
+| Want | Get |
+|---|---|
+| Desktop app for Windows/Linux | [desktop-v* releases](https://github.com/elias001011/Musify-Desktop-Port/releases) — `Musify-linux-x64.deb`, `Musify-linux-x64.tar.gz`, `Musify-windows-x64-setup.exe`, `Musify-windows-x64-portable.zip` |
+| Phone app that syncs with it | [mobile-v* releases](https://github.com/elias001011/Musify-Desktop-Port/releases) — `MusifyCloud.apk` |
 
-Treat it as a side experiment rather than a supported product. If you just want
-sync, install Musify Cloud; Musify AI is a superset, so there is no reason to run
-both.
-
-Its API keys never leave the device — they are excluded from Cloud Sync, whose
-payload is not encrypted — and it uses a separate sync namespace, so it never
-reads or overwrites a Musify Cloud backup. Details, the full tool list and what
-is planned next are in [docs/musify-ai.md](docs/musify-ai.md).
+Install the desktop build, install Musify Cloud on your phone, type the same
+passphrase into Cloud Sync on both, and your playlists and settings follow you
+between the two.
 
 ---
 
@@ -202,20 +198,19 @@ is planned next are in [docs/musify-ai.md](docs/musify-ai.md).
 
 ## Release channels
 
-Three families in one release list:
+Two families in one release list:
 
 - `desktop-v*` — Windows/Linux. Allowed to be GitHub **Latest**, because the
   desktop updater follows the repository's latest release.
 - `mobile-v*` — Musify Cloud Android.
-- `musifyai-v*` — Musify AI Android.
 
-The Android channels are deliberately **never** marked Latest, and the release
-workflows re-pin the newest `desktop-v*` release afterwards. Without that, GitHub
+The Android channel is deliberately **never** marked Latest, and the release
+workflow re-pins the newest `desktop-v*` release afterwards. Without that, GitHub
 promotes whichever release was published most recently and the desktop updater
 starts offering desktop users an APK. Each app also filters releases by tag
 prefix, so it only ever sees its own channel.
 
-## How the three stay in sync
+## How the two stay in sync
 
 ```
 gokadzev/Musify publishes a release
@@ -223,17 +218,7 @@ gokadzev/Musify publishes a release
         +---> Sync Desktop Upstream Release ---> master ------------> desktop-v*
         |
         +---> Sync Mobile Upstream Release ----> mobile-cloud-sync --> mobile-v*
-                                                        |
-                                                        v
-                                        Sync Musify AI from Musify Cloud
-                                                        |
-                                                        v
-                                        feature/musify-ai ----------> musifyai-v*
 ```
-
-Musify AI tracks Musify Cloud rather than upstream directly: Cloud has already
-resolved the upstream merge and passed its own checks, so the AI branch only ever
-faces one kind of conflict instead of two.
 
 Every sync merges plainly and **stops on conflict**. Earlier versions retried
 with `-X ours`/`-X theirs`, which reported success while keeping fork code that
@@ -243,18 +228,19 @@ build is dispatched against that exact validated commit. When a merge does
 conflict the run lists the files and fails, because Actions cannot guess the
 right answer.
 
-See [docs/maintenance.md](docs/maintenance.md) for the desktop and Cloud flows,
-and [docs/musify-ai.md](docs/musify-ai.md) for the AI branch.
+See [docs/maintenance.md](docs/maintenance.md) for the full release flow.
 
 ## Downstream adjustments
 
 Maintenance details rather than features:
 
-- GitHub Actions workflows for desktop packaging, Musify Cloud packaging, Musify
-  AI packaging, and the syncs between all of them.
+- GitHub Actions workflows for desktop packaging, Musify Cloud packaging, and
+  the upstream syncs.
 - Workflow refs are written as `refs/heads/...` where possible, and upstream sync
   fetches only the selected release tag. Upstream has a historical tag named
   `master`, and fetching it makes the local branch name ambiguous inside a job.
+
+---
 
 ## Credits
 

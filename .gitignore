@@ -50,3 +50,9 @@ lib/localization/app_*.dart
 
 # Generated untranslated messages file
 lib/localization/untranslated.json
+
+# Desktop build artifacts
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
+linux/build/
+windows/build/
