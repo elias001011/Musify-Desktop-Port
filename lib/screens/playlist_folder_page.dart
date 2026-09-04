@@ -20,7 +20,7 @@
  */
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/services/playlists_manager.dart';
@@ -64,18 +64,34 @@ class _PlaylistFolderPageState extends State<PlaylistFolderPage> {
       builder: (context, _, __) {
         final isOffline = offlineMode.value;
         final playlists = isOffline
-            ? getPlaylistsInFolder(
-                widget.folderId,
-              ).where(PlaylistUtils.isPlaylistOffline).toList()
+            ? getPlaylistsInFolder(widget.folderId)
+                  .where(PlaylistUtils.isPlaylistOffline)
+                  .toList()
             : getPlaylistsInFolder(widget.folderId);
         return Scaffold(
           body: CustomScrollView(
             slivers: [
               SliverAppBar(
                 pinned: true,
-                expandedHeight: 300,
+                expandedHeight: 320,
                 flexibleSpace: FlexibleSpaceBar(
-                  collapseMode: CollapseMode.pin,
+                  centerTitle: true,
+                  expandedTitleScale: 1.35,
+                  titlePadding: const EdgeInsetsDirectional.only(
+                    start: 64,
+                    end: 64,
+                    bottom: 16,
+                  ),
+                  title: Text(
+                    _folderName,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.onSurface,
+                      letterSpacing: 0,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   background: _buildHeader(context, playlists.length),
                 ),
                 actions: [
@@ -164,7 +180,7 @@ class _PlaylistFolderPageState extends State<PlaylistFolderPage> {
     final theme = Theme.of(context);
     return Container(
       alignment: Alignment.center,
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 56),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -189,18 +205,6 @@ class _PlaylistFolderPageState extends State<PlaylistFolderPage> {
             ),
           ),
           const SizedBox(height: 20),
-          Text(
-            _folderName,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: colorScheme.onSurface,
-              letterSpacing: -0.3,
-            ),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 2,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
             decoration: BoxDecoration(

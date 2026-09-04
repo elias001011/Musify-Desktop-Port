@@ -21,21 +21,17 @@
 
 import 'dart:async';
 
+import 'package:musify/constants/artist_constants.dart';
 import 'package:musify/main.dart' show logger;
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/proxy_manager.dart';
+import 'package:musify/utilities/app_utils.dart';
 import 'package:musify/utilities/formatter.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:youtube_music_explode_dart/youtube_music_explode_dart.dart';
 
-const artistCatalogCacheVersion = 15;
-const artistSearchCacheVersion = 10;
-const _artistRequestTimeout = Duration(seconds: 12);
-const _musicDiscographyTimeout = Duration(seconds: 25);
-const _musicAlbumTimeout = Duration(seconds: 12);
-const _musicAlbumBatchSize = 6;
-
 final ytMusicClient = YoutubeMusicExplode();
+final Map<String, Future<void>> _artistCatalogOperationTails = {};
 
 Future<List<Map<String, dynamic>>> searchVerifiedArtists(
   String query, {
@@ -49,18 +45,14 @@ Future<List<Map<String, dynamic>>> searchVerifiedArtists(
       '_${normalizedQuery.toLowerCase()}';
   final cachedArtists = await getData('cache', cacheKey);
   if (cachedArtists is List) {
-    return cachedArtists
-        .whereType<Map>()
-        .map(Map<String, dynamic>.from)
-        .take(limit)
-        .toList();
+    return asMapList(cachedArtists).take(limit).toList();
   }
 
   try {
     final artists = _dedupeResolvedArtists(
       (await ytMusicClient.music
               .searchArtists(normalizedQuery)
-              .timeout(_artistRequestTimeout))
+              .timeout(artistRequestTimeout))
           .where((artist) => !looksUnofficialArtistName(artist.name))
           .map(_artistMapFromMusicArtist),
     ).take(limit).toList();
@@ -101,15 +93,12 @@ Future<Map<String, dynamic>?> resolveArtist(
         name: displayName,
         thumbnailUrl: preferredImage,
       ),
-      preferredTitle: displayName,
       preferredImage: preferredImage,
     );
   }
 
   final normalizedSourceSongId = sourceSongId?.trim();
   final terms = <String>{};
-  String? sourceVideoArtist;
-  var resolvedSourceVideoAuthor = sourceVideoAuthor?.trim();
 
   void addAliases(String? value) {
     if (value == null) return;
@@ -117,16 +106,15 @@ Future<Map<String, dynamic>?> resolveArtist(
   }
 
   addAliases(displayName);
+  addAliases(sourceVideoAuthor);
 
   if (normalizedSourceSongId != null && normalizedSourceSongId.isNotEmpty) {
     try {
       final sourceVideo = await ytClient.videos
           .get(normalizedSourceSongId)
-          .timeout(_artistRequestTimeout);
-      resolvedSourceVideoAuthor = sourceVideo.author.trim();
-      sourceVideoArtist = _artistNameFromVideoTitle(sourceVideo.title);
-      addAliases(sourceVideoArtist);
-      addAliases(resolvedSourceVideoAuthor);
+          .timeout(artistRequestTimeout);
+      addAliases(_artistNameFromVideoTitle(sourceVideo.title));
+      addAliases(sourceVideo.author);
       for (final musicData in sourceVideo.musicData) {
         addAliases(musicData.artist);
       }
@@ -143,7 +131,7 @@ Future<Map<String, dynamic>?> resolveArtist(
     try {
       final channel = await ytClient.channels
           .get(normalizedLookup)
-          .timeout(_artistRequestTimeout);
+          .timeout(artistRequestTimeout);
       addAliases(channel.title);
     } catch (e, stackTrace) {
       logger.log(
@@ -156,15 +144,10 @@ Future<Map<String, dynamic>?> resolveArtist(
     addAliases(normalizedLookup);
   }
 
-  final scoringName =
-      displayName ??
-      sourceVideoArtist ??
-      _cleanArtistSearchTerm(resolvedSourceVideoAuthor ?? normalizedLookup);
   final artist = await _resolveMusicArtistFromTerms(
     terms,
     trustedLookupId: normalizedLookup,
     preferredImage: preferredImage,
-    preferredTitle: scoringName,
     allowFirstResultForTrustedSeed: preferredVerified && displayName != null,
   );
 
@@ -179,6 +162,200 @@ Future<Map<String, dynamic>?> resolveArtist(
   return artist;
 }
 
+/// Entry point for artist profile: page info, top songs, releases, and suggestions.
+Future<Map<String, dynamic>?> getArtistProfile(
+  String artistId, {
+  bool forceRefresh = false,
+  bool cacheResult = true,
+  String? sourceSongId,
+  String? sourceVideoAuthor,
+  String? preferredName,
+  String? preferredImage,
+  bool preferredVerified = false,
+}) async {
+  try {
+    final lookup = artistId.trim();
+    final isChannelLookup = _isChannelId(lookup);
+
+    // A channel id is read straight away: one browse answers both who the
+    // artist is and what its page holds. The search that turns a name into a
+    // channel is only paid when that browse comes back with a channel that has
+    // no artist page of its own, e.g. the label that uploaded the song.
+    if (isChannelLookup) {
+      final knownChannel = await getData(
+        'cache',
+        _artistChannelCacheKey(lookup),
+      );
+      final profile = await _artistPageOf(
+        knownChannel?.toString() ?? lookup,
+        forceRefresh: forceRefresh,
+        cacheResult: cacheResult,
+        preferredName: preferredName,
+        preferredImage: preferredImage,
+      );
+      if (profile != null) return profile;
+    }
+
+    final artist = await resolveArtist(
+      lookup,
+      preferredName: preferredName,
+      preferredImage: preferredImage,
+      sourceSongId: sourceSongId,
+      sourceVideoAuthor: sourceVideoAuthor,
+      preferredVerified: preferredVerified,
+    );
+
+    if (artist == null) {
+      logger.log(
+        'Artist profile not found: lookup=$artistId; '
+        'sourceSongId=$sourceSongId; preferredName=$preferredName',
+      );
+      return null;
+    }
+
+    // Where this landed is deliberately not remembered for the channel that was
+    // looked up: a channel that has no artist page of its own is a channel that
+    // uploads for many artists, and which one this is was decided by the name
+    // of the song it was opened from, not by the channel.
+    return await _artistPageOf(
+      artist['ytid']?.toString() ?? lookup,
+      forceRefresh: forceRefresh,
+      cacheResult: cacheResult,
+      artist: artist,
+    );
+  } catch (e, stackTrace) {
+    logger.log(
+      'Error fetching artist profile for $artistId',
+      error: e,
+      stackTrace: stackTrace,
+    );
+    return null;
+  }
+}
+
+/// Loads the artist page from cache or API.
+/// Returns null if [artistId] has no artist page (e.g., a generic upload channel).
+Future<Map<String, dynamic>?> _artistPageOf(
+  String artistId, {
+  required bool forceRefresh,
+  Map<String, dynamic>? artist,
+  String? preferredName,
+  String? preferredImage,
+  bool followCanonical = true,
+  bool cacheResult = true,
+}) async {
+  // Nothing is dropped before the page is in hand: a refresh that fails on a
+  // bad connection would otherwise leave the artist with no page at all.
+  final cacheKey = _artistProfileCacheKey(artistId);
+  if (!forceRefresh) {
+    final cachedProfile = await getData('cache', cacheKey);
+    if (cachedProfile is Map) {
+      return Map<String, dynamic>.from(cachedProfile);
+    }
+  }
+
+  final profile = await ytMusicClient.music
+      .getArtistProfile(artistId)
+      .timeout(artistProfileTimeout);
+
+  // Non-artist channels are cached to avoid repeated lookups
+  if (followCanonical && profile.id != artistId) {
+    unawaited(
+      addOrUpdateData<String>(
+        'cache',
+        _artistChannelCacheKey(artistId),
+        profile.id,
+      ),
+    );
+    return _artistPageOf(
+      profile.id,
+      forceRefresh: forceRefresh,
+      cacheResult: cacheResult,
+      artist: artist,
+      preferredName: preferredName,
+      preferredImage: preferredImage,
+      followCanonical: false,
+    );
+  }
+
+  final knownArtist =
+      artist ??
+      _artistMapFromMusicArtist(
+        MusicArtist(
+          id: profile.id,
+          name: profile.name.isEmpty ? (preferredName ?? '') : profile.name,
+          thumbnailUrl: profile.thumbnailUrl,
+        ),
+        preferredImage: preferredImage,
+      );
+
+  final artistName = normalizeArtistDisplayTitle(
+    knownArtist['title']?.toString() ?? profile.name,
+  );
+  final artistProfile = {
+    ...knownArtist,
+    'title': artistName.isEmpty ? profile.name : artistName,
+    'image':
+        knownArtist['image']?.toString() ??
+        normalizeArtistThumbnailUrl(profile.thumbnailUrl),
+    'description': profile.description,
+    'monthlyListeners': _extractCountToken(profile.monthlyListeners),
+    // The play count is kept next to the song, never inside it: song maps
+    // travel into the queue and into the library of the user, where the
+    // counter of an artist shelf has no meaning.
+    'topSongs': [
+      for (final (index, song) in profile.topSongs.indexed)
+        {
+          'song': returnSongLayout(index, song.video),
+          'playCount': _extractCountToken(song.playCount),
+        },
+    ],
+    'releases': [
+      for (final release in profile.releases)
+        _releaseMapFromMusicAlbum(release, knownArtist),
+    ],
+    'relatedArtists': [
+      for (final related in profile.relatedArtists)
+        _artistMapFromMusicArtist(related),
+    ],
+  };
+
+  // Don't cache empty pages from unverified channels
+  if ((artistProfile['topSongs'] as List).isEmpty &&
+      (artistProfile['releases'] as List).isEmpty) {
+    logger.log('Artist page empty: $artistId (${profile.name})');
+    return artist == null ? null : artistProfile;
+  }
+
+  if (cacheResult) {
+    cacheArtistProfileInBackground(artistProfile);
+  }
+  return artistProfile;
+}
+
+Future<void> cacheArtistProfile(Map artist) async {
+  final artistId = artist['ytid']?.toString();
+  if (artistId == null || artistId.isEmpty) return;
+  await addOrUpdateData<Map>(
+    'cache',
+    _artistProfileCacheKey(artistId),
+    Map<String, dynamic>.from(artist),
+  );
+}
+
+void cacheArtistProfileInBackground(Map artist) {
+  unawaited(
+    cacheArtistProfile(artist).catchError((error, stackTrace) {
+      logger.log(
+        'Failed to cache artist profile',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }),
+  );
+}
+
+/// Artist catalog: all songs from the discography as a single playlist.
 Future<Map<String, dynamic>?> getArtistCatalog(
   String artistId, {
   bool forceRefresh = false,
@@ -189,66 +366,28 @@ Future<Map<String, dynamic>?> getArtistCatalog(
   bool preferredVerified = false,
 }) async {
   try {
-    final artist = await resolveArtist(
+    final artist = await getArtistProfile(
       artistId,
+      forceRefresh: forceRefresh,
+      cacheResult: !forceRefresh,
       preferredName: preferredName,
       preferredImage: preferredImage,
       sourceSongId: sourceSongId,
       sourceVideoAuthor: sourceVideoAuthor,
       preferredVerified: preferredVerified,
     );
+    if (artist == null) return null;
 
-    if (artist == null) {
-      logger.log(
-        'Artist catalog not found: lookup=$artistId; '
-        'sourceSongId=$sourceSongId; preferredName=$preferredName',
-      );
-      return null;
+    final catalog = await getArtistCatalogFromProfile(
+      artist,
+      forceRebuild: forceRefresh,
+    );
+    if (forceRefresh &&
+        catalog != null &&
+        catalog['catalogStatus'] != 'failed') {
+      cacheArtistProfileInBackground(artist);
     }
-
-    final resolvedArtistId = artist['ytid']?.toString() ?? artistId;
-    final cacheKey =
-        'artist_catalog_v${artistCatalogCacheVersion}_$resolvedArtistId';
-    if (!forceRefresh) {
-      final cachedArtist = await getData('cache', cacheKey);
-      if (cachedArtist is Map &&
-          cachedArtist['list'] is List &&
-          (cachedArtist['list'] as List).isNotEmpty) {
-        return Map<String, dynamic>.from(cachedArtist);
-      }
-    } else {
-      await deleteData('cache', cacheKey);
-      await deleteData('cache', '${cacheKey}_date');
-    }
-
-    final songs = await _buildArtistCatalogFromMusic(artist);
-    if (songs.isEmpty) {
-      logger.log(
-        'Artist catalog not found: no YouTube Music releases for '
-        '${artist['title']} (${artist['ytid']}); lookup=$artistId; '
-        'sourceSongId=$sourceSongId; preferredName=$preferredName',
-      );
-      return {
-        ...artist,
-        'source': 'youtube-artist',
-        'isArtist': true,
-        'catalogStatus': 'failed',
-        'isCatalogComplete': false,
-        'list': [],
-      };
-    }
-
-    final artistPlaylist = {
-      ...artist,
-      'source': 'youtube-artist',
-      'isArtist': true,
-      'catalogStatus': 'complete',
-      'isCatalogComplete': true,
-      'list': songs,
-    };
-
-    unawaited(addOrUpdateData<Map>('cache', cacheKey, artistPlaylist));
-    return artistPlaylist;
+    return catalog;
   } catch (e, stackTrace) {
     logger.log(
       'Error fetching artist catalog for $artistId',
@@ -257,6 +396,249 @@ Future<Map<String, dynamic>?> getArtistCatalog(
     );
     return null;
   }
+}
+
+/// Builds the song catalog from the already-loaded profile to keep the release snapshot consistent.
+Future<Map<String, dynamic>?> getArtistCatalogFromProfile(
+  Map artist, {
+  bool forceRebuild = false,
+}) async {
+  final artistId = artist['ytid']?.toString();
+  if (artistId == null || artistId.isEmpty) return null;
+
+  return _serializeArtistCatalogOperation(
+    artistId,
+    () => _getArtistCatalogFromProfile(
+      artist,
+      artistId: artistId,
+      forceRebuild: forceRebuild,
+    ),
+  );
+}
+
+Future<Map<String, dynamic>?> _getArtistCatalogFromProfile(
+  Map artist, {
+  required String artistId,
+  required bool forceRebuild,
+}) async {
+  try {
+    final cacheKey = _artistCatalogCacheKey(artistId);
+    if (!forceRebuild) {
+      final cachedArtist = await getData('cache', cacheKey);
+      if (cachedArtist is Map &&
+          cachedArtist['list'] is List &&
+          (cachedArtist['list'] as List).isNotEmpty) {
+        return Map<String, dynamic>.from(cachedArtist);
+      }
+    }
+
+    final catalog = await _catalogSongsOf(Map<String, dynamic>.from(artist));
+    if ((forceRebuild && !catalog.isComplete) || catalog.songs.isEmpty) {
+      logger.log(
+        'Artist catalog incomplete: one or more YouTube Music releases could '
+        'not be read for ${artist['title']} ($artistId)',
+      );
+      return {
+        ...artistPlaylistData(artist, songs: const []),
+        'catalogStatus': 'failed',
+      };
+    }
+
+    if (!catalog.isComplete) {
+      logger.log(
+        'Artist catalog partially loaded for ${artist['title']} ($artistId)',
+      );
+    }
+
+    final artistPlaylist = artistPlaylistData(artist, songs: catalog.songs);
+    // A refresh may immediately read this key to update another view. Finish
+    // the local write before exposing the new catalog so stale data cannot win
+    // that race.
+    await addOrUpdateData<Map>('cache', cacheKey, artistPlaylist);
+    return artistPlaylist;
+  } catch (e, stackTrace) {
+    logger.log(
+      'Error building artist catalog from refreshed profile',
+      error: e,
+      stackTrace: stackTrace,
+    );
+    return null;
+  }
+}
+
+/// Serializes catalog builds per artist so refreshes cannot be overwritten by older operations.
+Future<T> _serializeArtistCatalogOperation<T>(
+  String artistId,
+  Future<T> Function() operation,
+) async {
+  final previous = _artistCatalogOperationTails[artistId];
+  final completion = Completer<void>();
+  final tail = completion.future;
+  _artistCatalogOperationTails[artistId] = tail;
+
+  if (previous != null) {
+    try {
+      await previous;
+    } catch (_) {
+      // The next materialization should still run after a failed predecessor.
+    }
+  }
+
+  try {
+    return await operation();
+  } finally {
+    completion.complete();
+    if (identical(_artistCatalogOperationTails[artistId], tail)) {
+      unawaited(_artistCatalogOperationTails.remove(artistId));
+    }
+  }
+}
+
+/// Artist as playlist (for library storage, downloads, and song lists).
+Map<String, dynamic> artistPlaylistData(Map artist, {List? songs}) {
+  return {
+    'ytid': artist['ytid']?.toString(),
+    'title': artist['title']?.toString() ?? '',
+    'image': artist['image'],
+    'source': 'youtube-artist',
+    'isArtist': true,
+    'isVerifiedArtist': true,
+    'list': songs,
+  };
+}
+
+/// Collects all songs from artist's discography in batches.
+Future<({List<Map<String, dynamic>> songs, bool isComplete})> _catalogSongsOf(
+  Map<String, dynamic> artist,
+) async {
+  final artistId = artist['ytid']?.toString();
+  final artistName = artist['title']?.toString() ?? '';
+  final releases = asMapList(artist['releases']);
+
+  final songs = <Map<String, dynamic>>[];
+  var isComplete = true;
+  for (var index = 0; index < releases.length; index += musicAlbumBatchSize) {
+    final albums = await Future.wait([
+      for (final release in releases.skip(index).take(musicAlbumBatchSize))
+        getArtistAlbum(release['ytid']?.toString() ?? ''),
+    ]);
+    for (final album in albums) {
+      if (album == null) {
+        isComplete = false;
+        continue;
+      }
+      // Credit songs to the artist, not the release owner (compilations, features)
+      for (final song in asMapList(album['list'])) {
+        songs.add({
+          ...song,
+          if (artistName.isNotEmpty) 'artist': artistName,
+          if (artistId != null && artistId.isNotEmpty) 'artistId': artistId,
+        });
+      }
+    }
+  }
+
+  return (songs: dedupeArtistCatalogSongs(songs), isComplete: isComplete);
+}
+
+/// Load release as standalone playlist (crediting happens later in catalog builder).
+Future<Map<String, dynamic>?> getArtistAlbum(
+  String albumId, {
+  bool forceRefresh = false,
+}) async {
+  final normalizedAlbumId = albumId.trim();
+  if (normalizedAlbumId.isEmpty) return null;
+
+  final cacheKey =
+      'artist_album_v${artistAlbumCacheVersion}_$normalizedAlbumId';
+  if (!forceRefresh) {
+    final cachedAlbum = await getData('cache', cacheKey);
+    if (cachedAlbum is Map &&
+        cachedAlbum['list'] is List &&
+        (cachedAlbum['list'] as List).isNotEmpty) {
+      return Map<String, dynamic>.from(cachedAlbum);
+    }
+  } else {
+    await _dropFromCache(cacheKey);
+  }
+
+  try {
+    final release = await ytMusicClient.music
+        .getAlbum(normalizedAlbumId)
+        .timeout(musicAlbumTimeout);
+
+    final album = {
+      'ytid': normalizedAlbumId,
+      'title': release.title,
+      'image': normalizeArtistThumbnailUrl(release.thumbnailUrl),
+      'artist': release.artist,
+      'artistId': release.artistId,
+      'year': release.year,
+      'source': 'youtube-album',
+      'isAlbum': true,
+      'list': [
+        for (final (index, track) in release.tracks.indexed)
+          returnSongLayout(index, track),
+      ],
+    };
+
+    if (release.tracks.isNotEmpty) {
+      unawaited(addOrUpdateData<Map>('cache', cacheKey, album));
+    }
+    return album;
+  } catch (e, stackTrace) {
+    logger.log(
+      'Could not load YouTube Music album $normalizedAlbumId',
+      error: e,
+      stackTrace: stackTrace,
+    );
+    return null;
+  }
+}
+
+/// Check if release is single/EP (YouTube Music explicitly labels only these).
+bool isSingleOrEpRelease(Map release) {
+  final type = release['releaseType']?.toString();
+  return type == 'single' || type == 'ep';
+}
+
+String _artistCatalogCacheKey(String artistId) =>
+    'artist_catalog_v${artistCatalogCacheVersion}_$artistId';
+
+String _artistProfileCacheKey(String artistId) =>
+    'artist_profile_v${artistProfileCacheVersion}_$artistId';
+
+/// Canonical artist page for a channel (channels may host multiple artists).
+String _artistChannelCacheKey(String channelId) =>
+    'artist_channel_v${artistChannelCacheVersion}_$channelId';
+
+Future<void> _dropFromCache(String cacheKey) async {
+  await deleteData('cache', cacheKey);
+  await deleteData('cache', '${cacheKey}_date');
+}
+
+Map<String, dynamic> _releaseMapFromMusicAlbum(MusicAlbum album, Map artist) {
+  return {
+    'ytid': album.id,
+    'title': album.title,
+    'image': normalizeArtistThumbnailUrl(album.thumbnailUrl),
+    'year': album.year,
+    'releaseType': album.type.name,
+    'artist': artist['title']?.toString(),
+    'artistId': artist['ytid']?.toString(),
+    'source': 'youtube-album',
+    'isAlbum': true,
+  };
+}
+
+/// Reduces YouTube Music counters like `331M monthly audience` to `331M`.
+String? _extractCountToken(String? value) {
+  final text = value?.trim();
+  if (text == null || text.isEmpty) return null;
+
+  final match = ArtistPatterns.countToken.firstMatch(text);
+  final token = match?.group(0)?.trim();
+  return (token == null || token.isEmpty) ? text : token;
 }
 
 String? normalizeArtistThumbnailUrl(String? value) {
@@ -347,7 +729,6 @@ Future<Map<String, dynamic>?> _resolveMusicArtistFromTerms(
   Set<String> terms, {
   required String trustedLookupId,
   required String? preferredImage,
-  required String preferredTitle,
   required bool allowFirstResultForTrustedSeed,
 }) async {
   final normalizedTerms = terms
@@ -363,7 +744,7 @@ Future<Map<String, dynamic>?> _resolveMusicArtistFromTerms(
     try {
       candidates = await ytMusicClient.music
           .searchArtists(term)
-          .timeout(_artistRequestTimeout);
+          .timeout(artistRequestTimeout);
     } catch (e, stackTrace) {
       logger.log(
         'YouTube Music artist search failed for "$term"',
@@ -382,7 +763,6 @@ Future<Map<String, dynamic>?> _resolveMusicArtistFromTerms(
           )) {
         return _artistMapFromMusicArtist(
           candidate,
-          preferredTitle: preferredTitle,
           preferredImage: preferredImage,
         );
       }
@@ -418,16 +798,11 @@ bool _canAcceptMusicArtist(
 
 Map<String, dynamic> _artistMapFromMusicArtist(
   MusicArtist artist, {
-  String? preferredTitle,
   String? preferredImage,
 }) {
-  final title = normalizeArtistDisplayTitle(artist.name);
   return {
     'ytid': artist.id,
-    'title': title,
-    'sourceTitle': artist.name,
-    if (preferredTitle != null && preferredTitle.trim().isNotEmpty)
-      'lookupTitle': normalizeArtistDisplayTitle(preferredTitle),
+    'title': normalizeArtistDisplayTitle(artist.name),
     'image': normalizeArtistThumbnailUrl(artist.thumbnailUrl ?? preferredImage),
     'source': 'youtube-artist',
     'isArtist': true,
@@ -454,72 +829,6 @@ List<Map<String, dynamic>> _dedupeResolvedArtists(
   return unique;
 }
 
-Future<List<Map<String, dynamic>>> _buildArtistCatalogFromMusic(
-  Map<String, dynamic> artist,
-) async {
-  final artistId = artist['ytid']?.toString() ?? '';
-  if (!_isChannelId(artistId)) return [];
-
-  final artistName = normalizeArtistDisplayTitle(
-    artist['title']?.toString() ??
-        artist['sourceTitle']?.toString() ??
-        artist['lookupTitle']?.toString() ??
-        '',
-  );
-
-  try {
-    final releases = await ytMusicClient.music
-        .getArtistReleases(artistId)
-        .timeout(_musicDiscographyTimeout);
-
-    if (releases.isEmpty) {
-      logger.log('YouTube Music discography empty for $artistName ($artistId)');
-      return [];
-    }
-
-    final songs = <Map<String, dynamic>>[];
-    for (var i = 0; i < releases.length; i += _musicAlbumBatchSize) {
-      final batch = releases.skip(i).take(_musicAlbumBatchSize);
-      final batchResults = await Future.wait(
-        batch.map((album) => _loadAlbumSongs(album, artistId, artistName)),
-      );
-      for (final albumSongs in batchResults) {
-        songs.addAll(albumSongs);
-      }
-    }
-
-    final catalog = dedupeArtistCatalogSongs(songs);
-    return catalog;
-  } catch (e, stackTrace) {
-    logger.log(
-      'YouTube Music discography failed for $artistName ($artistId)',
-      error: e,
-      stackTrace: stackTrace,
-    );
-    return [];
-  }
-}
-
-Future<List<Map<String, dynamic>>> _loadAlbumSongs(
-  MusicAlbum album,
-  String channelId,
-  String artistName,
-) async {
-  try {
-    final tracks = await ytMusicClient.music
-        .getAlbumTracks(album.id, author: artistName, channelId: channelId)
-        .timeout(_musicAlbumTimeout);
-    return [for (final track in tracks) returnSongLayout(0, track)];
-  } catch (e, stackTrace) {
-    logger.log(
-      'Could not load YouTube Music album ${album.title} (${album.id})',
-      error: e,
-      stackTrace: stackTrace,
-    );
-    return [];
-  }
-}
-
 bool _sameArtistPageSongTitle(String title, String artist) {
   final canonicalTitle = _canonicalSongTitle(title);
   final canonicalArtist = _canonicalArtistName(artist);
@@ -537,32 +846,35 @@ Set<String> _artistSearchAliases(String value) {
   if (cleaned.isEmpty) return {};
 
   final aliases = <String>{cleaned, _spaceCamelCaseArtistTitle(cleaned)};
-  final featureSplit = cleaned.split(
-    RegExp(r'\s+(?:feat\.?|ft\.?|featuring|with)\s+', caseSensitive: false),
-  );
-  if (featureSplit.first.trim().isNotEmpty) {
-    aliases
-      ..add(featureSplit.first.trim())
-      ..add(_spaceCamelCaseArtistTitle(featureSplit.first.trim()));
+
+  void _addAlias(String term) {
+    final trimmed = term.trim();
+    if (trimmed.isNotEmpty) {
+      aliases
+        ..add(trimmed)
+        ..add(_spaceCamelCaseArtistTitle(trimmed));
+    }
   }
 
-  final joinedArtists = cleaned.split(
-    RegExp(r'\s+(?:x|\+|&)\s+', caseSensitive: false),
-  );
-  if (joinedArtists.first.trim().isNotEmpty) {
-    aliases
-      ..add(joinedArtists.first.trim())
-      ..add(_spaceCamelCaseArtistTitle(joinedArtists.first.trim()));
+  // Handle featuring artists
+  final featureSplit = cleaned.split(ArtistPatterns.feature);
+  if (featureSplit.isNotEmpty) {
+    _addAlias(featureSplit.first);
   }
 
+  // Handle collaborations (featured artists joined with &, x, +)
+  final joinedArtists = cleaned.split(ArtistPatterns.collaboration);
+  if (joinedArtists.isNotEmpty) {
+    _addAlias(joinedArtists.first);
+  }
+
+  // Handle comma-separated artists
   final commaParts = cleaned.split(',');
   if (commaParts.length > 1 && commaParts.first.trim().length > 3) {
-    aliases
-      ..add(commaParts.first.trim())
-      ..add(_spaceCamelCaseArtistTitle(commaParts.first.trim()));
+    _addAlias(commaParts.first);
   }
 
-  return aliases.where((alias) => alias.trim().isNotEmpty).toSet();
+  return aliases;
 }
 
 String _spaceCamelCaseArtistTitle(String value) {
@@ -585,20 +897,11 @@ String _spaceCamelCaseArtistTitle(String value) {
 }
 
 String _cleanArtistSearchTerm(String value) {
-  return _stripLegacyArtistSuffixes(_normalizeArtistText(value))
-      .replaceAll(RegExp(r'\s*vevo\s*$', caseSensitive: false), '')
-      .replaceAll(
-        RegExp(r'\s*official artist channel\s*$', caseSensitive: false),
-        '',
-      )
-      .trim();
-}
-
-String _stripLegacyArtistSuffixes(String value) {
   return _normalizeArtistText(value)
-      .trim()
-      .replaceAll(RegExp(r'\s*topic channel\s*$', caseSensitive: false), '')
-      .replaceAll(RegExp(r'\s*-\s*topic\s*$', caseSensitive: false), '')
+      .replaceAll(ArtistPatterns.topicChannel, '')
+      .replaceAll(ArtistPatterns.topicSuffix, '')
+      .replaceAll(ArtistPatterns.vevo, '')
+      .replaceAll(ArtistPatterns.officialArtistChannel, '')
       .trim();
 }
 
@@ -613,13 +916,12 @@ String _strictArtistTitleKey(String value) {
   return _cleanArtistSearchTerm(value)
       .toLowerCase()
       .replaceAll('&amp;', '&')
-      .replaceAll(RegExp(r'\bofficial artist channel\b'), '')
-      .replaceAll(RegExp(r'\bofficial channel\b'), '')
-      .replaceAll(RegExp(r'\bmusic channel\b'), '')
-      .replaceAll(RegExp(r'\bofficial\b'), '')
-      .replaceAll(RegExp(r'\bvevo\b'), '')
-      .replaceAll(RegExp('[^a-z0-9&]+'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
+      .replaceAll(ArtistPatterns.officialChannel, '')
+      .replaceAll(ArtistPatterns.musicChannel, '')
+      .replaceAll(ArtistPatterns.official, '')
+      .replaceAll(ArtistPatterns.vevoWord, '')
+      .replaceAll(ArtistPatterns.nonAlphanumeric, ' ')
+      .replaceAll(ArtistPatterns.multipleSpaces, ' ')
       .trim();
 }
 
@@ -649,31 +951,12 @@ int? _normalizeStyledRune(int rune) {
     return null;
   }
 
-  for (final range in const [
-    (0x1D400, 0x1D41A),
-    (0x1D434, 0x1D44E),
-    (0x1D468, 0x1D482),
-    (0x1D4D0, 0x1D4EA),
-    (0x1D56C, 0x1D586),
-    (0x1D5A0, 0x1D5BA),
-    (0x1D5D4, 0x1D5EE),
-    (0x1D608, 0x1D622),
-    (0x1D63C, 0x1D656),
-    (0x1D670, 0x1D68A),
-    (0xFF21, 0xFF41),
-  ]) {
-    final mapped = mapLetters(range.$1, range.$2);
+  for (final (upperStart, lowerStart) in StyledCharacterRanges.charRanges) {
+    final mapped = mapLetters(upperStart, lowerStart);
     if (mapped != null) return mapped;
   }
 
-  for (final digitStart in const [
-    0x1D7CE,
-    0x1D7D8,
-    0x1D7E2,
-    0x1D7EC,
-    0x1D7F6,
-    0xFF10,
-  ]) {
+  for (final digitStart in StyledCharacterRanges.digitStarts) {
     final mapped = mapDigits(digitStart);
     if (mapped != null) return mapped;
   }
@@ -685,25 +968,21 @@ String _canonicalSongTitle(String value) {
   return formatSongTitle(value)
       .toLowerCase()
       .replaceAll('&amp;', '&')
-      .replaceAll(
-        RegExp(r'\b(official|audio|video|lyrics?|visuali[sz]er)\b'),
-        '',
-      )
-      .replaceAll(RegExp('[^a-z0-9]+'), '');
+      .replaceAll(ArtistPatterns.audioVideoLyrics, '')
+      .replaceAll(ArtistPatterns.nonAlphanumeric, '');
 }
 
 String _canonicalArtistName(String value) {
   final lower = _normalizeArtistText(value)
       .toLowerCase()
       .replaceAll('&amp;', '&')
-      .replaceAll(RegExp(r'\s*-\s*topic\b'), '')
-      .replaceAll(RegExp(r'\bofficial artist channel\b'), '')
-      .replaceAll(RegExp(r'\bofficial channel\b'), '')
-      .replaceAll(RegExp(r'\bmusic channel\b'), '')
-      .replaceAll(RegExp(r'\bofficial\b'), '')
+      .replaceAll(ArtistPatterns.topicSuffix, '')
+      .replaceAll(ArtistPatterns.officialChannel, '')
+      .replaceAll(ArtistPatterns.musicChannel, '')
+      .replaceAll(ArtistPatterns.official, '')
       .trim();
 
-  var cleaned = lower.replaceAll(RegExp('[^a-z0-9]+'), '');
+  var cleaned = lower.replaceAll(ArtistPatterns.nonAlphanumeric, '');
   var previous = '';
   while (cleaned != previous) {
     previous = cleaned;
@@ -715,7 +994,7 @@ String _canonicalArtistName(String value) {
 
   if (cleaned.isNotEmpty) return cleaned;
 
-  return lower.replaceAll(RegExp(r'\s+'), '');
+  return lower.replaceAll(ArtistPatterns.multipleSpaces, '');
 }
 
 bool _isChannelId(String value) => ChannelId.validateChannelId(value);

@@ -19,7 +19,8 @@
  *     please visit: https://github.com/gokadzev/Musify
  */
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:musify/widgets/shapes/four_sided_cookie_shape.dart';
 
 class CustomBar extends StatelessWidget {
   CustomBar(
@@ -63,13 +64,9 @@ class CustomBar extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
           child: Row(
             children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: colorScheme.secondaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
+              FourSidedCookieShape(
+                size: 52,
+                color: colorScheme.secondaryContainer,
                 child: Icon(tileIcon, size: 26, color: effectiveIconColor),
               ),
               const SizedBox(width: 14),

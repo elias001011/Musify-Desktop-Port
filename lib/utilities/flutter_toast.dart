@@ -20,7 +20,7 @@
  */
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/main.dart';
 import 'package:musify/widgets/mini_player.dart';
 
@@ -71,7 +71,7 @@ void showToastWithButton(
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       margin: EdgeInsets.fromLTRB(16, 12, 16, bottomMargin),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       content: Row(
         children: [
           Icon(

@@ -19,15 +19,17 @@
  *     please visit: https://github.com/gokadzev/Musify
  */
 
+import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/version.dart';
 import 'package:musify/screens/about_page.dart';
 import 'package:musify/screens/artist_page.dart';
 import 'package:musify/screens/bottom_navigation_page.dart';
 import 'package:musify/screens/equalizer_page.dart';
 import 'package:musify/screens/home_page.dart';
+import 'package:musify/screens/import_spotify_playlist_page.dart';
 import 'package:musify/screens/library_page.dart';
 import 'package:musify/screens/playlist_folder_page.dart';
 import 'package:musify/screens/playlist_page.dart';
@@ -78,6 +80,11 @@ class NavigationManager {
         if (isOffline &&
             (currentPath == searchPath || currentPath == timeMachinePath)) {
           // Redirect unavailable pages to home in offline mode
+          return homePath;
+        }
+
+        if (isOffline && currentPath.contains('/album/')) {
+          // Releases are only browsable through YouTube Music.
           return homePath;
         }
 
@@ -181,18 +188,8 @@ class NavigationManager {
                   state: state,
                 ),
               ),
-              GoRoute(
-                path: 'artist/:artistId',
-                pageBuilder: (context, state) => _pushPage(
-                  child: ArtistPage(
-                    artistId: _decodePathParameter(
-                      state.pathParameters['artistId'],
-                    ),
-                    artistData: _extraAsMap(state.extra),
-                  ),
-                  state: state,
-                ),
-              ),
+              _artistRoute(),
+              _albumRoute(),
               GoRoute(
                 path: 'folder/:folderId/:folderName',
                 pageBuilder: (context, state) => _pushPage(
@@ -226,20 +223,7 @@ class NavigationManager {
                 state: state,
               );
             },
-            routes: [
-              GoRoute(
-                path: 'artist/:artistId',
-                pageBuilder: (context, state) => _pushPage(
-                  child: ArtistPage(
-                    artistId: _decodePathParameter(
-                      state.pathParameters['artistId'],
-                    ),
-                    artistData: _extraAsMap(state.extra),
-                  ),
-                  state: state,
-                ),
-              ),
-            ],
+            routes: [_artistRoute(), _albumRoute()],
           ),
         ],
       ),
@@ -262,18 +246,8 @@ class NavigationManager {
                   state: state,
                 ),
               ),
-              GoRoute(
-                path: 'artist/:artistId',
-                pageBuilder: (context, state) => _pushPage(
-                  child: ArtistPage(
-                    artistId: _decodePathParameter(
-                      state.pathParameters['artistId'],
-                    ),
-                    artistData: _extraAsMap(state.extra),
-                  ),
-                  state: state,
-                ),
-              ),
+              _artistRoute(),
+              _albumRoute(),
               GoRoute(
                 path: 'radioStations',
                 pageBuilder: (context, state) =>
@@ -313,11 +287,88 @@ class NavigationManager {
                 pageBuilder: (context, state) =>
                     _pushPage(child: const EqualizerPage(), state: state),
               ),
+              GoRoute(
+                path: 'import-spotify-playlist',
+                pageBuilder: (context, state) => _pushPage(
+                  child: const ImportSpotifyPlaylistPage(),
+                  state: state,
+                ),
+              ),
             ],
           ),
         ],
       ),
     ];
+  }
+
+  /// The artist landing page, plus the full song catalog of the artist.
+  GoRoute _artistRoute() {
+    return GoRoute(
+      path: 'artist/:artistId',
+      pageBuilder: (context, state) => _pushPage(
+        child: ArtistPage(
+          artistId: _decodePathParameter(state.pathParameters['artistId']),
+          artistData: _extraAsMap(state.extra),
+        ),
+        state: state,
+      ),
+      routes: [
+        GoRoute(
+          path: 'songs',
+          pageBuilder: (context, state) => _pushPage(
+            child: PlaylistPage(
+              playlistId: _decodePathParameter(
+                state.pathParameters['artistId'],
+              ),
+              playlistData: _extraAsMap(state.extra),
+              cubeIcon: FluentIcons.person_24_filled,
+              isArtist: true,
+            ),
+            state: state,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// A release opened from an artist page. YouTube Music browses a release the
+  /// way it browses a playlist, so the playlist page shows it as it is.
+  GoRoute _albumRoute() {
+    return GoRoute(
+      path: 'album/:albumId',
+      pageBuilder: (context, state) => _pushPage(
+        child: PlaylistPage(
+          playlistId: _decodePathParameter(state.pathParameters['albumId']),
+          playlistData: _extraAsMap(state.extra),
+          cubeIcon: FluentIcons.cd_16_regular,
+        ),
+        state: state,
+      ),
+    );
+  }
+
+  /// Path of the page of an artist, inside the tab [context] belongs to.
+  static String artistPath(BuildContext context, String artistId) =>
+      '${basePathFor(context)}/artist/${Uri.encodeComponent(artistId)}';
+
+  /// Path of the songs of an artist, i.e. of its "All songs" playlist.
+  static String artistSongsPath(BuildContext context, String artistId) =>
+      '${artistPath(context, artistId)}/songs';
+
+  /// Path of the page of a YouTube Music release.
+  static String albumPath(BuildContext context, String albumId) =>
+      '${basePathFor(context)}/album/${Uri.encodeComponent(albumId)}';
+
+  /// The tab a sub page pushed from [context] belongs to, so that artists,
+  /// albums and playlists stay inside the tab they were opened from.
+  static String basePathFor(BuildContext context) {
+    try {
+      final currentPath = GoRouterState.of(context).uri.path;
+      if (currentPath.startsWith(searchPath)) return searchPath;
+      if (currentPath.startsWith(libraryPath)) return libraryPath;
+    } catch (_) {}
+
+    return homePath;
   }
 
   static String _decodePathParameter(String? value) {

@@ -41,6 +41,12 @@ android {
         abortOnError = false
     }
 
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     defaultConfig {
         applicationId = "com.elias001011.musifycloud"
         minSdk = 24

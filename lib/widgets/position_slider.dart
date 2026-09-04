@@ -19,7 +19,7 @@
  *     please visit: https://github.com/gokadzev/Musify
  */
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/main.dart';
 import 'package:musify/models/position_data.dart';
 import 'package:musify/utilities/formatter.dart';
@@ -40,13 +40,24 @@ class PositionSlider extends StatefulWidget {
 class _PositionSliderState extends State<PositionSlider> {
   bool _isDragging = false;
   double _dragValue = 0;
+  Object? _currentMediaId;
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<PositionData>(
       stream: audioHandler.positionDataStream,
       builder: (context, snapshot) {
-        if (snapshot.data != null && snapshot.data!.position.inSeconds > 0) {
+        final mediaId = audioHandler.mediaItem.valueOrNull?.id;
+        if (mediaId != _currentMediaId) {
+          _currentMediaId = mediaId;
+          _positionData = PositionData(
+            Duration.zero,
+            Duration.zero,
+            Duration.zero,
+          );
+        }
+
+        if (snapshot.data != null) {
           _positionData = snapshot.data!;
         }
 

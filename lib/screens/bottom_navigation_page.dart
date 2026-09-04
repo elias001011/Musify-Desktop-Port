@@ -20,10 +20,10 @@
  */
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
@@ -48,8 +48,8 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
 
   bool? _previousOfflineMode;
 
-  /// Track the previously selected tab index to detect double-taps on the same tab.
-  int? _previousTabIndex;
+  /// Track the previously selected shell branch to detect reselects.
+  int? _previousShellIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -173,7 +173,6 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
         icon: FluentIcons.home_24_regular,
         selectedIcon: FluentIcons.home_24_filled,
         label: context.l10n?.home ?? 'Home',
-        route: '/home',
         shellIndex: 0,
       ),
     ];
@@ -185,7 +184,6 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
           icon: FluentIcons.search_24_regular,
           selectedIcon: FluentIcons.search_24_filled,
           label: context.l10n?.search ?? 'Search',
-          route: '/search',
           shellIndex: 1,
         ),
       );
@@ -196,14 +194,12 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
         icon: FluentIcons.book_24_regular,
         selectedIcon: FluentIcons.book_24_filled,
         label: context.l10n?.library ?? 'Library',
-        route: '/library',
         shellIndex: 2,
       ),
       _NavigationItem(
         icon: FluentIcons.settings_24_regular,
         selectedIcon: FluentIcons.settings_24_filled,
         label: context.l10n?.settings ?? 'Settings',
-        route: '/settings',
         shellIndex: 3,
       ),
     ]);
@@ -226,7 +222,7 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
   void _onTabTapped(int index, List<_NavigationItem> items) {
     if (index < items.length) {
       final item = items[index];
-      final isReselect = _previousTabIndex == index;
+      final isReselect = _previousShellIndex == item.shellIndex;
 
       // Close any open bottom sheet before switching tabs
       closeCurrentBottomSheet();
@@ -239,7 +235,7 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
         widget.child.goBranch(item.shellIndex);
       }
 
-      _previousTabIndex = index;
+      _previousShellIndex = item.shellIndex;
     }
   }
 
@@ -268,13 +264,11 @@ class _NavigationItem {
     required this.icon,
     required this.selectedIcon,
     required this.label,
-    required this.route,
     required this.shellIndex,
   });
 
   final IconData icon;
   final IconData selectedIcon;
   final String label;
-  final String route;
   final int shellIndex;
 }

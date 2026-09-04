@@ -22,7 +22,7 @@
 import 'dart:async';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart' show logger;
@@ -52,8 +52,6 @@ class LibraryPage extends StatefulWidget {
 class _LibraryPageState extends State<LibraryPage> {
   @override
   Widget build(BuildContext context) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
-
     // Show offline mode message if there is no content
     if (offlineMode.value) {
       final hasUserContent =
@@ -129,6 +127,7 @@ class _LibraryPageState extends State<LibraryPage> {
           userLikedPlaylists,
           onlinePlaylists,
           userPlaylists,
+          userOfflineSongs,
         ]),
         builder: (context, _) {
           return Padding(
@@ -136,10 +135,9 @@ class _LibraryPageState extends State<LibraryPage> {
             child: CustomScrollView(
               slivers: [
                 ..._buildPinnedSlivers(),
-                ..._buildUserPlaylistsSlivers(primaryColor),
-                if (!offlineMode.value)
-                  ..._buildLikedPlaylistsSlivers(primaryColor),
-                ..._buildLikedArtistsSlivers(primaryColor),
+                ..._buildUserPlaylistsSlivers(),
+                if (!offlineMode.value) ..._buildLikedPlaylistsSlivers(),
+                ..._buildLikedArtistsSlivers(),
                 const SliverMiniPlayerBottomSpace(),
               ],
             ),
@@ -174,7 +172,7 @@ class _LibraryPageState extends State<LibraryPage> {
     ];
   }
 
-  List<Widget> _buildUserPlaylistsSlivers(Color primaryColor) {
+  List<Widget> _buildUserPlaylistsSlivers() {
     final colorScheme = Theme.of(context).colorScheme;
     final isOffline = offlineMode.value;
 
@@ -353,7 +351,7 @@ class _LibraryPageState extends State<LibraryPage> {
     return slivers;
   }
 
-  List<Widget> _buildLikedPlaylistsSlivers(Color primaryColor) {
+  List<Widget> _buildLikedPlaylistsSlivers() {
     final likedPlaylists = getLikedPlaylistItems();
     if (likedPlaylists.isEmpty) return [];
     return [
@@ -367,7 +365,7 @@ class _LibraryPageState extends State<LibraryPage> {
     ];
   }
 
-  List<Widget> _buildLikedArtistsSlivers(Color primaryColor) {
+  List<Widget> _buildLikedArtistsSlivers() {
     final likedArtists = getLikedArtistItems(offlineOnly: offlineMode.value);
     if (likedArtists.isEmpty) return [];
     return [
