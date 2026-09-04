@@ -238,17 +238,6 @@ jobs:
 
           echo "Latest is now $(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)."
 
-      # Musify AI tracks this branch, and it cannot find out on its own:
-      # GitHub suppresses workflow triggers for events created with
-      # GITHUB_TOKEN, so the `release: published` event from the step above
-      # never starts anything. An explicit workflow_dispatch does run, which is
-      # how every other cross-workflow hand-off in this repository works.
-      - name: Sync Musify AI with this release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh workflow run sync_ai_from_cloud.yml \
-            --repo "${GITHUB_REPOSITORY}" \
-            --ref refs/heads/master \
-            || echo "Could not start the Musify AI sync; run it manually."
+      # Musify AI was archived to a private repository (elias001011/musify-ai)
+      # and its branch was removed from this repository, so there is nothing
+      # to sync from a Musify Cloud release anymore.
