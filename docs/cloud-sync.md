@@ -5,6 +5,27 @@ single latest backup snapshot for each passphrase. The snapshot includes the
 same backed-up state used by local backup/restore: settings, playlists, liked
 songs, recently played songs, and most-played metadata.
 
+## Default Backend (Maintainer's Worker)
+
+The official release builds ship with the maintainer's personal Cloudflare
+Worker as the default sync backend. This is a convenience for users who want
+to try Cloud Sync without setting up their own infrastructure, but it comes
+with caveats:
+
+- **Personal infrastructure.** The Worker runs on the maintainer's Cloudflare
+  account. Availability and performance depend on that account's plan and
+  limits.
+- **No guaranteed uptime.** The Worker may go down, be redeployed, or be
+  retired at any time. Do not rely on it for critical data.
+- **Shared storage.** All users who enable the default backend share the same
+  Cloudflare KV namespace. A single Worker handles every backup.
+- **25 MiB KV limit.** Users with very large libraries may hit the size cap
+  and receive a 413 error.
+
+If you want full control over your sync data, **use your own backend** (see
+"Using Your Own Backend" below). This is the recommended approach for
+technical users and anyone who needs reliability.
+
 ## Backend Contract
 
 Build the app with:
@@ -129,7 +150,29 @@ export default {
 };
 ```
 
-## Deploying the Reference Worker
+## Using Your Own Backend
+
+To point Cloud Sync at your own Worker instead of the maintainer's default:
+
+### Option 1: Build with your own URL
+
+```bash
+flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL=https://your-worker.example.com
+flutter build windows --release --dart-define=MUSIFY_CLOUD_SYNC_URL=https://your-worker.example.com
+```
+
+The URL is baked into the binary at compile time. With no value the app still
+builds, and the sync screen shows "Backend not configured."
+
+### Option 2: Fork and build from CI
+
+1. Fork this repository.
+2. Remove the `MUSIFY_CLOUD_SYNC_URL` repository variable (or set it to your
+   own Worker URL).
+3. Build via the `desktop_release.yml` workflow — it picks up the variable
+   automatically.
+
+### Deploying Your Own Worker
 
 The Worker above can be deployed with `wrangler` (Cloudflare's CLI) in three
 steps:
@@ -152,7 +195,7 @@ steps:
    id = "<namespace-id-from-step-1>"
    ```
 
-3. Deploy and put the resulting URL in the build:
+3. Deploy and use the resulting URL in the build:
 
    ```bash
    npx wrangler deploy

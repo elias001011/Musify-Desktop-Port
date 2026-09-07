@@ -111,6 +111,13 @@ conflicts with it, and the sync workflow can stay automatic.
 Optional and off by default. It exists so one person's library can follow them
 between a desktop and a phone, and it is the reason Musify Cloud exists at all.
 
+> **Default backend notice.** Release builds ship with the maintainer's
+> personal Cloudflare Worker as the default sync backend. This is a
+> convenience for trying Cloud Sync, but it is personal infrastructure with
+> no guaranteed uptime or SLA. For full control over your data, [use your own
+> backend](docs/cloud-sync.md#using-your-own-backend) — it takes about five
+> minutes to deploy.
+
 ### How it works
 
 **A passphrase, not an account.** You type the same passphrase on both devices.
@@ -156,16 +163,16 @@ storage and bumps a signal the UI listens to.
 
 ### Running your own backend
 
-Cloud sync needs a backend URL compiled in:
+The default backend is the maintainer's personal Worker. To use your own:
 
 ```bash
-flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL=https://example.com
+flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL=https://your-worker.example.com
 ```
 
-For GitHub Actions releases, set the repository variable
-`MUSIFY_CLOUD_SYNC_URL`. With no value the app still builds, and the sync screen
-explains that no backend is configured. The reference backend is a Cloudflare
-Worker over KV; setup is in [docs/cloud-sync.md](docs/cloud-sync.md).
+Or fork the repo and set the `MUSIFY_CLOUD_SYNC_URL` repository variable.
+With no value the app still builds, and the sync screen explains that no
+backend is configured. Full setup instructions are in
+[docs/cloud-sync.md](docs/cloud-sync.md).
 
 ---
 
