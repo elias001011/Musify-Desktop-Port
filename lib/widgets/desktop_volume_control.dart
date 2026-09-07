@@ -67,9 +67,7 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
             IconButton(
               icon: Icon(
                 _iconForVolume(volume),
-                color: _isExpanded
-                    ? colorScheme.primary
-                    : colorScheme.onSurface,
+                color: colorScheme.primary,
               ),
               iconSize: widget.iconSize,
               tooltip: 'Volume',
