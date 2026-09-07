@@ -129,6 +129,40 @@ export default {
 };
 ```
 
+## Deploying the Reference Worker
+
+The Worker above can be deployed with `wrangler` (Cloudflare's CLI) in three
+steps:
+
+1. Create the KV namespace and note its id:
+
+   ```bash
+   npx wrangler kv namespace create MUSIFY_SYNC
+   ```
+
+2. Point a `wrangler.toml` at it:
+
+   ```toml
+   name = "musify-cloud-sync"
+   main = "worker.js"
+   compatibility_date = "2024-12-01"
+
+   [[kv_namespaces]]
+   binding = "MUSIFY_SYNC"
+   id = "<namespace-id-from-step-1>"
+   ```
+
+3. Deploy and put the resulting URL in the build:
+
+   ```bash
+   npx wrangler deploy
+   # then build the app with:
+   # --dart-define=MUSIFY_CLOUD_SYNC_URL=https://musify-cloud-sync.<your-subdomain>.workers.dev
+   ```
+
+For GitHub Actions releases, set the same URL as the repository variable
+`MUSIFY_CLOUD_SYNC_URL` (see `docs/maintenance.md`).
+
 ## Current Merge Behavior
 
 Turning cloud sync on is an explicit choice, not an automatic overwrite:

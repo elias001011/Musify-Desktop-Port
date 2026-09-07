@@ -9,9 +9,9 @@ name: Update download counts
 
 on:
   schedule:
-    # Daily. The counts move slowly, and a push here should not compete with
-    # release runs.
-    - cron: "40 5 * * *"
+    # Weekly. The counts move slowly, and daily pushes here created commit
+    # noise on master for no practical benefit.
+    - cron: "40 5 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -86,7 +86,7 @@ jobs:
               f'(https://github.com/elias001011/Musify-Desktop-Port/releases)\n'
               f'\n'
               f'<sub>{total} downloads across every release of both '
-              f'products. Updated daily.</sub>'
+              f'products. Updated weekly.</sub>'
           )
 
           readme = open('README.md', encoding='utf-8').read()

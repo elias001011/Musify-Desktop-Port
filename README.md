@@ -8,7 +8,7 @@ Valeri Gokadze and contributors.
 [![Musify Desktop Port downloads](https://img.shields.io/badge/desktop%20downloads-80-2F6FE0?style=for-the-badge&logo=github)](https://github.com/elias001011/Musify-Desktop-Port/releases)
 [![Musify Cloud downloads](https://img.shields.io/badge/Musify%20Cloud-7-006A71?style=for-the-badge)](https://github.com/elias001011/Musify-Desktop-Port/releases)
 
-<sub>87 downloads across every release of both products. Updated daily.</sub>
+<sub>87 downloads across every release of both products. Updated weekly.</sub>
 <!-- download-counts:end -->
 
 This repository exists to ship **Musify for Windows and Linux**. The Android
@@ -63,9 +63,10 @@ native desktop implementation. Playback goes through
 [`just_audio_media_kit`](https://pub.dev/packages/just_audio_media_kit) instead,
 backed by libmpv via `media_kit_libs_linux` and `media_kit_libs_windows_audio`,
 initialised with a single `JustAudioMediaKit.ensureInitialized()` at startup.
-This also pins `just_audio` to exactly `0.10.5` rather than tracking upstream's
-`^0.10.6`, because the media_kit bridge is built against that version — the pin
-is deliberate and is the reason a version bump can need attention on sync.
+It currently tracks the same `just_audio` version as upstream (`^0.10.6`);
+when bumping it, check that the `just_audio_media_kit` bridge still resolves
+against the new version, since the bridge is built against a specific
+`just_audio` release and a mismatch can break playback.
 
 **Android-only APIs that used to run unconditionally.** Two of them would crash
 or hang a desktop build at startup:
