@@ -20,15 +20,11 @@
  */
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:musify/constants/app_constants.dart';
 import 'package:musify/main.dart';
 
-bool get supportsDesktopVolumeControl =>
-    !kIsWeb &&
-    (defaultTargetPlatform == TargetPlatform.linux ||
-        defaultTargetPlatform == TargetPlatform.macOS ||
-        defaultTargetPlatform == TargetPlatform.windows);
+bool get supportsDesktopVolumeControl => isDesktopPlatform;
 
 class DesktopVolumeControl extends StatefulWidget {
   const DesktopVolumeControl({
@@ -65,10 +61,7 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              icon: Icon(
-                _iconForVolume(volume),
-                color: colorScheme.primary,
-              ),
+              icon: Icon(_iconForVolume(volume), color: colorScheme.primary),
               iconSize: widget.iconSize,
               tooltip: 'Volume',
               style: IconButton.styleFrom(

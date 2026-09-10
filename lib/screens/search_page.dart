@@ -77,6 +77,12 @@ void requestSearchFocus() {
   searchFocusRequestNotifier.value++;
 }
 
+/// The last focus request value a [_SearchPageState] has acted on. Lets a page
+/// that mounts *after* the request (first navigation to the Search tab) still
+/// pick it up, since ValueNotifier does not replay the current value to a new
+/// listener.
+int _handledSearchFocusRequest = 0;
+
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _searchBar = TextEditingController();
   final FocusNode _inputNode = FocusNode();
@@ -96,9 +102,15 @@ class _SearchPageState extends State<SearchPage> {
   void initState() {
     super.initState();
     searchFocusRequestNotifier.addListener(_handleFocusRequest);
+    // A request made while this page was not mounted (the first Ctrl+F from
+    // another tab) is caught here on mount.
+    if (searchFocusRequestNotifier.value != _handledSearchFocusRequest) {
+      _handleFocusRequest();
+    }
   }
 
   void _handleFocusRequest() {
+    _handledSearchFocusRequest = searchFocusRequestNotifier.value;
     if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _inputNode.requestFocus();

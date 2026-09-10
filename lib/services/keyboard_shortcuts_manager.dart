@@ -150,6 +150,14 @@ class KeyboardShortcutsManager {
     return result;
   }
 
+  /// Re-reads the bindings from storage. Called after a cloud-sync download or
+  /// a backup restore rewrites the `settings` box, so the live shortcuts (and
+  /// the settings screen) match what was just restored instead of a stale map
+  /// that a later edit would persist back over the restore.
+  static void reload() {
+    bindings.value = _load();
+  }
+
   /// Assigns [activator] to [action] and persists the change.
   static Future<void> setBinding(
     ShortcutAction action,
@@ -282,17 +290,35 @@ class KeyboardShortcutsManager {
               : AudioServiceShuffleMode.all,
         );
       case ShortcutAction.cycleRepeat:
-        const cycle = [
-          AudioServiceRepeatMode.none,
-          AudioServiceRepeatMode.all,
-          AudioServiceRepeatMode.one,
-        ];
-        final current = cycle.indexOf(repeatNotifier.value);
-        audioHandler.setRepeatMode(cycle[(current + 1) % cycle.length]);
+        // Same progression as the on-screen repeat button
+        // (now_playing_controls.dart): off -> (queue has one item ? one : all)
+        // -> one -> off, so the shortcut and the button stay in sync.
+        final AudioServiceRepeatMode nextRepeat;
+        switch (repeatNotifier.value) {
+          case AudioServiceRepeatMode.none:
+            nextRepeat = (audioHandler.queue.value.length <= 1)
+                ? AudioServiceRepeatMode.one
+                : AudioServiceRepeatMode.all;
+          case AudioServiceRepeatMode.all:
+            nextRepeat = AudioServiceRepeatMode.one;
+          default:
+            nextRepeat = AudioServiceRepeatMode.none;
+        }
+        repeatNotifier.value = nextRepeat;
+        audioHandler.setRepeatMode(nextRepeat);
       case ShortcutAction.toggleNowPlaying:
         final navigator = NavigationManager.parentNavigatorKey.currentState;
         if (navigator == null) break;
-        if (isNowPlayingPageOpen) {
+        // Decide from the live navigator stack, not a cached flag, so a fast
+        // double-press can never pop the shell or stack two player routes.
+        // A predicate that always returns true inspects the top route without
+        // popping anything.
+        var topIsPlayer = false;
+        navigator.popUntil((route) {
+          topIsPlayer = route.settings.name == nowPlayingRouteName;
+          return true;
+        });
+        if (topIsPlayer) {
           navigator.pop();
         } else if (audioHandler.mediaItem.value != null) {
           navigator.push(buildNowPlayingRoute());
@@ -315,6 +341,10 @@ class KeyboardShortcutsManager {
 /// Intercepts key events for the whole app and runs the matching
 /// [ShortcutAction]. Keeps out of the way while a text field is focused so that
 /// typing a space (or arrows) in the search bar still works.
+/// One resolved binding: the action plus the activator actually matched against
+/// key events (with [SingleActivator.includeRepeats] set per action).
+typedef _ShortcutMatcher = ({ShortcutAction action, SingleActivator activator});
+
 class GlobalShortcuts extends StatelessWidget {
   const GlobalShortcuts({required this.child, super.key});
 
@@ -325,49 +355,54 @@ class GlobalShortcuts extends StatelessWidget {
     return ValueListenableBuilder<Map<ShortcutAction, SingleActivator>>(
       valueListenable: KeyboardShortcutsManager.bindings,
       builder: (context, bindings, _) {
+        // Resolved once per rebind, not once per keystroke.
+        final matchers = <_ShortcutMatcher>[
+          for (final entry in bindings.entries)
+            (
+              action: entry.key,
+              activator: SingleActivator(
+                entry.value.trigger,
+                control: entry.value.control,
+                shift: entry.value.shift,
+                alt: entry.value.alt,
+                meta: entry.value.meta,
+                includeRepeats: _repeatableActions.contains(entry.key),
+              ),
+            ),
+        ];
         return Focus(
           autofocus: true,
           skipTraversal: true,
-          onKeyEvent: (node, event) => _onKeyEvent(bindings, event),
+          onKeyEvent: (node, event) => _onKeyEvent(matchers, event),
           child: child,
         );
       },
     );
   }
 
-  KeyEventResult _onKeyEvent(
-    Map<ShortcutAction, SingleActivator> bindings,
-    KeyEvent event,
-  ) {
+  KeyEventResult _onKeyEvent(List<_ShortcutMatcher> matchers, KeyEvent event) {
     if (event is KeyUpEvent) return KeyEventResult.ignored;
     if (_isEditingText()) return KeyEventResult.ignored;
 
     final isRepeat = event is KeyRepeatEvent;
     final keyboard = HardwareKeyboard.instance;
 
-    for (final entry in bindings.entries) {
-      if (isRepeat && !_repeatableActions.contains(entry.key)) continue;
-
-      final activator = SingleActivator(
-        entry.value.trigger,
-        control: entry.value.control,
-        shift: entry.value.shift,
-        alt: entry.value.alt,
-        meta: entry.value.meta,
-        includeRepeats: _repeatableActions.contains(entry.key),
-      );
-
-      if (activator.accepts(event, keyboard)) {
-        KeyboardShortcutsManager.invoke(entry.key);
+    for (final matcher in matchers) {
+      if (isRepeat && !_repeatableActions.contains(matcher.action)) continue;
+      if (matcher.activator.accepts(event, keyboard)) {
+        KeyboardShortcutsManager.invoke(matcher.action);
         return KeyEventResult.handled;
       }
     }
     return KeyEventResult.ignored;
   }
 
+  /// Whether the focused widget is a text field, in which case the shortcuts
+  /// stand down so typing (space, arrows, Ctrl+A, ...) reaches the field.
   bool _isEditingText() {
-    final focus = FocusManager.instance.primaryFocus;
-    final widget = focus?.context?.widget;
-    return widget is EditableText;
+    final context = FocusManager.instance.primaryFocus?.context;
+    if (context == null) return false;
+    if (context.widget is EditableText) return true;
+    return context.findAncestorWidgetOfExactType<EditableText>() != null;
   }
 }

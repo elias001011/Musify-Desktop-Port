@@ -52,6 +52,11 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Focus(
+        // Listener only: stay out of tab traversal and never take focus itself,
+        // so it doesn't add a dead tab stop before the input. Key events from
+        // the inner text field still bubble through here.
+        canRequestFocus: false,
+        skipTraversal: true,
         // The numpad Enter key does not always fire `onSubmitted` on Linux
         // (GTK), unlike the main Enter key. Submit explicitly when it is
         // pressed so search behaves the same on every desktop platform.

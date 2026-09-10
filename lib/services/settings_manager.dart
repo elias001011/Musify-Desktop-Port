@@ -24,6 +24,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/screens/playlist_page.dart';
 import 'package:musify/screens/user_songs_page.dart';
+import 'package:musify/services/keyboard_shortcuts_manager.dart';
 import 'package:musify/utilities/language_utils.dart';
 
 // Preferences
@@ -206,6 +207,7 @@ void reloadSettingsFromStorage() {
     defaultValue: false,
   );
   interfaceScale.value = _readInterfaceScale();
+  KeyboardShortcutsManager.reload();
   equalizerEnabled.value = settings.get(
     'equalizerEnabled',
     defaultValue: false,

@@ -281,9 +281,13 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
             routerConfig: NavigationManager.router,
             builder: (context, child) {
               var content = child ?? const SizedBox.shrink();
-              if (isDesktopPlatform) {
-                content = GlobalShortcuts(child: content);
+              // Interface scale and global shortcuts are desktop-only. On mobile
+              // the tree is returned untouched so the platform's own (possibly
+              // non-linear) text scaling is left alone.
+              if (!isDesktopPlatform) {
+                return content;
               }
+              content = GlobalShortcuts(child: content);
               return ValueListenableBuilder<double>(
                 valueListenable: interfaceScale,
                 builder: (context, scale, innerChild) {

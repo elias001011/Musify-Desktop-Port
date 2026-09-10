@@ -166,13 +166,16 @@ class _ShortcutCaptureDialogState extends State<_ShortcutCaptureDialog> {
     super.dispose();
   }
 
-  void _onKeyEvent(KeyEvent event) {
-    if (event is! KeyDownEvent) return;
+  /// Swallows every key event while the dialog is open so that capturing a
+  /// combination that is currently bound (e.g. Ctrl+Right) does not also run
+  /// its global action underneath the dialog.
+  KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.handled;
     if (event.logicalKey == LogicalKeyboardKey.escape) {
       Navigator.of(context).pop();
-      return;
+      return KeyEventResult.handled;
     }
-    if (_modifierKeys.contains(event.logicalKey)) return;
+    if (_modifierKeys.contains(event.logicalKey)) return KeyEventResult.handled;
 
     final keyboard = HardwareKeyboard.instance;
     final activator = SingleActivator(
@@ -190,6 +193,7 @@ class _ShortcutCaptureDialogState extends State<_ShortcutCaptureDialog> {
         ignore: widget.action,
       );
     });
+    return KeyEventResult.handled;
   }
 
   @override
@@ -199,7 +203,7 @@ class _ShortcutCaptureDialogState extends State<_ShortcutCaptureDialog> {
 
     return AlertDialog(
       title: Text(shortcutActionLabel(context, widget.action)),
-      content: KeyboardListener(
+      content: Focus(
         focusNode: _focusNode,
         autofocus: true,
         onKeyEvent: _onKeyEvent,
