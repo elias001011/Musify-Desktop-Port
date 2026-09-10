@@ -24,6 +24,7 @@ import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/main.dart';
+import 'package:musify/screens/now_playing_page.dart';
 import 'package:musify/screens/search_page.dart';
 import 'package:musify/services/router_service.dart';
 import 'package:musify/services/settings_manager.dart';
@@ -39,6 +40,7 @@ enum ShortcutAction {
   volumeDown,
   toggleShuffle,
   cycleRepeat,
+  toggleNowPlaying,
   focusSearch,
   goHome,
   goSearch,
@@ -105,6 +107,10 @@ class KeyboardShortcutsManager {
         ),
         ShortcutAction.cycleRepeat: const SingleActivator(
           LogicalKeyboardKey.keyR,
+          control: true,
+        ),
+        ShortcutAction.toggleNowPlaying: const SingleActivator(
+          LogicalKeyboardKey.keyP,
           control: true,
         ),
         ShortcutAction.focusSearch: const SingleActivator(
@@ -283,6 +289,14 @@ class KeyboardShortcutsManager {
         ];
         final current = cycle.indexOf(repeatNotifier.value);
         audioHandler.setRepeatMode(cycle[(current + 1) % cycle.length]);
+      case ShortcutAction.toggleNowPlaying:
+        final navigator = NavigationManager.parentNavigatorKey.currentState;
+        if (navigator == null) break;
+        if (isNowPlayingPageOpen) {
+          navigator.pop();
+        } else if (audioHandler.mediaItem.value != null) {
+          navigator.push(buildNowPlayingRoute());
+        }
       case ShortcutAction.focusSearch:
         NavigationManager.router.go(NavigationManager.searchPath);
         requestSearchFocus();

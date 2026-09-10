@@ -116,6 +116,7 @@ Windows, Linux and macOS, with two things a phone build has no need for:
   | Volume down / up | `Ctrl+↓` / `Ctrl+↑` |
   | Toggle shuffle | `Ctrl+S` |
   | Cycle repeat mode | `Ctrl+R` |
+  | Open / close the player | `Ctrl+P` |
   | Focus the search field | `Ctrl+F` |
   | Go to Home / Search / Library / Settings | `Ctrl+1` … `Ctrl+4` |
 

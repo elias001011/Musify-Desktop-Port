@@ -36,8 +36,41 @@ class NowPlayingPage extends StatefulWidget {
   State<NowPlayingPage> createState() => _NowPlayingPageState();
 }
 
+/// True while a [NowPlayingPage] is on screen, so the "open / close player"
+/// keyboard shortcut knows which way to toggle.
+bool isNowPlayingPageOpen = false;
+
+/// The route used to open the full player, both from the miniplayer tap and
+/// from the keyboard shortcut, so the slide-up transition stays identical.
+Route<void> buildNowPlayingRoute() {
+  return PageRouteBuilder<void>(
+    settings: const RouteSettings(name: 'nowPlaying'),
+    pageBuilder: (context, animation, _) => const NowPlayingPage(),
+    reverseTransitionDuration: const Duration(milliseconds: 250),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final tween = Tween(
+        begin: const Offset(0, 1),
+        end: Offset.zero,
+      ).chain(CurveTween(curve: Curves.easeInOut));
+      return SlideTransition(position: animation.drive(tween), child: child);
+    },
+  );
+}
+
 class _NowPlayingPageState extends State<NowPlayingPage> {
   final _lyricsController = FlipCardController();
+
+  @override
+  void initState() {
+    super.initState();
+    isNowPlayingPageOpen = true;
+  }
+
+  @override
+  void dispose() {
+    isNowPlayingPageOpen = false;
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

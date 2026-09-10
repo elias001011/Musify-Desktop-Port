@@ -53,9 +53,23 @@ class KeyboardShortcutsPage extends StatelessWidget {
           const actions = ShortcutAction.values;
           return ListView.builder(
             padding: commonSingleChildScrollViewPadding,
-            itemCount: actions.length + 1,
+            itemCount: actions.length + 2,
             itemBuilder: (context, index) {
-              if (index == actions.length) return const MiniPlayerBottomSpace();
+              if (index == actions.length) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: CustomBar(
+                    context.l10n!.resetToDefaults,
+                    FluentIcons.arrow_clockwise_24_regular,
+                    borderRadius: commonCustomBarRadius,
+                    iconColor: Theme.of(context).colorScheme.error,
+                    onTap: () => _confirmReset(context),
+                  ),
+                );
+              }
+              if (index == actions.length + 1) {
+                return const MiniPlayerBottomSpace();
+              }
 
               final action = actions[index];
               final activator = bindings[action]!;
@@ -263,6 +277,8 @@ String shortcutActionLabel(BuildContext context, ShortcutAction action) {
       return l10n.shortcutToggleShuffle;
     case ShortcutAction.cycleRepeat:
       return l10n.shortcutCycleRepeat;
+    case ShortcutAction.toggleNowPlaying:
+      return l10n.shortcutToggleNowPlaying;
     case ShortcutAction.focusSearch:
       return l10n.shortcutFocusSearch;
     case ShortcutAction.goHome:
