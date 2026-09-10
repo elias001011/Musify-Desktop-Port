@@ -72,6 +72,19 @@ final showAudioQualityBadge = ValueNotifier<bool>(
   Hive.box('settings').get('showAudioQualityBadge', defaultValue: false),
 );
 
+/// Bounds for the desktop "Interface scale" setting. The value multiplies the
+/// text scale factor of the whole app (see `main.dart`).
+const double minInterfaceScale = 0.8;
+const double maxInterfaceScale = 1.6;
+
+double _readInterfaceScale() {
+  final raw = Hive.box('settings').get('interfaceScale', defaultValue: 1.0);
+  final value = raw is num ? raw.toDouble() : 1.0;
+  return value.clamp(minInterfaceScale, maxInterfaceScale);
+}
+
+final interfaceScale = ValueNotifier<double>(_readInterfaceScale());
+
 List<double> _readEqualizerGains() {
   final raw = Hive.box('settings')
       .get('equalizerBandGains', defaultValue: const <dynamic>[]);
@@ -124,9 +137,10 @@ final cloudSyncAutomatic = ValueNotifier<bool>(
 );
 
 final cloudSyncConfigured = ValueNotifier<bool>(
-  Hive.box(
-    'settings',
-  ).get('cloudSyncAccountId', defaultValue: '').toString().isNotEmpty,
+  Hive.box('settings')
+      .get('cloudSyncAccountId', defaultValue: '')
+      .toString()
+      .isNotEmpty,
 );
 
 final cloudSyncLastSyncedAt = ValueNotifier<DateTime?>(
@@ -191,6 +205,7 @@ void reloadSettingsFromStorage() {
     'showAudioQualityBadge',
     defaultValue: false,
   );
+  interfaceScale.value = _readInterfaceScale();
   equalizerEnabled.value = settings.get(
     'equalizerEnabled',
     defaultValue: false,

@@ -30,12 +30,14 @@ import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/localization/app_localizations.dart';
 import 'package:musify/services/audio_service.dart';
 import 'package:musify/services/cloud_sync_manager.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/io_service.dart';
+import 'package:musify/services/keyboard_shortcuts_manager.dart';
 import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/logger_service.dart';
 import 'package:musify/services/playlist_sharing.dart';
@@ -277,6 +279,27 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
             supportedLocales: appSupportedLocales,
             locale: languageSetting,
             routerConfig: NavigationManager.router,
+            builder: (context, child) {
+              var content = child ?? const SizedBox.shrink();
+              if (isDesktopPlatform) {
+                content = GlobalShortcuts(child: content);
+              }
+              return ValueListenableBuilder<double>(
+                valueListenable: interfaceScale,
+                builder: (context, scale, innerChild) {
+                  final mediaQuery = MediaQuery.of(context);
+                  return MediaQuery(
+                    data: mediaQuery.copyWith(
+                      textScaler: TextScaler.linear(
+                        mediaQuery.textScaler.scale(1) * scale,
+                      ),
+                    ),
+                    child: innerChild!,
+                  );
+                },
+                child: content,
+              );
+            },
           ),
         );
       },

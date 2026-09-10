@@ -20,6 +20,7 @@
  */
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 class CustomSearchBar extends StatefulWidget {
@@ -50,89 +51,103 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16),
-      child: SearchBar(
-        elevation: WidgetStateProperty.all(0),
-        shadowColor: WidgetStateProperty.all(Colors.transparent),
-        backgroundColor: WidgetStateProperty.all(
-          colorScheme.surfaceContainerHigh,
-        ),
-        overlayColor: WidgetStateProperty.all(
-          colorScheme.primary.withValues(alpha: 0.08),
-        ),
-        shape: WidgetStateProperty.all(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        ),
-        padding: WidgetStateProperty.all(
-          const EdgeInsets.symmetric(horizontal: 16),
-        ),
-        hintText: widget.labelText,
-        hintStyle: WidgetStateProperty.all(
-          TextStyle(
-            color: colorScheme.onSurfaceVariant,
-            fontSize: 16,
-            fontWeight: FontWeight.w400,
-          ),
-        ),
-        textStyle: WidgetStateProperty.all(
-          TextStyle(
-            color: colorScheme.onSurface,
-            fontSize: 16,
-            fontWeight: FontWeight.w400,
-          ),
-        ),
-        leading: Icon(
-          FluentIcons.search_24_regular,
-          color: colorScheme.onSurfaceVariant,
-          size: 22,
-        ),
-        onSubmitted: (String value) {
-          widget.onSubmitted(value);
-          widget.focusNode.unfocus();
+      child: Focus(
+        // The numpad Enter key does not always fire `onSubmitted` on Linux
+        // (GTK), unlike the main Enter key. Submit explicitly when it is
+        // pressed so search behaves the same on every desktop platform.
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+            widget.onSubmitted(widget.controller.text);
+            widget.focusNode.unfocus();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
         },
-        onChanged: widget.onChanged != null
-            ? (value) async {
-                widget.onChanged!(value);
-                setState(() {});
-              }
-            : null,
-        textInputAction: TextInputAction.search,
-        controller: widget.controller,
-        focusNode: widget.focusNode,
-        trailing: [
-          if (widget.controller.text.isNotEmpty)
-            IconButton(
-              icon: Icon(
-                FluentIcons.dismiss_24_regular,
-                color: colorScheme.onSurfaceVariant,
-                size: 20,
-              ),
-              onPressed: () {
-                widget.controller.clear();
-                widget.onChanged?.call('');
-                setState(() {});
-              },
+        child: SearchBar(
+          elevation: WidgetStateProperty.all(0),
+          shadowColor: WidgetStateProperty.all(Colors.transparent),
+          backgroundColor: WidgetStateProperty.all(
+            colorScheme.surfaceContainerHigh,
+          ),
+          overlayColor: WidgetStateProperty.all(
+            colorScheme.primary.withValues(alpha: 0.08),
+          ),
+          shape: WidgetStateProperty.all(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          ),
+          padding: WidgetStateProperty.all(
+            const EdgeInsets.symmetric(horizontal: 16),
+          ),
+          hintText: widget.labelText,
+          hintStyle: WidgetStateProperty.all(
+            TextStyle(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
             ),
-          if (widget.loadingProgressNotifier != null)
-            ValueListenableBuilder<bool>(
-              valueListenable: widget.loadingProgressNotifier!,
-              builder: (_, value, __) {
-                if (value) {
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: colorScheme.primary,
-                      ),
-                    ),
-                  );
+          ),
+          textStyle: WidgetStateProperty.all(
+            TextStyle(
+              color: colorScheme.onSurface,
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          leading: Icon(
+            FluentIcons.search_24_regular,
+            color: colorScheme.onSurfaceVariant,
+            size: 22,
+          ),
+          onSubmitted: (String value) {
+            widget.onSubmitted(value);
+            widget.focusNode.unfocus();
+          },
+          onChanged: widget.onChanged != null
+              ? (value) async {
+                  widget.onChanged!(value);
+                  setState(() {});
                 }
-                return const SizedBox.shrink();
-              },
-            ),
-        ],
+              : null,
+          textInputAction: TextInputAction.search,
+          controller: widget.controller,
+          focusNode: widget.focusNode,
+          trailing: [
+            if (widget.controller.text.isNotEmpty)
+              IconButton(
+                icon: Icon(
+                  FluentIcons.dismiss_24_regular,
+                  color: colorScheme.onSurfaceVariant,
+                  size: 20,
+                ),
+                onPressed: () {
+                  widget.controller.clear();
+                  widget.onChanged?.call('');
+                  setState(() {});
+                },
+              ),
+            if (widget.loadingProgressNotifier != null)
+              ValueListenableBuilder<bool>(
+                valueListenable: widget.loadingProgressNotifier!,
+                builder: (_, value, __) {
+                  if (value) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+          ],
+        ),
       ),
     );
   }

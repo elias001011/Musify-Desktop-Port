@@ -92,6 +92,36 @@ expected to have its own. The miniplayer and the expanded player show a speaker
 button that expands into an inline slider, wired to the audio handler's volume
 stream. It renders only on Windows, Linux and macOS.
 
+**Desktop layout.** Settings has a **Desktop layout** section, shown only on
+Windows, Linux and macOS, with two things a phone build has no need for:
+
+- *Interface scale.* A slider (80%–160%) that scales the app's text through a
+  `MediaQuery` `textScaler` override at the root. A Flutter desktop app renders
+  its own text and only grows it when the toolkit picks up the environment's
+  scaling factor; a bare tiling window manager such as i3 sets none, so the UI
+  comes out small. This makes the size an in-app setting instead, independent of
+  the window manager. It is stored as `interfaceScale` and applied on top of any
+  system scaling.
+- *Keyboard shortcuts.* A screen listing every playback and navigation action
+  with its current key combination; each one can be rebound (press the new
+  combination, conflicts are rejected) and the whole set can be reset to
+  defaults. The shortcuts are handled app-wide but stand down whenever a text
+  field is focused, so typing a space in the search box never toggles playback.
+
+  | Action | Default |
+  |---|---|
+  | Play / pause | `Space` |
+  | Previous / next track | `Ctrl+←` / `Ctrl+→` |
+  | Seek backward / forward | `Shift+←` / `Shift+→` |
+  | Volume down / up | `Ctrl+↓` / `Ctrl+↑` |
+  | Toggle shuffle | `Ctrl+S` |
+  | Cycle repeat mode | `Ctrl+R` |
+  | Focus the search field | `Ctrl+F` |
+  | Go to Home / Search / Library / Settings | `Ctrl+1` … `Ctrl+4` |
+
+  Custom bindings live under `keyboardShortcuts` in settings storage. On Linux
+  the numpad Enter key also submits a search, matching the main Enter key.
+
 **Packaging.** The Linux `.deb` declares its real runtime needs
 (`libgtk-3-0`, `libstdc++6`, and `libmpv2 | libmpv1 | libmpv-dev`) so libmpv
 arrives with the package instead of failing at first play. Windows gets an Inno

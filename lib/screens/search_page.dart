@@ -69,6 +69,14 @@ void reloadSearchHistoryFromStorage() {
       .get('searchHistory', defaultValue: []);
 }
 
+/// Bumped by the "Search" keyboard shortcut to ask the search page, once it is
+/// the visible tab, to move focus into its input field.
+final ValueNotifier<int> searchFocusRequestNotifier = ValueNotifier<int>(0);
+
+void requestSearchFocus() {
+  searchFocusRequestNotifier.value++;
+}
+
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _searchBar = TextEditingController();
   final FocusNode _inputNode = FocusNode();
@@ -83,6 +91,19 @@ class _SearchPageState extends State<SearchPage> {
   Timer? _debounce;
   int _latestSuggestionRequest = 0;
   int _latestSearchRequest = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    searchFocusRequestNotifier.addListener(_handleFocusRequest);
+  }
+
+  void _handleFocusRequest() {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _inputNode.requestFocus();
+    });
+  }
 
   Future<void> _submitSearch([String? query]) async {
     if (query != null) {
@@ -103,6 +124,7 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   void dispose() {
+    searchFocusRequestNotifier.removeListener(_handleFocusRequest);
     _searchBar.dispose();
     _inputNode.dispose();
     _fetchingSongs.dispose();

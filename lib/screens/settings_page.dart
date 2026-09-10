@@ -71,6 +71,7 @@ class SettingsPage extends StatelessWidget {
               inactivatedColor,
             ),
             if (!offlineMode.value) _buildOnlineFeaturesSection(context),
+            if (isDesktopPlatform) _buildDesktopLayoutSection(context),
             _buildOthersSection(context),
             const SizedBox(height: 20),
             const MiniPlayerBottomSpace(),
@@ -336,8 +337,7 @@ class SettingsPage extends StatelessWidget {
                     return CustomBar(
                       'Automatic uploads',
                       FluentIcons.arrow_upload_24_regular,
-                      description:
-                          'When enabled, Musify uploads a fresh backup shortly after local changes.',
+                      description: 'When enabled, Musify uploads a fresh backup shortly after local changes.',
                       trailing: Switch(
                         value: automatic,
                         onChanged: (value) =>
@@ -365,8 +365,7 @@ class SettingsPage extends StatelessWidget {
                       return CustomBar(
                         'Load cloud backup',
                         FluentIcons.cloud_arrow_down_24_regular,
-                        description:
-                            'Download and apply the latest backup stored in the cloud.',
+                        description: 'Download and apply the latest backup stored in the cloud.',
                         borderRadius: commonCustomBarRadiusLast,
                         onTap: () =>
                             _runCloudSyncAction(context, manager.downloadNow()),
@@ -386,8 +385,7 @@ class SettingsPage extends StatelessWidget {
                         CustomBar(
                           'Load cloud backup',
                           FluentIcons.cloud_arrow_down_24_regular,
-                          description:
-                              'Download and apply the latest backup stored in the cloud.',
+                          description: 'Download and apply the latest backup stored in the cloud.',
                           borderRadius: commonCustomBarRadiusLast,
                           onTap: () => _runCloudSyncAction(
                             context,
@@ -614,6 +612,99 @@ class SettingsPage extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopLayoutSection(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Column(
+      children: [
+        SectionHeader(
+          title: context.l10n!.desktopLayout,
+          icon: FluentIcons.desktop_24_filled,
+        ),
+        ValueListenableBuilder<double>(
+          valueListenable: interfaceScale,
+          builder: (context, scale, _) {
+            final percent = (scale * 100).round();
+            return Material(
+              color: colorScheme.surfaceContainerLow,
+              borderRadius: commonCustomBarRadiusFirst,
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          FluentIcons.text_font_size_24_regular,
+                          size: 22,
+                          color: colorScheme.onSecondaryContainer,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            context.l10n!.interfaceScale,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '$percent%',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      context.l10n!.interfaceScaleDescription,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Slider(
+                      value: scale,
+                      min: minInterfaceScale,
+                      max: maxInterfaceScale,
+                      divisions:
+                          ((maxInterfaceScale - minInterfaceScale) / 0.05)
+                              .round(),
+                      label: '$percent%',
+                      onChanged: (value) {
+                        interfaceScale.value = double.parse(
+                          value.toStringAsFixed(2),
+                        );
+                      },
+                      onChangeEnd: (value) {
+                        final rounded = double.parse(value.toStringAsFixed(2));
+                        interfaceScale.value = rounded;
+                        addOrUpdateData<double>(
+                          'settings',
+                          'interfaceScale',
+                          rounded,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        CustomBar(
+          context.l10n!.keyboardShortcuts,
+          FluentIcons.keyboard_24_regular,
+          description: context.l10n!.keyboardShortcutsDescription,
+          borderRadius: commonCustomBarRadiusLast,
+          onTap: () => context.push('/settings/keyboard-shortcuts'),
         ),
       ],
     );
