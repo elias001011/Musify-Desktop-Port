@@ -139,7 +139,7 @@
   "spotifyPlaylistImportFailed": "Playlist import failed",
   "invalidYouTubePlaylist": "Invalid YouTube playlist",
   "interfaceScale": "Interface scale",
-  "interfaceScaleDescription": "Make text across the whole app larger or smaller.",
+  "interfaceScaleDescription": "Make text and key icons across the app larger or smaller.",
   "keyboardShortcuts": "Keyboard shortcuts",
   "keyboardShortcutsDescription": "View and customize the desktop keyboard shortcuts.",
   "keyboardShortcutsResetConfirm": "Restore every keyboard shortcut to its default combination?",

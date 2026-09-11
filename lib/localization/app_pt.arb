@@ -139,7 +139,7 @@
   "spotifyPlaylistImportFailed": "A importação da playlist falhou",
   "invalidYouTubePlaylist": "Playlist do YouTube inválida",
   "interfaceScale": "Escala da interface",
-  "interfaceScaleDescription": "Deixa o texto de todo o app maior ou menor.",
+  "interfaceScaleDescription": "Deixa o texto e os ícones principais do app maiores ou menores.",
   "keyboardShortcuts": "Atalhos de teclado",
   "keyboardShortcutsDescription": "Veja e personalize os atalhos de teclado do desktop.",
   "keyboardShortcutsResetConfirm": "Restaurar todos os atalhos de teclado para a combinação padrão?",

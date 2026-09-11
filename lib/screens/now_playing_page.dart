@@ -23,6 +23,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/main.dart';
+import 'package:musify/services/settings_manager.dart';
 import 'package:musify/widgets/flip_card.dart';
 import 'package:musify/widgets/now_playing/bottom_actions_row.dart';
 import 'package:musify/widgets/now_playing/now_playing_artwork.dart';
@@ -67,12 +68,19 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final screenWidth = size.width;
-    final baseIconSize = screenWidth < 360
-        ? 36.0
-        : screenWidth < 400
-        ? 40.0
-        : 44.0;
-    final miniIconSize = screenWidth < 360 ? 18.0 : 22.0;
+    // Desktop "Interface scale" setting (Settings > Desktop layout) also
+    // grows the playback icon cluster, not just text — this row is otherwise
+    // fixed-size regardless of the text scaler override applied at the app
+    // root, which only affects Text widgets.
+    final iconScale = interfaceScale.value;
+    final baseIconSize =
+        (screenWidth < 360
+            ? 36.0
+            : screenWidth < 400
+            ? 40.0
+            : 44.0) *
+        iconScale;
+    final miniIconSize = (screenWidth < 360 ? 18.0 : 22.0) * iconScale;
 
     return Scaffold(
       backgroundColor: colorScheme.surface,

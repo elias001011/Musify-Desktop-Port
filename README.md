@@ -96,12 +96,13 @@ stream. It renders only on Windows, Linux and macOS.
 Windows, Linux and macOS, with two things a phone build has no need for:
 
 - *Interface scale.* A slider (80%–160%) that scales the app's text through a
-  `MediaQuery` `textScaler` override at the root. A Flutter desktop app renders
-  its own text and only grows it when the toolkit picks up the environment's
-  scaling factor; a bare tiling window manager such as i3 sets none, so the UI
-  comes out small. This makes the size an in-app setting instead, independent of
-  the window manager. It is stored as `interfaceScale` and applied on top of any
-  system scaling.
+  `MediaQuery` `textScaler` override at the root, plus the sidebar and playback
+  icon clusters (fixed-size widgets a text scaler alone does not touch). A
+  Flutter desktop app renders its own text and only grows it when the toolkit
+  picks up the environment's scaling factor; a bare tiling window manager such
+  as i3 sets none, so the UI comes out small. This makes the size an in-app
+  setting instead, independent of the window manager. It is stored as
+  `interfaceScale` and applied on top of any system scaling.
 - *Keyboard shortcuts.* A screen listing every playback and navigation action
   with its current key combination; each one can be rebound (press the new
   combination, conflicts are rejected) and the whole set can be reset to
