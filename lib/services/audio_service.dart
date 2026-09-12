@@ -133,6 +133,15 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
   double get volume => audioPlayer.volume;
 
+  /// The full song map backing the current queue entry (same shape as search
+  /// results/playlist entries — `ytid`, `artist`, `image`, ...), or `null`
+  /// when nothing is queued. Used where a caller needs more than what
+  /// [mediaItem] exposes, e.g. to offer the current song to [makeSongOffline].
+  Map? get currentSongMap =>
+      (_currentQueueIndex >= 0 && _currentQueueIndex < _queueList.length)
+      ? _queueList[_currentQueueIndex]
+      : null;
+
   late final Stream<PlaybackState> _playbackStateStream = playbackState
       .distinct((prev, curr) {
         final prevPositionBucket =

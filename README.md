@@ -118,11 +118,16 @@ Windows, Linux and macOS, with two things a phone build has no need for:
   | Toggle shuffle | `Ctrl+S` |
   | Cycle repeat mode | `Ctrl+R` |
   | Open / close the player | `Ctrl+P` |
+  | Make current song available offline | `Ctrl+D` |
   | Focus the search field | `Ctrl+F` |
+  | Go back | `Alt+←` |
   | Go to Home / Search / Library / Settings | `Ctrl+1` … `Ctrl+4` |
 
   Custom bindings live under `keyboardShortcuts` in settings storage. On Linux
   the numpad Enter key also submits a search, matching the main Enter key.
+  Escape is not remappable, but it leaves the search field and dismisses the
+  settings pop-ups (theme mode, accent color, ...) and the shortcut-capture
+  dialog.
 
 **Packaging.** The Linux `.deb` declares its real runtime needs
 (`libgtk-3-0`, `libstdc++6`, and `libmpv2 | libmpv1 | libmpv-dev`) so libmpv

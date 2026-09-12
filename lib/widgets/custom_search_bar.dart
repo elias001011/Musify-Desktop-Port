@@ -57,12 +57,17 @@ class _CustomSearchBarState extends State<CustomSearchBar> {
         // the inner text field still bubble through here.
         canRequestFocus: false,
         skipTraversal: true,
-        // The numpad Enter key does not always fire `onSubmitted` on Linux
-        // (GTK), unlike the main Enter key. Submit explicitly when it is
-        // pressed so search behaves the same on every desktop platform.
+        // Escape leaves the search field, and the numpad Enter key (which
+        // does not always fire `onSubmitted` on Linux/GTK, unlike the main
+        // Enter key) submits explicitly, so search behaves the same way on
+        // every desktop platform.
         onKeyEvent: (node, event) {
-          if (event is KeyDownEvent &&
-              event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          if (event.logicalKey == LogicalKeyboardKey.escape) {
+            widget.focusNode.unfocus();
+            return KeyEventResult.handled;
+          }
+          if (event.logicalKey == LogicalKeyboardKey.numpadEnter) {
             widget.onSubmitted(widget.controller.text);
             widget.focusNode.unfocus();
             return KeyEventResult.handled;

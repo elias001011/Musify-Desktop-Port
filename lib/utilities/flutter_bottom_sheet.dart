@@ -34,20 +34,7 @@ PersistentBottomSheetController? showCustomBottomSheet(
   final controller = showBottomSheet(
     enableDrag: true,
     context: context,
-    builder: (context) => Focus(
-      autofocus: true,
-      skipTraversal: true,
-      onKeyEvent: (node, event) {
-        // A persistent bottom sheet (unlike showModalBottomSheet) is not a
-        // Navigator route, so Flutter's built-in Escape-to-dismiss never
-        // reaches it. Wire it up explicitly on desktop.
-        if (event is KeyDownEvent &&
-            event.logicalKey == LogicalKeyboardKey.escape) {
-          closeCurrentBottomSheet();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
+    builder: (context) => _EscapeToClose(
       child: Container(
         decoration: BoxDecoration(
           color: colorScheme.surfaceContainerLow,
@@ -105,4 +92,61 @@ void closeCurrentBottomSheet() {
     _currentBottomSheetController?.close();
   } catch (_) {}
   _currentBottomSheetController = null;
+}
+
+/// Lets Escape close a persistent bottom sheet (unlike `showModalBottomSheet`,
+/// it is not a Navigator route, so Flutter's built-in Escape-to-dismiss never
+/// reaches it).
+///
+/// `autofocus` alone was not reliable here: it is resolved at the end of the
+/// frame the sheet is inserted in, racing whatever the tap that opened the
+/// sheet did to focus (e.g. the row's own `InkWell`) in that same frame — a
+/// bare "widget vs widget" race that sometimes lost, matching the reports of
+/// Escape working, then not, until the tab was left and revisited (which
+/// rebuilds the sheet fresh into a race that happened to go the other way).
+/// A post-frame [FocusNode.requestFocus] runs strictly after that frame
+/// settles, so it always wins.
+class _EscapeToClose extends StatefulWidget {
+  const _EscapeToClose({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_EscapeToClose> createState() => _EscapeToCloseState();
+}
+
+class _EscapeToCloseState extends State<_EscapeToClose> {
+  final _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: _focusNode,
+      autofocus: true,
+      skipTraversal: true,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          closeCurrentBottomSheet();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: widget.child,
+    );
+  }
 }

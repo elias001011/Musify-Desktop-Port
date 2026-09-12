@@ -19,15 +19,21 @@
  *     please visit: https://github.com/gokadzev/Musify
  */
 
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
 import 'package:musify/screens/now_playing_page.dart';
 import 'package:musify/screens/search_page.dart';
+import 'package:musify/services/common_services.dart';
+import 'package:musify/services/playlist_download_service.dart';
 import 'package:musify/services/router_service.dart';
 import 'package:musify/services/settings_manager.dart';
+import 'package:musify/utilities/flutter_toast.dart';
 
 /// Every action that can be bound to a desktop keyboard shortcut.
 enum ShortcutAction {
@@ -41,7 +47,9 @@ enum ShortcutAction {
   toggleShuffle,
   cycleRepeat,
   toggleNowPlaying,
+  toggleOfflineForCurrentSong,
   focusSearch,
+  goBack,
   goHome,
   goSearch,
   goLibrary,
@@ -113,9 +121,17 @@ class KeyboardShortcutsManager {
           LogicalKeyboardKey.keyP,
           control: true,
         ),
+        ShortcutAction.toggleOfflineForCurrentSong: const SingleActivator(
+          LogicalKeyboardKey.keyD,
+          control: true,
+        ),
         ShortcutAction.focusSearch: const SingleActivator(
           LogicalKeyboardKey.keyF,
           control: true,
+        ),
+        ShortcutAction.goBack: const SingleActivator(
+          LogicalKeyboardKey.arrowLeft,
+          alt: true,
         ),
         ShortcutAction.goHome: const SingleActivator(
           LogicalKeyboardKey.digit1,
@@ -323,9 +339,33 @@ class KeyboardShortcutsManager {
         } else if (audioHandler.mediaItem.value != null) {
           navigator.push(buildNowPlayingRoute());
         }
+      case ShortcutAction.toggleOfflineForCurrentSong:
+        final song = audioHandler.currentSongMap;
+        final ytid = song == null ? null : song['ytid']?.toString();
+        if (song == null || ytid == null || ytid.isEmpty) break;
+        unawaited(_toggleCurrentSongOffline(song, ytid));
       case ShortcutAction.focusSearch:
         NavigationManager.router.go(NavigationManager.searchPath);
         requestSearchFocus();
+      case ShortcutAction.goBack:
+        final navigator = NavigationManager.parentNavigatorKey.currentState;
+        if (navigator != null) {
+          // Close the full player first if it's what's on top (same
+          // stack-peek trick as toggleNowPlaying), then fall back to popping
+          // whatever sub-page go_router has pushed in the active tab.
+          var topIsPlayer = false;
+          navigator.popUntil((route) {
+            topIsPlayer = route.settings.name == nowPlayingRouteName;
+            return true;
+          });
+          if (topIsPlayer) {
+            navigator.pop();
+            break;
+          }
+        }
+        if (NavigationManager.router.canPop()) {
+          NavigationManager.router.pop();
+        }
       case ShortcutAction.goHome:
         NavigationManager.router.go(NavigationManager.homePath);
       case ShortcutAction.goSearch:
@@ -334,6 +374,34 @@ class KeyboardShortcutsManager {
         NavigationManager.router.go(NavigationManager.libraryPath);
       case ShortcutAction.goSettings:
         NavigationManager.router.go(NavigationManager.settingsPath);
+    }
+  }
+
+  /// Downloads [song] for offline listening, or removes it if it is already
+  /// offline. Mirrors the per-song context menu action in `song_bar.dart`,
+  /// minus the per-row `ValueNotifier`s a global shortcut has no widget to
+  /// own.
+  static Future<void> _toggleCurrentSongOffline(Map song, String ytid) async {
+    final alreadyOffline = isSongAlreadyOffline(ytid);
+    try {
+      final success = alreadyOffline
+          ? await OfflinePlaylistService().removeSongFromOfflineAndResync(ytid)
+          : await makeSongOffline(song);
+
+      final context = NavigationManager().context;
+      if (!success || !context.mounted) return;
+      showToast(
+        context,
+        alreadyOffline
+            ? context.l10n!.songRemovedFromOffline
+            : context.l10n!.songAddedToOffline,
+      );
+    } catch (e, stackTrace) {
+      logger.log(
+        'KeyboardShortcutsManager: error toggling offline status',
+        error: e,
+        stackTrace: stackTrace,
+      );
     }
   }
 }

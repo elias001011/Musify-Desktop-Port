@@ -283,8 +283,12 @@ String shortcutActionLabel(BuildContext context, ShortcutAction action) {
       return l10n.shortcutCycleRepeat;
     case ShortcutAction.toggleNowPlaying:
       return l10n.shortcutToggleNowPlaying;
+    case ShortcutAction.toggleOfflineForCurrentSong:
+      return l10n.shortcutToggleOfflineForCurrentSong;
     case ShortcutAction.focusSearch:
       return l10n.shortcutFocusSearch;
+    case ShortcutAction.goBack:
+      return l10n.shortcutGoBack;
     case ShortcutAction.goHome:
       return l10n.shortcutGoHome;
     case ShortcutAction.goSearch:
