@@ -142,7 +142,6 @@ jobs:
         run: |
           flutter build linux \
             --release \
-            --dart-define=MUSIFY_CLOUD_SYNC_URL="${{ vars.MUSIFY_CLOUD_SYNC_URL }}" \
             --dart-define=MUSIFY_DESKTOP_RELEASE_TAG="${{ needs.preflight.outputs.tag }}"
 
       - name: Package Linux release
@@ -192,7 +191,6 @@ jobs:
         run: |
           flutter build windows `
             --release `
-            --dart-define=MUSIFY_CLOUD_SYNC_URL="${{ vars.MUSIFY_CLOUD_SYNC_URL }}" `
             --dart-define=MUSIFY_DESKTOP_RELEASE_TAG="${{ needs.preflight.outputs.tag }}"
 
       - name: Package portable Windows release
@@ -264,8 +262,8 @@ jobs:
           - Windows and Linux packaging for Musify.
           - Desktop speaker button with inline volume slider in the miniplayer and expanded player.
           - Desktop updater follows this repository's desktop-v* release channel.
-          - Optional Cloud Sync for settings, playlists, liked songs, recently played songs, and most-played metadata.
-          - Large cloud backups may be gzip-compressed inside a JSON envelope before upload.
+          - Interface scale slider and remappable keyboard shortcuts.
+          - Optional Local Sync: playlists, liked songs and history merge directly between devices over Wi-Fi, with no account or server.
 
           Assets:
           - Musify-linux-x64.deb: Debian/Ubuntu package.
@@ -277,8 +275,8 @@ jobs:
           The desktop updater checks releases from:
           https://github.com/elias001011/Musify-Desktop-Port/releases
 
-          Cloud Sync setup docs:
-          https://github.com/elias001011/Musify-Desktop-Port/blob/master/docs/cloud-sync.md
+          Local Sync docs:
+          https://github.com/elias001011/Musify-Desktop-Port/blob/master/docs/local-sync.md
 
           Upstream Musify:
           https://github.com/gokadzev/Musify

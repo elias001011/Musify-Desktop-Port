@@ -49,10 +49,8 @@ Do not repair an existing release just to ship new app code. If the app code
 changed after a published release, publish a numeric revision tag such as
 `desktop-v10.0.8-2` so installed apps can compare versions correctly.
 
-If cloud sync should be enabled in release builds, configure the repository
-variable `MUSIFY_CLOUD_SYNC_URL` with the HTTPS endpoint of the sync backend.
-When the variable is empty, the app builds normally and the optional sync UI
-shows that no backend is configured.
+Local Sync needs no build configuration: it runs entirely between devices on
+the same network, so there is no backend URL or repository variable to set.
 
 If the upstream merge, version validation, analysis, or Linux smoke build fails,
 the sync workflow opens an issue with a link to the failed run.
@@ -82,7 +80,7 @@ git merge --no-edit refs/tags/<upstream-version>
 ./update.sh
 flutter pub get
 flutter analyze
-flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL=<sync-endpoint>
+flutter build linux --release
 git push origin HEAD:refs/heads/master
 ```
 
@@ -103,8 +101,9 @@ gh release create desktop-v<version> build/desktop-artifacts/* --latest
 
 ## Offline Mode Notes
 
-Offline mode is manual and local-only. It is not included in Cloud Sync, so one
-device going offline does not force another synced device offline.
+Offline mode is manual and local-only. Local Sync never touches settings, so
+one device going offline does not force another synced device offline; it only
+pauses that device's automatic syncs.
 
 ## Desktop Volume Control
 

@@ -13,7 +13,7 @@ Valeri Gokadze and contributors.
 
 This repository exists to ship **Musify for Windows and Linux**. The Android
 companion **Musify Cloud** also lives here because the desktop port's optional
-cloud sync needs a phone end — see [Musify Cloud](#musify-cloud) below.
+Local Sync needs a phone end — see [Musify Cloud](#musify-cloud) below.
 
 None of these are official Musify releases. Nothing here tries to turn Musify
 into a different app — upstream code is kept as close to original as it can be.
@@ -21,7 +21,7 @@ into a different app — upstream code is kept as close to original as it can be
 | | | |
 |---|---|---|
 | **Musify Desktop Port** | Windows, Linux | the actual port. `desktop-v*` releases, `master` branch |
-| **Musify Cloud** | Android | original Musify + the other end of cloud sync. `mobile-v*`, `mobile-cloud-sync` |
+| **Musify Cloud** | Android | original Musify + the other end of Local Sync. `mobile-v*`, `mobile-cloud-sync` |
 
 ---
 
@@ -134,7 +134,7 @@ Windows, Linux and macOS, with two things a phone build has no need for:
 arrives with the package instead of failing at first play. Windows gets an Inno
 Setup installer and a portable zip.
 
-**Cloud Sync**, which is its own section below.
+**Local Sync**, which is its own section below.
 
 ### What it deliberately does not change
 
@@ -143,82 +143,70 @@ theme and the general UI are upstream's. The port keeps startup and core changes
 small on purpose: the smaller the diff, the less often an upstream release
 conflicts with it, and the sync workflow can stay automatic.
 
-## Cloud Sync
+## Local Sync
 
 Optional and off by default. It exists so one person's library can follow them
 between a desktop and a phone, and it is the reason Musify Cloud exists at all.
 
-> **Default backend notice.** Release builds ship with the maintainer's
-> personal Cloudflare Worker as the default sync backend. This is a
-> convenience for trying Cloud Sync, but it is personal infrastructure with
-> no guaranteed uptime or SLA. For full control over your data, [use your own
-> backend](docs/cloud-sync.md#using-your-own-backend) — it takes about five
-> minutes to deploy.
+It replaces an earlier cloud-based sync that stored a backup on a server. The
+current design follows [Sonora](https://github.com/gmstyle/sonora)'s
+peer-to-peer sync instead: the devices talk to each other **directly over
+Wi-Fi**. No account, no passphrase, no server, nothing leaves your network.
 
 ### How it works
 
-**A passphrase, not an account.** You type the same passphrase on both devices.
-The app never sends it: it is hashed with SHA-256 into an account id, and only
-that hash reaches the server. There is no sign-up, no email, no password reset —
-lose the passphrase and the backup is unreachable.
+**Devices find each other.** With Local Sync on, each device runs a small HTTP
+server inside the app and answers a UDP broadcast on the local network. The
+Devices screen scans and lists what it finds.
 
-**One record per passphrase.** The account id is the storage key: the backend
-keeps a single JSON document per id, and both devices read and write that one
-document.
+**Pair once with a PIN.** The first time two devices meet, the device being
+paired to shows a 4-digit PIN and the other one asks for it. After that they
+remember each other and sync without asking again. Long-press a device to
+forget it.
 
-**What a snapshot contains.** A full dump of the app's two Hive boxes,
-`settings` and `user` — so preferences, playlists, liked songs, liked artists,
-recently played, and most-played data. A few keys are excluded and stay on the
-device: internal sync bookkeeping and offline mode.
+**Both sides merge.** A sync sends this device's library to the other one,
+which merges it and answers with its own merged library, which is then merged
+back here. One round trip and both devices have the same liked songs, playlists
+(custom ones included, folders too), pinned playlists, recently played, liked
+radio stations and search history.
 
-**Transport.** JSON, gzipped and base64-wrapped when it is large enough to be
-worth it. A library big enough to exceed the backend's size limit gets a clear
-error rather than a silent truncation.
+**The merge only adds.** Nothing is ever removed by a sync, so it is safe to
+run in any direction at any time. The flip side is that deletions do not
+propagate: remove a song on one device and the next sync brings it back from
+the other, unless you remove it there too. Two custom playlists created
+separately with the same name follow the **Same-name playlists** setting: merge
+their songs (default), keep both, or let the other device win.
 
-**When it uploads.** With automatic uploads on, the manager watches both Hive
-boxes and uploads about 20 seconds after the last change, so editing a playlist
-produces one upload rather than one per song. You can also sync manually from
-Settings.
+**When it syncs.** With **Automatic sync** on, a device syncs with every paired
+device it can see at startup, about 30 seconds after you change something, and
+every 30 minutes. You can also sync by hand from the Devices screen.
 
-**How a conflict resolves.** It does not merge. Each snapshot carries a
-timestamp, and the newer one wins, whole. Change a playlist on your phone and a
-different playlist on your desktop without syncing in between, and the second
-upload replaces the first — one of the two sets of changes is gone. That is a
-real limitation, not a bug to be worked around: this is a personal
-one-user-two-devices feature, not a multi-device database.
-
-**After a restore.** Replacing local data would otherwise leave the running app
-showing stale lists, so a restore refreshes settings, songs and playlists from
-storage and bumps a signal the UI listens to.
+**What stays local.** Settings (theme, quality, keyboard shortcuts, interface
+scale), offline downloads, the listening recap and offline mode are not
+synced; a phone and a desktop are meant to differ there.
 
 ### Limits worth knowing
 
-- Not end-to-end encrypted. The backend stores readable JSON, so treat it as
-  private-but-not-secret. See [docs/cloud-sync.md](docs/cloud-sync.md).
-- Last-writer-wins at the whole-backup level, as above.
-- One backup per passphrase: no history, no rollback.
+- Both devices must be on the same regular Wi-Fi, with Local Sync on. Guest
+  networks and "AP isolation" block device-to-device traffic.
+- Additive merge, as above: no deletions, no history, no rollback.
+- After pairing, a device id is what identifies a trusted device on the
+  network. Fine for a home network; forget devices you no longer use.
+- Windows asks once whether Musify may accept private-network connections;
+  Linux firewalls may need UDP `53531` open.
 
-### Running your own backend
-
-The default backend is the maintainer's personal Worker. To use your own:
-
-```bash
-flutter build linux --release --dart-define=MUSIFY_CLOUD_SYNC_URL=https://your-worker.example.com
-```
-
-Or fork the repo and set the `MUSIFY_CLOUD_SYNC_URL` repository variable.
-With no value the app still builds, and the sync screen explains that no
-backend is configured. Full setup instructions are in
-[docs/cloud-sync.md](docs/cloud-sync.md).
+Full details, the merge rules and the wire protocol are in
+[docs/local-sync.md](docs/local-sync.md).
 
 ---
 
 # Musify Cloud
 
 The Android companion to the desktop port. Original mobile Musify with the same
-optional Cloud Sync described above, and nothing else. It exists because sync
-needs two ends: the desktop port talks to a server, and this is the phone that
-can share the same backup with it.
+optional Local Sync described above, and nothing else. It exists because sync
+needs two ends: this is the phone the desktop port can find on the Wi-Fi and
+merge libraries with. The name is historical, from when the sync went through
+a cloud backend; it now works entirely on the local network.
 
 It uses its own application id (`com.elias001011.musifycloud`), name and icon, so
 it installs beside original Musify rather than replacing it. Downloads are
@@ -231,9 +219,9 @@ it installs beside original Musify rather than replacing it. Downloads are
 | Desktop app for Windows/Linux | [desktop-v* releases](https://github.com/elias001011/Musify-Desktop-Port/releases) — `Musify-linux-x64.deb`, `Musify-linux-x64.tar.gz`, `Musify-windows-x64-setup.exe`, `Musify-windows-x64-portable.zip` |
 | Phone app that syncs with it | [mobile-v* releases](https://github.com/elias001011/Musify-Desktop-Port/releases) — `MusifyCloud.apk` |
 
-Install the desktop build, install Musify Cloud on your phone, type the same
-passphrase into Cloud Sync on both, and your playlists and settings follow you
-between the two.
+Install the desktop build, install Musify Cloud on your phone, turn on Local
+sync on both while they are on the same Wi-Fi, pair them once with the PIN, and
+your playlists, liked songs and history follow you between the two.
 
 ---
 

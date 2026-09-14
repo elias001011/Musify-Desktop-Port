@@ -166,10 +166,10 @@ class KeyboardShortcutsManager {
     return result;
   }
 
-  /// Re-reads the bindings from storage. Called after a cloud-sync download or
-  /// a backup restore rewrites the `settings` box, so the live shortcuts (and
-  /// the settings screen) match what was just restored instead of a stale map
-  /// that a later edit would persist back over the restore.
+  /// Re-reads the bindings from storage. Called after a backup restore
+  /// rewrites the `settings` box, so the live shortcuts (and the settings
+  /// screen) match what was just restored instead of a stale map that a later
+  /// edit would persist back over the restore.
   static void reload() {
     bindings.value = _load();
   }

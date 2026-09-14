@@ -129,26 +129,25 @@ final repeatNotifier = ValueNotifier<AudioServiceRepeatMode>(
       .get('repeatMode', defaultValue: 0)],
 );
 
-final cloudSyncEnabled = ValueNotifier<bool>(
-  Hive.box('settings').get('cloudSyncEnabled', defaultValue: false),
+final localSyncEnabled = ValueNotifier<bool>(
+  Hive.box('settings').get('localSyncEnabled', defaultValue: false),
 );
 
-final cloudSyncAutomatic = ValueNotifier<bool>(
-  Hive.box('settings').get('cloudSyncAutomatic', defaultValue: true),
+final localSyncAutomatic = ValueNotifier<bool>(
+  Hive.box('settings').get('localSyncAutomatic', defaultValue: true),
 );
 
-final cloudSyncConfigured = ValueNotifier<bool>(
+final localSyncConflictStrategy = ValueNotifier<String>(
   Hive.box('settings')
-      .get('cloudSyncAccountId', defaultValue: '')
-      .toString()
-      .isNotEmpty,
+      .get('localSyncConflictStrategy', defaultValue: 'merge')
+      .toString(),
 );
 
-final cloudSyncLastSyncedAt = ValueNotifier<DateTime?>(
-  _readDateTimeSetting('cloudSyncLastSyncedAt'),
+final localSyncLastSyncedAt = ValueNotifier<DateTime?>(
+  _readDateTimeSetting('localSyncLastSyncedAt'),
 );
 
-final cloudSyncStatus = ValueNotifier<String>('Cloud sync is idle');
+final localSyncStatus = ValueNotifier<String>('Local sync is off');
 
 final appStateReloadSignal = ValueNotifier<int>(0);
 
@@ -254,17 +253,16 @@ void reloadSettingsFromStorage() {
     repeatNotifier.value = AudioServiceRepeatMode.values[restoredRepeatIndex];
   }
 
-  cloudSyncEnabled.value = settings.get(
-    'cloudSyncEnabled',
+  localSyncEnabled.value = settings.get(
+    'localSyncEnabled',
     defaultValue: false,
   );
-  cloudSyncAutomatic.value = settings.get(
-    'cloudSyncAutomatic',
+  localSyncAutomatic.value = settings.get(
+    'localSyncAutomatic',
     defaultValue: true,
   );
-  cloudSyncConfigured.value = settings
-      .get('cloudSyncAccountId', defaultValue: '')
-      .toString()
-      .isNotEmpty;
-  cloudSyncLastSyncedAt.value = _readDateTimeSetting('cloudSyncLastSyncedAt');
+  localSyncConflictStrategy.value = settings
+      .get('localSyncConflictStrategy', defaultValue: 'merge')
+      .toString();
+  localSyncLastSyncedAt.value = _readDateTimeSetting('localSyncLastSyncedAt');
 }
