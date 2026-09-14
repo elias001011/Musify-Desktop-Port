@@ -51,34 +51,36 @@ class RadioStationsPage extends StatelessWidget {
           return SingleChildScrollView(
             padding: commonSingleChildScrollViewPadding,
             child: Column(
-              children: List.generate(stations.length, (index) {
-                final station = stations[index];
-                return Padding(
-                  key: ValueKey(station.id),
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: RadioStationCard(
-                    station: station,
-                    onPressed: () async {
-                      final success = await audioHandler.playRadioStream(
-                        id: station.id,
-                        name: station.name,
-                        streamUrl: station.streamUrl,
-                        image: station.image,
-                        genre: station.genre,
-                      );
+              children: [
+                ...List.generate(stations.length, (index) {
+                  final station = stations[index];
+                  return Padding(
+                    key: ValueKey(station.id),
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: RadioStationCard(
+                      station: station,
+                      onPressed: () async {
+                        final success = await audioHandler.playRadioStream(
+                          id: station.id,
+                          name: station.name,
+                          streamUrl: station.streamUrl,
+                          image: station.image,
+                          genre: station.genre,
+                        );
 
-                      if (!success && context.mounted) {
-                        showToast(context, context.l10n!.error);
-                      }
-                    },
-                  ),
-                );
-              }),
+                        if (!success && context.mounted) {
+                          showToast(context, context.l10n!.error);
+                        }
+                      },
+                    ),
+                  );
+                }),
+                const MiniPlayerBottomSpace(),
+              ],
             ),
           );
         },
       ),
-      bottomNavigationBar: const MiniPlayerBottomSpace(),
     );
   }
 }

@@ -101,6 +101,7 @@ class ListeningRecapCard extends StatelessWidget {
             if (songs.isNotEmpty) ...[
               for (var i = 0; i < songs.length; i++)
                 SongBar(
+                  key: ValueKey(songs[i]['ytid'] ?? i),
                   songs[i],
                   false,
                   showPlayTime: true,
