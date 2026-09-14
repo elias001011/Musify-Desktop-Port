@@ -51,7 +51,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 late MusifyAudioHandler audioHandler;
-late StreamSubscription<String?> sharingIntentSubscription;
+StreamSubscription<String?>? sharingIntentSubscription;
+StreamSubscription<Uri?>? appLinksSubscription;
 
 final logger = Logger();
 final appLinks = AppLinks();
@@ -216,10 +217,12 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     offlineMode.removeListener(_onOfflineModeChanged);
     appStateReloadSignal.removeListener(_onBackedUpStateReloaded);
+    PlatformDispatcher.instance.onPlatformBrightnessChanged = null;
 
     unawaited(CloudSyncManager.instance.dispose());
     Hive.close();
-    sharingIntentSubscription.cancel();
+    unawaited(sharingIntentSubscription?.cancel());
+    unawaited(appLinksSubscription?.cancel());
     super.dispose();
   }
 
@@ -304,6 +307,17 @@ Future<void> initialisation() async {
         androidNotificationIcon: 'drawable/ic_launcher_foreground',
         androidShowNotificationBadge: true,
         androidStopForegroundOnPause: false,
+        // Handed to Android Auto on the browsable root. Without the search
+        // flag the car never offers a search box, and without the content
+        // style keys it falls back to an undifferentiated list of everything.
+        androidBrowsableRootExtras: {
+          AndroidContentStyle.supportedKey: true,
+          AndroidContentStyle.browsableHintKey:
+              AndroidContentStyle.gridItemHintValue,
+          AndroidContentStyle.playableHintKey:
+              AndroidContentStyle.listItemHintValue,
+          'android.media.browse.SEARCH_SUPPORTED': true,
+        },
       ),
     );
 
@@ -312,7 +326,7 @@ Future<void> initialisation() async {
 
     try {
       // Listen to incoming links while app is running
-      appLinks.uriLinkStream.listen(
+      appLinksSubscription = appLinks.uriLinkStream.listen(
         handleIncomingLink,
         onError: (err) {
           logger.log('URI link error:', error: err);

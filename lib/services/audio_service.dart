@@ -24,6 +24,7 @@ import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:musify/main.dart';
@@ -31,8 +32,10 @@ import 'package:musify/models/position_data.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/listening_stats_service.dart';
+import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/map_utils.dart';
+import 'package:musify/utilities/media_duration.dart';
 import 'package:musify/utilities/mediaitem.dart';
 import 'package:musify/utilities/queue_entry_utils.dart';
 import 'package:rxdart/rxdart.dart';
@@ -52,6 +55,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
     );
 
     _setupEventSubscriptions();
+    _setupMediaBrowserSubscriptions();
     _updatePlaybackState();
 
     audioPlayer.setAndroidAudioAttributes(
@@ -86,6 +90,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
   int _currentLoadingTransitionId = -1;
   bool _isUpdatingState = false;
   bool _pendingPlaybackStateUpdate = false;
+  bool _pendingForcedPlaybackStateUpdate = false;
   int _songTransitionCounter = 0;
 
   bool _completionEventPending = false;
@@ -194,8 +199,13 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
     audioPlayer.durationStream.listen(
       (duration) {
-        if (_currentQueueIndex < _queueList.length && duration != null) {
-          _updateCurrentMediaItemWithDuration(duration);
+        if (_currentQueueIndex < _queueList.length &&
+            duration != null &&
+            _playerSourceMatchesCurrentSong()) {
+          _updateCurrentMediaItemWithDuration(
+            duration,
+            preserveLongerKnown: _currentPlayerSourceIsClipped(),
+          );
         }
       },
       onError: (error, stackTrace) {
@@ -260,6 +270,36 @@ class MusifyAudioHandler extends BaseAudioHandler {
   List<MediaItem> _buildQueueMediaItems() =>
       _queueList.map(_getMediaItemForQueue).toList(growable: false);
 
+  bool _playerSourceMatchesCurrentSong() {
+    if (_currentQueueIndex < 0 || _currentQueueIndex >= _queueList.length) {
+      return false;
+    }
+
+    final sourceTag = audioPlayer.sequenceState.currentSource?.tag;
+    if (sourceTag is! MediaItem) return false;
+
+    final sourceYtid = sourceTag.extras?['ytid']?.toString();
+    final currentYtid = _queueList[_currentQueueIndex]['ytid']?.toString();
+    if (sourceYtid != null &&
+        sourceYtid.isNotEmpty &&
+        currentYtid != null &&
+        currentYtid.isNotEmpty) {
+      return sourceYtid == currentYtid;
+    }
+
+    final currentId = _queueList[_currentQueueIndex]['id']?.toString();
+    return currentId != null &&
+        currentId.isNotEmpty &&
+        sourceTag.id == currentId;
+  }
+
+  bool _currentPlayerSourceIsClipped() {
+    // A clipped SponsorBlock child can report only its own duration. Keeping
+    // the longer track metadata deliberately favors a stable full-track total
+    // over briefly publishing a segment length in the system notification.
+    return audioPlayer.sequenceState.currentSource is ClippingAudioSource;
+  }
+
   bool _shouldUpdateDuration(Duration? currentDuration, Duration nextDuration) {
     return currentDuration == null ||
         !durationEquals(currentDuration, nextDuration);
@@ -281,7 +321,10 @@ class MusifyAudioHandler extends BaseAudioHandler {
         currentItem.extras?['ytid']?.toString() == currentSongYtid;
   }
 
-  void _updateCurrentMediaItemWithDuration(Duration duration) {
+  void _updateCurrentMediaItemWithDuration(
+    Duration duration, {
+    bool preserveLongerKnown = false,
+  }) {
     try {
       final queueIndex = _currentQueueIndex;
       if (queueIndex < 0 || queueIndex >= _queueList.length) return;
@@ -296,26 +339,82 @@ class MusifyAudioHandler extends BaseAudioHandler {
         currentSongYtid,
       );
 
+      final existingQueue = queue.valueOrNull;
+      final queueItem =
+          existingQueue != null && queueIndex < existingQueue.length
+          ? existingQueue[queueIndex]
+          : null;
+      final storedDuration = readMediaDuration(currentSong['duration']);
+      var stableDuration = storedDuration;
+      if (isMatchingCurrentItem) {
+        stableDuration = preferStableMediaDuration(
+          stableDuration,
+          currentItem?.duration,
+          preserveLongerKnown: true,
+        );
+      }
+      stableDuration = preferStableMediaDuration(
+        stableDuration,
+        queueItem?.duration,
+        preserveLongerKnown: true,
+      );
+      stableDuration = preferStableMediaDuration(
+        stableDuration,
+        duration,
+        preserveLongerKnown: preserveLongerKnown,
+      );
+      if (stableDuration == null) return;
+
+      final durationSeconds = stableDuration.inSeconds;
+      var queueMapChanged = false;
+      if (_shouldUpdateDuration(storedDuration, stableDuration)) {
+        currentSong['duration'] = durationSeconds;
+        queueMapChanged = true;
+      }
+      final queueEntryId = _queueEntryIds.ensureId(currentSong);
+      for (final originalSong in _originalQueueList) {
+        if (_queueEntryIds.ensureId(originalSong) == queueEntryId) {
+          if (_shouldUpdateDuration(
+            readMediaDuration(originalSong['duration']),
+            stableDuration,
+          )) {
+            originalSong['duration'] = durationSeconds;
+          }
+          break;
+        }
+      }
+
+      var mediaItemChanged = false;
       if (currentItem != null &&
           isMatchingCurrentItem &&
-          _shouldUpdateDuration(currentItem.duration, duration)) {
-        mediaItem.add(currentItem.copyWith(duration: duration));
+          _shouldUpdateDuration(currentItem.duration, stableDuration)) {
+        mediaItem.add(currentItem.copyWith(duration: stableDuration));
+        mediaItemChanged = true;
       } else if (!isMatchingCurrentItem) {
-        mediaItem.add(currentMediaItem.copyWith(duration: duration));
+        mediaItem.add(currentMediaItem.copyWith(duration: stableDuration));
+        mediaItemChanged = true;
       }
 
       listeningStatsService.updateListeningSessionDuration(
         currentSongYtid,
-        duration,
+        stableDuration,
       );
 
-      final existingQueue = queue.valueOrNull;
       if (existingQueue != null && queueIndex < existingQueue.length) {
-        final queueItem = existingQueue[queueIndex];
-        if (_shouldUpdateDuration(queueItem.duration, duration)) {
+        var publishedQueueChanged = false;
+        if (_shouldUpdateDuration(queueItem?.duration, stableDuration)) {
           final updatedQueue = List<MediaItem>.from(existingQueue);
-          updatedQueue[queueIndex] = queueItem.copyWith(duration: duration);
+          updatedQueue[queueIndex] = queueItem!.copyWith(
+            duration: stableDuration,
+          );
           queue.add(updatedQueue);
+          publishedQueueChanged = true;
+        }
+        if (queueMapChanged) {
+          _queueMapStream.add(List.unmodifiable(_queueList));
+        }
+        if (mediaItemChanged || publishedQueueChanged) {
+          _updatePlaybackState(force: true);
         }
         return;
       }
@@ -323,10 +422,14 @@ class MusifyAudioHandler extends BaseAudioHandler {
       final rebuiltQueue = _buildQueueMediaItems();
       if (queueIndex < rebuiltQueue.length) {
         rebuiltQueue[queueIndex] = rebuiltQueue[queueIndex].copyWith(
-          duration: duration,
+          duration: stableDuration,
         );
       }
       queue.add(rebuiltQueue);
+      if (queueMapChanged) {
+        _queueMapStream.add(List.unmodifiable(_queueList));
+      }
+      _updatePlaybackState(force: true);
     } catch (e, stackTrace) {
       logger.log(
         'Error updating media item with duration',
@@ -531,9 +634,10 @@ class MusifyAudioHandler extends BaseAudioHandler {
         const Duration(milliseconds: 500);
   }
 
-  void _updatePlaybackState() {
+  void _updatePlaybackState({bool force = false}) {
     if (_isUpdatingState) {
       _pendingPlaybackStateUpdate = true;
+      _pendingForcedPlaybackStateUpdate |= force;
       return;
     }
 
@@ -574,7 +678,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
             currentState.speed,
           ));
 
-      if (shouldUpdate) {
+      if (force || shouldUpdate) {
         playbackState.add(
           PlaybackState(
             controls: _controls(isPlaying),
@@ -607,8 +711,10 @@ class MusifyAudioHandler extends BaseAudioHandler {
     } finally {
       _isUpdatingState = false;
       if (_pendingPlaybackStateUpdate) {
+        final forcePendingUpdate = _pendingForcedPlaybackStateUpdate;
         _pendingPlaybackStateUpdate = false;
-        _updatePlaybackState();
+        _pendingForcedPlaybackStateUpdate = false;
+        _updatePlaybackState(force: forcePendingUpdate);
       }
     }
   }
@@ -1388,6 +1494,12 @@ class MusifyAudioHandler extends BaseAudioHandler {
     if (mediaId.startsWith(_recentMediaIdPrefix)) {
       return mediaId.substring(_recentMediaIdPrefix.length);
     }
+    // Browse-tree ids carry their container; only the trailing token is a ytid,
+    // and for the queue it is a queue entry id that no lookup will match.
+    final song = _parseSongMediaId(mediaId);
+    if (song != null) {
+      return song.container == _rootQueue ? null : song.token;
+    }
     return mediaId.isEmpty ? null : mediaId;
   }
 
@@ -1497,16 +1609,229 @@ class MusifyAudioHandler extends BaseAudioHandler {
     );
   }
 
+  // Android Auto / MediaBrowserService
+
   static const _rootLiked = 'liked_songs';
   static const _rootOffline = 'offline_songs';
   static const _rootRecent = 'recently_played';
   static const _rootQueue = 'current_queue';
+  static const _rootPlaylists = 'playlists';
+  static const _rootSearch = 'search_results';
+
+  static const String _songMediaIdPrefix = 'song:';
+  static const String _playlistMediaIdPrefix = 'playlist:';
+  static const int _maxSearchResults = 30;
+  static const Duration _browserFetchTimeout = Duration(seconds: 15);
+
+  List<Map> _lastSearchResults = const [];
+
+  final Map<String, BehaviorSubject<Map<String, dynamic>>> _childrenSubjects =
+      {};
+
+  String _songMediaId(String containerId, String token) =>
+      '$_songMediaIdPrefix$containerId:$token';
+
+  ({String container, String token})? _parseSongMediaId(String mediaId) {
+    if (!mediaId.startsWith(_songMediaIdPrefix)) return null;
+    final body = mediaId.substring(_songMediaIdPrefix.length);
+    final separator = body.lastIndexOf(':');
+    if (separator <= 0 || separator >= body.length - 1) return null;
+    return (
+      container: body.substring(0, separator),
+      token: body.substring(separator + 1),
+    );
+  }
+
+  String _playlistMediaId(String source, String id) =>
+      '$_playlistMediaIdPrefix$source:$id';
+
+  ({String source, String id})? _parsePlaylistMediaId(String mediaId) {
+    if (!mediaId.startsWith(_playlistMediaIdPrefix)) return null;
+    final body = mediaId.substring(_playlistMediaIdPrefix.length);
+    final separator = body.indexOf(':');
+    if (separator <= 0 || separator >= body.length - 1) return null;
+    return (
+      source: body.substring(0, separator),
+      id: body.substring(separator + 1),
+    );
+  }
+
+  String? _songToken(Map song, String containerId) => containerId == _rootQueue
+      ? _queueEntryIds.ensureId(song)
+      : _songYtid(song);
+
+  int _indexOfSongToken(List<Map> songs, String containerId, String token) =>
+      songs.indexWhere((song) => _songToken(song, containerId) == token);
+
+  // Browse tree
+
+  MediaItem _browsableCategory(
+    String id,
+    String title, {
+    int playableHint = AndroidContentStyle.listItemHintValue,
+  }) => MediaItem(
+    id: id,
+    title: title,
+    playable: false,
+    extras: {
+      'isBrowsable': true,
+      AndroidContentStyle.playableHintKey: playableHint,
+    },
+  );
+
+  MediaItem? _browsableSong(Map song, String containerId) {
+    final token = _songToken(song, containerId);
+    if (token == null || token.isEmpty) return null;
+
+    final normalised = _normaliseResumableSong(song);
+    if (normalised == null) return null;
+
+    final artist = normalised['artist']?.toString().trim() ?? '';
+    return mapToMediaItem(normalised).copyWith(
+      id: _songMediaId(containerId, token),
+      playable: true,
+      displayTitle: normalised['title']?.toString(),
+      displaySubtitle: artist.isEmpty ? 'Musify' : artist,
+    );
+  }
+
+  List<MediaItem> _browsableSongs(Iterable songs, String containerId) {
+    final items = <MediaItem>[];
+    for (final song in songs.whereType<Map>()) {
+      final item = _browsableSong(song, containerId);
+      if (item != null) items.add(item);
+    }
+    return items;
+  }
+
+  List<MediaItem> _emptyCategory(String parentMediaId, String message) => [
+    MediaItem(
+      id: '$parentMediaId:__empty__',
+      title: message,
+      playable: false,
+      extras: const {'isBrowsable': false},
+    ),
+  ];
+
+  String? _emptyCategoryMessage(String parentMediaId) {
+    switch (parentMediaId) {
+      case _rootQueue:
+        return 'Nothing in the queue yet';
+      case _rootLiked:
+        return 'No liked songs yet';
+      case _rootOffline:
+        return 'Nothing downloaded yet';
+      case _rootRecent:
+        return 'Nothing played yet';
+      case _rootPlaylists:
+        return 'No playlists yet';
+    }
+    return _parsePlaylistMediaId(parentMediaId) == null
+        ? null
+        : 'This playlist is empty';
+  }
+
+  List<Map> _browsablePlaylists() => [
+    ...getUserCustomPlaylists(),
+    ...getLikedPlaylistItems(),
+  ];
+
+  String _playlistSource(Map playlist) =>
+      playlist['source']?.toString() ?? 'user-created';
+
+  String? _playlistIdOf(Map playlist) {
+    final id = (playlist['ytid'] ?? playlist['id'])?.toString();
+    return id == null || id.isEmpty ? null : id;
+  }
+
+  MediaItem _playlistMediaItem(Map playlist, String id) {
+    final image = playlist['image']?.toString();
+    return MediaItem(
+      id: _playlistMediaId(_playlistSource(playlist), id),
+      title: playlist['title']?.toString() ?? 'Playlist',
+      playable: false,
+      artUri: image == null || image.isEmpty ? null : Uri.tryParse(image),
+      extras: const {'isBrowsable': true},
+    );
+  }
+
+  List<MediaItem> _playlistChildren() {
+    final items = <MediaItem>[];
+    for (final playlist in _browsablePlaylists()) {
+      final id = _playlistIdOf(playlist);
+      if (id != null) items.add(_playlistMediaItem(playlist, id));
+    }
+    return items;
+  }
+
+  Future<List<Map>> _songsForPlaylist(String source, String id) async {
+    final playlist = _browsablePlaylists().firstWhere(
+      (p) => _playlistIdOf(p) == id && _playlistSource(p) == source,
+      orElse: () => const {},
+    );
+    if (playlist.isEmpty) return const [];
+
+    final inline = playlist['list'];
+    if (inline is List && inline.isNotEmpty) {
+      return inline.whereType<Map>().toList();
+    }
+
+    if (source == 'user-created' || offlineMode.value) return const [];
+
+    try {
+      final songs = await getSongsFromPlaylist(
+        id,
+        playlistImage: playlist['image']?.toString(),
+      ).timeout(_browserFetchTimeout);
+      return songs.whereType<Map>().toList();
+    } catch (e, stackTrace) {
+      logger.log(
+        'Error loading playlist $id for the media browser',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return const [];
+    }
+  }
+
+  Future<List<Map>> _songsForContainer(String containerId) async {
+    switch (containerId) {
+      case _rootQueue:
+        return List<Map>.from(_queueList);
+      case _rootLiked:
+        return userLikedSongsList.value.whereType<Map>().toList();
+      case _rootOffline:
+        return userOfflineSongs.value.whereType<Map>().toList();
+      case _rootRecent:
+        return userRecentlyPlayed.value.whereType<Map>().toList();
+      case _rootSearch:
+        return List<Map>.from(_lastSearchResults);
+    }
+
+    final playlist = _parsePlaylistMediaId(containerId);
+    return playlist == null
+        ? const []
+        : _songsForPlaylist(playlist.source, playlist.id);
+  }
 
   @override
   Future<List<MediaItem>> getChildren(
     String parentMediaId, [
     Map<String, dynamic>? options,
   ]) async {
+    try {
+      return await _buildChildren(parentMediaId);
+    } catch (e, stackTrace) {
+      logger.log(
+        'Error building browse children for $parentMediaId',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return const [];
+    }
+  }
+
+  Future<List<MediaItem>> _buildChildren(String parentMediaId) async {
     if (parentMediaId == AudioService.recentRootId) {
       final recentSong = _latestResumableSong();
       final recentItem = recentSong == null
@@ -1517,53 +1842,140 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
     if (parentMediaId == AudioService.browsableRootId) {
       return [
-        const MediaItem(
-          id: _rootQueue,
-          title: 'Now Playing Queue',
-          playable: false,
-          extras: {'isBrowsable': true},
+        _browsableCategory(_rootQueue, 'Now Playing Queue'),
+        _browsableCategory(_rootLiked, 'Liked Songs'),
+        _browsableCategory(
+          _rootPlaylists,
+          'Playlists',
+          playableHint: AndroidContentStyle.gridItemHintValue,
         ),
-        const MediaItem(
-          id: _rootLiked,
-          title: 'Liked Songs',
-          playable: false,
-          extras: {'isBrowsable': true},
-        ),
-        const MediaItem(
-          id: _rootOffline,
-          title: 'Downloaded',
-          playable: false,
-          extras: {'isBrowsable': true},
-        ),
-        const MediaItem(
-          id: _rootRecent,
-          title: 'Recently Played',
-          playable: false,
-          extras: {'isBrowsable': true},
-        ),
+        _browsableCategory(_rootOffline, 'Downloaded'),
+        _browsableCategory(_rootRecent, 'Recently Played'),
       ];
     }
 
-    switch (parentMediaId) {
-      case _rootQueue:
-        return _queueList.map(_getMediaItemForQueue).toList();
-      case _rootLiked:
-        return userLikedSongsList.value
-            .whereType<Map>()
-            .map((s) => mapToMediaItem(s).copyWith(playable: true))
-            .toList();
-      case _rootOffline:
-        return userOfflineSongs.value
-            .whereType<Map>()
-            .map((s) => mapToMediaItem(s).copyWith(playable: true))
-            .toList();
-      case _rootRecent:
-        return userRecentlyPlayed.value
-            .whereType<Map>()
-            .map((s) => mapToMediaItem(s).copyWith(playable: true))
-            .toList();
-      default:
-        return [];
+    if (parentMediaId == _rootPlaylists) {
+      final playlists = _playlistChildren();
+      return playlists.isEmpty
+          ? _emptyCategory(parentMediaId, _emptyCategoryMessage(parentMediaId)!)
+          : playlists;
+    }
+
+    final songs = await _songsForContainer(parentMediaId);
+    if (songs.isNotEmpty) return _browsableSongs(songs, parentMediaId);
+
+    final message = _emptyCategoryMessage(parentMediaId);
+    return message == null ? const [] : _emptyCategory(parentMediaId, message);
+  }
+
+  @override
+  ValueStream<Map<String, dynamic>> subscribeToChildren(String parentMediaId) {
+    return _childrenSubjects.putIfAbsent(
+      parentMediaId,
+      () => BehaviorSubject<Map<String, dynamic>>.seeded(<String, dynamic>{}),
+    );
+  }
+
+  void _notifyChildrenChanged(List<String> parentMediaIds) {
+    for (final parentMediaId in parentMediaIds) {
+      final subject = _childrenSubjects[parentMediaId];
+      if (subject != null && !subject.isClosed) {
+        subject.add(<String, dynamic>{});
+      }
+    }
+  }
+
+  void _setupMediaBrowserSubscriptions() {
+    void watch(Listenable source, List<String> parents) {
+      source.addListener(() => _notifyChildrenChanged(parents));
+    }
+
+    watch(userLikedSongsList, const [_rootLiked]);
+    watch(userOfflineSongs, const [_rootOffline]);
+    watch(userRecentlyPlayed, const [_rootRecent, AudioService.recentRootId]);
+    watch(userCustomPlaylists, const [_rootPlaylists]);
+    watch(userLikedPlaylists, const [_rootPlaylists]);
+    watch(userPlaylistFolders, const [_rootPlaylists]);
+
+    queue
+        .throttleTime(const Duration(seconds: 2), trailing: true)
+        .listen(
+          (_) => _notifyChildrenChanged(const [_rootQueue]),
+          onError: (Object error, StackTrace stackTrace) {
+            _logStreamError('Queue browse stream error', error, stackTrace);
+          },
+        );
+  }
+
+  // Search
+
+  bool _songMatches(Map song, String needle) {
+    final title = song['title']?.toString().toLowerCase() ?? '';
+    if (title.contains(needle)) return true;
+    final artist = song['artist']?.toString().toLowerCase() ?? '';
+    return artist.contains(needle);
+  }
+
+  Future<List<Map>> _searchSongs(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return const [];
+
+    final needle = trimmed.toLowerCase();
+    final results = <Map>[];
+    final seen = <String>{};
+
+    void collect(Iterable songs) {
+      for (final song in songs.whereType<Map>()) {
+        if (results.length >= _maxSearchResults) return;
+        final ytid = _songYtid(song);
+        if (ytid == null || seen.contains(ytid)) continue;
+        if (!_songMatches(song, needle)) continue;
+        seen.add(ytid);
+        results.add(song);
+      }
+    }
+
+    collect(userLikedSongsList.value);
+    collect(userOfflineSongs.value);
+    collect(userRecentlyPlayed.value);
+    collect(_queueList);
+
+    if (results.length >= _maxSearchResults || offlineMode.value) {
+      return results;
+    }
+
+    try {
+      final online = await fetchSongsList(trimmed)
+          .timeout(_browserFetchTimeout);
+      for (final song in online.whereType<Map>()) {
+        if (results.length >= _maxSearchResults) break;
+        final ytid = _songYtid(song);
+        if (ytid == null || !seen.add(ytid)) continue;
+        results.add(song);
+      }
+    } catch (e, stackTrace) {
+      logger.log(
+        'Media browser search failed for "$trimmed"',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return results;
+  }
+
+  @override
+  Future<List<MediaItem>> search(
+    String query, [
+    Map<String, dynamic>? extras,
+  ]) async {
+    try {
+      final results = await _searchSongs(query);
+      _lastSearchResults = results;
+      return _browsableSongs(results, _rootSearch);
+    } catch (e, stackTrace) {
+      logger.log('Error in search', error: e, stackTrace: stackTrace);
+      return const [];
     }
   }
 
@@ -1572,42 +1984,48 @@ class MusifyAudioHandler extends BaseAudioHandler {
     String query, [
     Map<String, dynamic>? extras,
   ]) async {
-    if (query.trim().isEmpty) {
-      // "Play music" with no specifics
-      if (_queueList.isNotEmpty) {
-        await play();
+    try {
+      if (query.trim().isEmpty) {
+        if (_queueList.isNotEmpty) {
+          await play();
+          return;
+        }
+        final recentSong = _latestResumableSong();
+        if (recentSong != null) await _playResumableSong(recentSong);
         return;
       }
-      final recentSong = _latestResumableSong();
-      if (recentSong != null) await _playResumableSong(recentSong);
-      return;
-    }
 
-    final q = query.trim().toLowerCase();
-    final candidates = [
-      ..._queueList,
-      ...userLikedSongsList.value.whereType<Map>(),
-      ...userOfflineSongs.value.whereType<Map>(),
-      ...userRecentlyPlayed.value.whereType<Map>(),
-    ];
+      final results = await _searchSongs(query);
+      if (results.isEmpty) {
+        logger.log('playFromSearch: no match for "$query"');
+        return;
+      }
 
-    final match = candidates.firstWhere((s) {
-      final title = s['title']?.toString().toLowerCase() ?? '';
-      final artist = s['artist']?.toString().toLowerCase() ?? '';
-      return title.contains(q) || artist.contains(q);
-    }, orElse: () => const {});
-
-    if (match.isNotEmpty) {
-      await _playResumableSong(match);
-    } else {
-      logger.log('playFromSearch: no local match for "$query"');
+      _lastSearchResults = results;
+      await addPlaylistToQueue(results, replace: true, startIndex: 0);
+    } catch (e, stackTrace) {
+      logger.log('Error in playFromSearch', error: e, stackTrace: stackTrace);
     }
   }
 
+  // Playback from the browse tree
+
   @override
   Future<MediaItem?> getMediaItem(String mediaId) async {
-    final song = _findSongByYtid(_ytidFromMediaId(mediaId));
-    return song == null ? null : _mediaItemForResumption(song);
+    try {
+      final parsed = _parseSongMediaId(mediaId);
+      if (parsed != null) {
+        final songs = await _songsForContainer(parsed.container);
+        final index = _indexOfSongToken(songs, parsed.container, parsed.token);
+        if (index >= 0) return _browsableSong(songs[index], parsed.container);
+      }
+
+      final song = _findSongByYtid(_ytidFromMediaId(mediaId));
+      return song == null ? null : _mediaItemForResumption(song);
+    } catch (e, stackTrace) {
+      logger.log('Error in getMediaItem', error: e, stackTrace: stackTrace);
+      return null;
+    }
   }
 
   @override
@@ -1636,17 +2054,44 @@ class MusifyAudioHandler extends BaseAudioHandler {
     );
   }
 
+  Future<bool> _playFromContainer(String containerId, String token) async {
+    final songs = await _songsForContainer(containerId);
+    if (songs.isEmpty) return false;
+
+    final index = _indexOfSongToken(songs, containerId, token);
+    if (index < 0) return false;
+
+    if (containerId == _rootQueue) {
+      await skipToQueueItem(index);
+      return true;
+    }
+
+    await addPlaylistToQueue(songs, replace: true, startIndex: index);
+    return true;
+  }
+
   @override
   Future<void> playFromMediaId(
     String mediaId, [
     Map<String, dynamic>? extras,
   ]) async {
-    final song = _findSongByYtid(_ytidFromMediaId(mediaId));
-    if (song == null) {
-      logger.log('No resumable song found for media id: $mediaId');
-      return;
+    try {
+      final parsed = _parseSongMediaId(mediaId);
+      if (parsed != null &&
+          await _playFromContainer(parsed.container, parsed.token)) {
+        return;
+      }
+
+      final song = _findSongByYtid(_ytidFromMediaId(mediaId));
+      if (song != null) {
+        await _playResumableSong(song);
+        return;
+      }
+
+      logger.log('No playable song found for media id: $mediaId');
+    } catch (e, stackTrace) {
+      logger.log('Error in playFromMediaId', error: e, stackTrace: stackTrace);
     }
-    await _playResumableSong(song);
   }
 
   @override
@@ -2004,7 +2449,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
       // source, not whatever session we're about to finish.
       final wasPlayingBeforeSwap = audioPlayer.playing;
 
-      await audioPlayer
+      final loadedDuration = await audioPlayer
           .setAudioSource(audioSource)
           .timeout(_songTransitionTimeout);
 
@@ -2016,8 +2461,12 @@ class MusifyAudioHandler extends BaseAudioHandler {
         return false;
       }
 
-      if (audioPlayer.duration != null) {
-        _updateCurrentMediaItemWithDuration(audioPlayer.duration!);
+      final resolvedDuration = loadedDuration ?? audioPlayer.duration;
+      if (resolvedDuration != null && _playerSourceMatchesCurrentSong()) {
+        _updateCurrentMediaItemWithDuration(
+          resolvedDuration,
+          preserveLongerKnown: _currentPlayerSourceIsClipped(),
+        );
       }
 
       // Finish the old session and start the new one as one atomic pair, only
@@ -2335,6 +2784,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
             child: source,
             start: Duration(seconds: lastEnd),
             end: Duration(seconds: start),
+            tag: source.tag,
           ),
         );
       }
@@ -2344,6 +2794,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
       ClippingAudioSource(
         child: source,
         start: Duration(seconds: lastEnd),
+        tag: source.tag,
       ),
     );
     if (children.length == 1) return children.first;
