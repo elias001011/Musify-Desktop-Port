@@ -119,24 +119,18 @@ jobs:
         run: flutter analyze .
 
       - name: Build arm64 APK
-        env:
-          MUSIFY_CLOUD_SYNC_URL: ${{ vars.MUSIFY_CLOUD_SYNC_URL }}
         run: |
           flutter build apk \
             --release \
             --split-per-abi \
             --target-platform=android-arm64 \
-            --flavor github \
-            --dart-define=MUSIFY_CLOUD_SYNC_URL="${MUSIFY_CLOUD_SYNC_URL}"
+            --flavor github
 
       - name: Build universal APK
-        env:
-          MUSIFY_CLOUD_SYNC_URL: ${{ vars.MUSIFY_CLOUD_SYNC_URL }}
         run: |
           flutter build apk \
             --release \
-            --flavor github \
-            --dart-define=MUSIFY_CLOUD_SYNC_URL="${MUSIFY_CLOUD_SYNC_URL}"
+            --flavor github
 
       - name: Stage artifacts
         shell: bash
@@ -155,10 +149,9 @@ jobs:
           Based on upstream Musify ${{ steps.release.outputs.version }} from gokadzev/Musify and packaged as the separate Musify Cloud Android build.
 
           What is different from original Musify:
-          - Optional Cloud Sync for settings, playlists, liked songs, recently played songs, and most-played metadata.
+          - Optional Local Sync: playlists, liked songs and history merge directly with the desktop port over Wi-Fi, with no account or server.
           - Separate Android package id com.elias001011.musifycloud, app name, icon color, and update channel, so it can be installed beside original Musify.
           - Mobile updater checks this repository's mobile-v* release channel instead of upstream Android releases.
-          - Large cloud backups may be gzip-compressed inside a JSON envelope before upload.
 
           Assets:
           - MusifyCloud.apk: universal Android APK.
@@ -171,8 +164,8 @@ jobs:
 
           Upstream Musify: https://github.com/gokadzev/Musify/releases/tag/${{ steps.release.outputs.version }}
 
-          Cloud Sync setup docs:
-          https://github.com/elias001011/Musify-Desktop-Port/blob/mobile-cloud-sync/docs/cloud-sync.md
+          Local Sync docs:
+          https://github.com/elias001011/Musify-Desktop-Port/blob/mobile-cloud-sync/docs/local-sync.md
           EOF
 
       - name: Publish GitHub release

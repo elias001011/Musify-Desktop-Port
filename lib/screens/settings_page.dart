@@ -27,10 +27,11 @@ import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
 import 'package:musify/screens/search_page.dart';
-import 'package:musify/services/cloud_sync_manager.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/data_manager.dart';
+import 'package:musify/services/library_merge_service.dart';
 import 'package:musify/services/listening_stats_service.dart';
+import 'package:musify/services/local_sync_service.dart';
 import 'package:musify/services/playlist_download_service.dart';
 import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/services/router_service.dart';
@@ -277,52 +278,50 @@ class SettingsPage extends StatelessWidget {
           },
         ),
 
-        _buildCloudSyncSection(context),
+        _buildLocalSyncSection(context),
         _buildToolsSection(context),
         _buildSponsorSection(context),
       ],
     );
   }
 
-  Widget _buildCloudSyncSection(BuildContext context) {
-    final manager = CloudSyncManager.instance;
+  Widget _buildLocalSyncSection(BuildContext context) {
+    final service = LocalSyncService.instance;
 
-    if (!manager.isSupportedPlatform) {
+    if (!service.isSupportedPlatform) {
       return const SizedBox.shrink();
     }
 
     return Column(
       children: [
         const SectionHeader(
-          title: 'Cloud Sync',
-          icon: FluentIcons.cloud_sync_24_filled,
+          title: 'Local sync',
+          icon: FluentIcons.phone_desktop_24_filled,
         ),
         ValueListenableBuilder<bool>(
-          valueListenable: cloudSyncEnabled,
+          valueListenable: localSyncEnabled,
           builder: (_, enabled, __) {
             return CustomBar(
-              'Cloud backup',
-              FluentIcons.cloud_sync_24_regular,
-              description: _cloudSyncDescription(manager, enabled),
+              'Sync over local network',
+              FluentIcons.wifi_1_24_regular,
+              description: enabled
+                  ? 'This device is visible to other Musify devices on the same Wi-Fi. Pair them once with a PIN, then libraries merge both ways.'
+                  : 'Keep playlists, liked songs and history the same on your phone and desktop, directly over Wi-Fi. No account, no server.',
               borderRadius: enabled
                   ? commonCustomBarRadiusFirst
                   : commonCustomBarRadius,
-              onTap: manager.isAvailable
-                  ? () => enabled
-                        ? _runCloudSyncAction(context, manager.synchronize())
-                        : _showCloudSyncSetupDialog(context)
+              onTap: enabled
+                  ? () => context.push('/settings/local-sync')
                   : null,
               trailing: Switch(
                 value: enabled,
-                onChanged: manager.isAvailable
-                    ? (value) => _toggleCloudSync(context, value)
-                    : null,
+                onChanged: (value) => _toggleLocalSync(context, value),
               ),
             );
           },
         ),
         ValueListenableBuilder<bool>(
-          valueListenable: cloudSyncEnabled,
+          valueListenable: localSyncEnabled,
           builder: (_, enabled, __) {
             if (!enabled) {
               return const SizedBox.shrink();
@@ -330,71 +329,42 @@ class SettingsPage extends StatelessWidget {
 
             return Column(
               children: [
+                ValueListenableBuilder<String>(
+                  valueListenable: localSyncStatus,
+                  builder: (_, status, __) {
+                    return CustomBar(
+                      'Devices',
+                      FluentIcons.arrow_sync_24_regular,
+                      description: _localSyncStatusDescription(status),
+                      onTap: () => context.push('/settings/local-sync'),
+                    );
+                  },
+                ),
                 ValueListenableBuilder<bool>(
-                  valueListenable: cloudSyncAutomatic,
+                  valueListenable: localSyncAutomatic,
                   builder: (_, automatic, __) {
                     return CustomBar(
-                      'Automatic uploads',
-                      FluentIcons.arrow_upload_24_regular,
-                      description:
-                          'When enabled, Musify uploads a fresh backup shortly after local changes.',
+                      'Automatic sync',
+                      FluentIcons.arrow_clockwise_24_regular,
+                      description: 'Sync with paired devices that are online at startup, shortly after you change something, and every 30 minutes.',
                       trailing: Switch(
                         value: automatic,
-                        onChanged: (value) =>
-                            _toggleCloudSyncAutomatic(context, value),
+                        onChanged: service.setAutomatic,
                       ),
                     );
                   },
                 ),
                 ValueListenableBuilder<String>(
-                  valueListenable: cloudSyncStatus,
-                  builder: (_, status, __) {
+                  valueListenable: localSyncConflictStrategy,
+                  builder: (_, strategy, __) {
                     return CustomBar(
-                      'Sync now',
-                      FluentIcons.arrow_sync_24_regular,
-                      description: _cloudSyncStatusDescription(status),
-                      onTap: () =>
-                          _runCloudSyncAction(context, manager.synchronize()),
-                    );
-                  },
-                ),
-                ValueListenableBuilder<bool>(
-                  valueListenable: cloudSyncAutomatic,
-                  builder: (_, automatic, __) {
-                    if (automatic) {
-                      return CustomBar(
-                        'Load cloud backup',
-                        FluentIcons.cloud_arrow_down_24_regular,
-                        description:
-                            'Download and apply the latest backup stored in the cloud.',
-                        borderRadius: commonCustomBarRadiusLast,
-                        onTap: () =>
-                            _runCloudSyncAction(context, manager.downloadNow()),
-                      );
-                    }
-
-                    return Column(
-                      children: [
-                        CustomBar(
-                          'Upload local backup',
-                          FluentIcons.cloud_arrow_up_24_regular,
-                          description:
-                              'Send the current local state to the cloud now.',
-                          onTap: () =>
-                              _runCloudSyncAction(context, manager.uploadNow()),
-                        ),
-                        CustomBar(
-                          'Load cloud backup',
-                          FluentIcons.cloud_arrow_down_24_regular,
-                          description:
-                              'Download and apply the latest backup stored in the cloud.',
-                          borderRadius: commonCustomBarRadiusLast,
-                          onTap: () => _runCloudSyncAction(
-                            context,
-                            manager.downloadNow(),
-                          ),
-                        ),
-                      ],
+                      'Same-name playlists',
+                      FluentIcons.list_24_regular,
+                      description: _conflictStrategyDescription(
+                        service.conflictStrategy,
+                      ),
+                      borderRadius: commonCustomBarRadiusLast,
+                      onTap: () => _showConflictStrategyPicker(context),
                     );
                   },
                 ),
@@ -531,8 +501,7 @@ class SettingsPage extends StatelessWidget {
                   );
                   NavigationManager.refreshRouter();
                 }
-                await CloudSyncManager.instance.rebindStorageListeners();
-                await CloudSyncManager.instance.markBackedUpStateChanged();
+                await LocalSyncService.instance.rebindStorageListeners();
               }
               if (context.mounted) {
                 showToast(
@@ -953,194 +922,64 @@ class SettingsPage extends StatelessWidget {
     }
   }
 
-  String _cloudSyncDescription(CloudSyncManager manager, bool enabled) {
-    if (!manager.isAvailable) {
-      return 'Backend not configured. Build with MUSIFY_CLOUD_SYNC_URL to enable this optional desktop sync.';
-    }
-    if (enabled) {
-      return 'Optional sync is connected. Startup downloads cloud updates; local changes can auto-upload.';
-    }
-    return 'Optional multi-device backup. Enter a passphrase to create or load your cloud backup.';
-  }
-
-  String _cloudSyncStatusDescription(String status) {
-    final lastSyncedAt = cloudSyncLastSyncedAt.value;
+  String _localSyncStatusDescription(String status) {
+    final lastSyncedAt = localSyncLastSyncedAt.value;
     if (lastSyncedAt == null) {
-      return status;
+      return '$status. Open to find devices and pair.';
     }
 
-    return '$status. Last sync: ${lastSyncedAt.toLocal()}';
+    final local = lastSyncedAt.toLocal();
+    String pad(int number) => number.toString().padLeft(2, '0');
+    final when =
+        '${local.year}-${pad(local.month)}-${pad(local.day)} '
+        '${pad(local.hour)}:${pad(local.minute)}';
+    return '$status. Last sync: $when';
   }
 
-  Future<void> _toggleCloudSync(BuildContext context, bool value) async {
-    if (value && !cloudSyncConfigured.value) {
-      await _showCloudSyncSetupDialog(context);
-      return;
-    }
+  String _conflictStrategyLabel(PlaylistConflictStrategy strategy) {
+    return switch (strategy) {
+      PlaylistConflictStrategy.merge => 'Merge songs',
+      PlaylistConflictStrategy.keepBoth => 'Keep both playlists',
+      PlaylistConflictStrategy.overwrite => 'Other device wins',
+    };
+  }
 
-    await _runCloudSyncAction(
+  String _conflictStrategyDescription(PlaylistConflictStrategy strategy) {
+    final label = _conflictStrategyLabel(strategy);
+    return switch (strategy) {
+      PlaylistConflictStrategy.merge =>
+        '$label. Two playlists with the same name become one with the songs of both.',
+      PlaylistConflictStrategy.keepBoth =>
+        '$label. Playlists created separately on each device stay separate.',
+      PlaylistConflictStrategy.overwrite =>
+        '$label. The incoming playlist replaces the songs of the one with the same name here.',
+    };
+  }
+
+  void _showConflictStrategyPicker(BuildContext context) {
+    final service = LocalSyncService.instance;
+    final current = service.conflictStrategy;
+
+    showCustomBottomSheet(
       context,
-      CloudSyncManager.instance.setEnabled(
-        value,
-        onMergeConflict: value
-            ? (conflict) => _promptCloudSyncMerge(context, conflict)
-            : null,
-      ),
-    );
-  }
-
-  Future<CloudSyncMergeChoice?> _promptCloudSyncMerge(
-    BuildContext context,
-    CloudSyncMergeConflict conflict,
-  ) {
-    if (!context.mounted) {
-      return Future.value(CloudSyncMergeChoice.keepCloud);
-    }
-
-    String formatMoment(DateTime? value) {
-      if (value == null) {
-        return 'unknown';
-      }
-      final local = value.toLocal();
-      String pad(int number, [int width = 2]) =>
-          number.toString().padLeft(width, '0');
-      return '${pad(local.year, 4)}-${pad(local.month)}-${pad(local.day)} '
-          '${pad(local.hour)}:${pad(local.minute)}';
-    }
-
-    return showDialog<CloudSyncMergeChoice>(
-      context: context,
-      builder: (dialogContext) {
-        final colorScheme = Theme.of(dialogContext).colorScheme;
-
-        return AlertDialog(
-          icon: Icon(
-            FluentIcons.cloud_sync_24_regular,
-            color: colorScheme.primary,
-            size: 32,
-          ),
-          title: const Text('Which copy do you want to keep?'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'This device and the cloud each already have a backup. Keep one '
-                'copy now; the other one is replaced.',
-              ),
-              const SizedBox(height: 16),
-              Text('Cloud backup: ${formatMoment(conflict.remoteUpdatedAt)}'),
-              Text('This device: ${formatMoment(conflict.localChangedAt)}'),
-            ],
-          ),
-          actionsAlignment: MainAxisAlignment.center,
-          actions: [
-            OutlinedButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(context.l10n!.cancel),
-            ),
-            OutlinedButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, CloudSyncMergeChoice.keepLocal),
-              child: const Text('Keep this device'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, CloudSyncMergeChoice.keepCloud),
-              child: const Text('Use cloud copy'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _toggleCloudSyncAutomatic(
-    BuildContext context,
-    bool value,
-  ) async {
-    await _runCloudSyncAction(
-      context,
-      CloudSyncManager.instance.setAutomaticUploads(value),
-    );
-  }
-
-  Future<void> _showCloudSyncSetupDialog(BuildContext context) async {
-    final controller = TextEditingController();
-
-    try {
-      await showDialog(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            icon: Icon(
-              FluentIcons.cloud_sync_24_regular,
-              color: Theme.of(dialogContext).colorScheme.primary,
-              size: 32,
-            ),
-            title: const Text('Cloud Sync'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Use the same passphrase on every device. If a backup already exists, Musify asks whether to keep the cloud copy or this device.',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: controller,
-                  autofocus: true,
-                  obscureText: true,
-                  autofillHints: const [AutofillHints.password],
-                  decoration: const InputDecoration(
-                    labelText: 'Passphrase',
-                    helperText: 'Minimum 8 characters',
-                  ),
-                  onSubmitted: (_) =>
-                      _connectCloudSync(context, dialogContext, controller),
-                ),
-              ],
-            ),
-            actionsAlignment: MainAxisAlignment.center,
-            actions: [
-              OutlinedButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: Text(context.l10n!.cancel),
-              ),
-              FilledButton(
-                onPressed: () =>
-                    _connectCloudSync(context, dialogContext, controller),
-                child: const Text('Connect'),
-              ),
-            ],
-          );
+      ListView.builder(
+        shrinkWrap: true,
+        physics: const BouncingScrollPhysics(),
+        padding: commonListViewBottomPadding,
+        itemCount: PlaylistConflictStrategy.values.length,
+        itemBuilder: (context, index) {
+          final strategy = PlaylistConflictStrategy.values[index];
+          return BottomSheetBar(_conflictStrategyLabel(strategy), () {
+            service.setConflictStrategy(strategy);
+            Navigator.pop(context);
+          }, current == strategy);
         },
-      );
-    } finally {
-      controller.dispose();
-    }
-  }
-
-  Future<void> _connectCloudSync(
-    BuildContext context,
-    BuildContext dialogContext,
-    TextEditingController controller,
-  ) async {
-    Navigator.pop(dialogContext);
-    await _runCloudSyncAction(
-      context,
-      CloudSyncManager.instance.connect(
-        controller.text,
-        onMergeConflict: (conflict) => _promptCloudSyncMerge(context, conflict),
       ),
     );
   }
 
-  Future<void> _runCloudSyncAction(
-    BuildContext context,
-    Future<({String message, bool success})> action,
-  ) async {
-    final result = await action;
+  Future<void> _toggleLocalSync(BuildContext context, bool value) async {
+    final result = await LocalSyncService.instance.setEnabled(value);
     if (context.mounted) {
       showToast(
         context,

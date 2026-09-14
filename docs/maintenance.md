@@ -2,7 +2,7 @@
 
 This branch tracks upstream mobile Musify and adds the Musify Cloud layer on
 top. The goal is to keep upstream changes flowing while preserving our Android
-package identity, update channel, and Cloud Sync code. Musify Cloud should stay
+package identity, update channel, and Local Sync code. Musify Cloud should stay
 functionally equivalent to original mobile Musify except for sync, package
 identity, updater channel, release workflows, and the small compatibility code
 needed for those items.
@@ -67,14 +67,20 @@ Manual recovery:
 8. Push with `git push origin HEAD:refs/heads/mobile-cloud-sync`.
 9. Run the mobile release workflow manually if needed.
 
-## Cloud Sync Notes
+## Local Sync Notes
 
-Cloud Sync currently stores one latest full backup per passphrase. The newest
-backup wins. This is simple and works well for a small personal sync feature,
-but it is not a multi-user database and it does not do field-level conflict
-merges.
+Local Sync is peer-to-peer over the local network: devices find each other
+with a UDP broadcast, pair once with a PIN and merge libraries over an in-app
+HTTP server. There is no backend, no repository variable and no build define
+to configure. The merge is additive (nothing is ever deleted by a sync) and
+settings are not synced, so a phone and a desktop can keep different
+preferences.
 
-See `docs/cloud-sync.md` for backend setup, limits and security notes.
+Android needs `ACCESS_WIFI_STATE` and `CHANGE_WIFI_MULTICAST_STATE` in the
+manifest so the app can receive discovery broadcasts; keep them when merging
+upstream manifest changes.
+
+See `docs/local-sync.md` for the protocol, the merge rules and platform notes.
 
 ## Branch And Tag Ambiguity
 

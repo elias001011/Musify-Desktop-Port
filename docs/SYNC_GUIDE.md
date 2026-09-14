@@ -1,7 +1,7 @@
 # Musify Desktop Port - Synchronization & Release Guide
 
 Internal documentation for synchronizing `gokadzev/Musify` upstream with our maintained branches:
-- **mobile-cloud-sync**: Musify Cloud (Android with Cloud Sync)
+- **mobile-cloud-sync**: Musify Cloud (Android with Local Sync over the LAN)
 - **master**: Musify Desktop Port (Windows/Linux)
 
 ## Current Status (2026-07-26)

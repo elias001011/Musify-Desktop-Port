@@ -46,13 +46,10 @@ jobs:
       - run: flutter analyze .
 
       - name: Build debug APK
-        env:
-          MUSIFY_CLOUD_SYNC_URL: ${{ vars.MUSIFY_CLOUD_SYNC_URL }}
         run: |
           flutter build apk \
             --debug \
-            --flavor github \
-            --dart-define=MUSIFY_CLOUD_SYNC_URL="${MUSIFY_CLOUD_SYNC_URL}"
+            --flavor github
 
       - uses: actions/upload-artifact@v7
         with:
