@@ -5,10 +5,10 @@ Unofficial Windows and Linux desktop port of
 Valeri Gokadze and contributors.
 
 <!-- download-counts:start -->
-[![Musify Desktop Port downloads](https://img.shields.io/badge/desktop%20downloads-95-2F6FE0?style=for-the-badge&logo=github)](https://github.com/elias001011/Musify-Desktop-Port/releases)
-[![Musify Cloud downloads](https://img.shields.io/badge/Musify%20Cloud-7-006A71?style=for-the-badge)](https://github.com/elias001011/Musify-Desktop-Port/releases)
+[![Musify Desktop Port downloads](https://img.shields.io/badge/desktop%20downloads-96-2F6FE0?style=for-the-badge&logo=github)](https://github.com/elias001011/Musify-Desktop-Port/releases)
+[![Musify Cloud downloads](https://img.shields.io/badge/Musify%20Cloud-8-006A71?style=for-the-badge)](https://github.com/elias001011/Musify-Desktop-Port/releases)
 
-<sub>102 downloads across every release of both products. Updated weekly.</sub>
+<sub>104 downloads across every release of both products. Updated weekly.</sub>
 <!-- download-counts:end -->
 
 This repository exists to ship **Musify for Windows and Linux**. The Android
