@@ -97,19 +97,21 @@ class BufferedStreamAudioSource extends StreamAudioSource {
     required this.streamInfo,
     super.tag,
   }) : bufferFile = File(
-         '${FilePaths.getStreamBufferDirPath()}/$songId.part',
+         '${FilePaths.getStreamBufferDirPath()}/$songId-${_nextBufferId++}.part',
        );
 
   /// The download feeding the song being played. Starting another one discards
   /// it: skipping through a queue would otherwise leave a download running per
   /// song passed through, all competing for the same connection.
   static BufferedStreamAudioSource? _active;
+  static int _nextBufferId = 0;
 
   final String songId;
   final AudioOnlyStreamInfo streamInfo;
   final File bufferFile;
 
   Future<void>? _download;
+  StreamIterator<List<int>>? _downloadIterator;
   RandomAccessFile? _writeHandle;
   int _downloadedBytes = 0;
   bool _downloadDone = false;
@@ -121,6 +123,9 @@ class BufferedStreamAudioSource extends StreamAudioSource {
   @override
   // ignore: experimental_member_use
   Future<StreamAudioResponse> request([int? start, int? end]) async {
+    if (_discarded) {
+      throw StateError('Stream buffer for $songId was discarded');
+    }
     _ensureDownloadStarted();
 
     final from = start ?? 0;
@@ -142,6 +147,7 @@ class BufferedStreamAudioSource extends StreamAudioSource {
     if (_discarded) return;
     _discarded = true;
 
+    await _downloadIterator?.cancel();
     await _download;
 
     try {
@@ -158,9 +164,14 @@ class BufferedStreamAudioSource extends StreamAudioSource {
         stackTrace: stackTrace,
       );
     }
+
+    if (identical(_active, this)) _active = null;
   }
 
   void _ensureDownloadStarted() {
+    if (_discarded) {
+      throw StateError('Stream buffer for $songId was discarded');
+    }
     if (_download != null) return;
 
     final previous = _active;
@@ -174,21 +185,25 @@ class BufferedStreamAudioSource extends StreamAudioSource {
 
   Future<void> _runDownload() async {
     try {
-      await Directory(FilePaths.getStreamBufferDirPath()).create(
-        recursive: true,
-      );
+      await Directory(FilePaths.getStreamBufferDirPath())
+          .create(recursive: true);
+      if (_discarded) return;
 
       final handle = await bufferFile.open(mode: FileMode.write);
       _writeHandle = handle;
+      if (_discarded) return;
 
       final chunks = ytClient.videos.streamsClient.get(
         streamInfo,
         ytClient: customClients.first,
       );
+      final iterator = StreamIterator(chunks);
+      _downloadIterator = iterator;
 
       // Returning from the loop cancels the underlying subscription, which is
       // how a discarded download stops pulling bytes.
-      await for (final chunk in chunks) {
+      while (await iterator.moveNext()) {
+        final chunk = iterator.current;
         if (_discarded) return;
         await handle.writeFrom(chunk);
         _downloadedBytes += chunk.length;
@@ -203,6 +218,7 @@ class BufferedStreamAudioSource extends StreamAudioSource {
         stackTrace: stackTrace,
       );
     } finally {
+      _downloadIterator = null;
       _downloadDone = true;
       // The write handle stays open, and the file on disk: the song is still
       // playing out of it. Both go in discard(), when the next song starts.
