@@ -17,6 +17,11 @@ on:
         required: false
         default: false
         type: boolean
+      prerelease:
+        description: Mark the GitHub release as a prerelease (the in-app updater skips it)
+        required: false
+        default: false
+        type: boolean
   push:
     tags:
       - mobile-v*
@@ -41,11 +46,13 @@ jobs:
             version="${{ inputs.version }}"
             source_ref="${{ inputs.source_ref }}"
             repair="${{ inputs.repair_existing_release }}"
+            prerelease="${{ inputs.prerelease }}"
           else
             tag="${GITHUB_REF_NAME}"
             version="${tag#mobile-v}"
             source_ref="${GITHUB_SHA}"
             repair="false"
+            prerelease="false"
           fi
 
           version="${version#v}"
@@ -56,6 +63,7 @@ jobs:
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "source_ref=${source_ref:-refs/heads/mobile-cloud-sync}" >> "$GITHUB_OUTPUT"
           echo "repair=${repair}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease:-false}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout code
         uses: actions/checkout@v5
@@ -176,6 +184,10 @@ jobs:
           tag="${{ steps.release.outputs.tag }}"
           repair="${{ steps.release.outputs.repair }}"
           target_commit="$(git rev-parse HEAD)"
+          prerelease_flag="--prerelease=false"
+          if [[ "${{ steps.release.outputs.prerelease }}" == "true" ]]; then
+            prerelease_flag="--prerelease"
+          fi
 
           if gh release view "$tag" >/dev/null 2>&1; then
             if [[ "$repair" != "true" ]]; then
@@ -189,12 +201,14 @@ jobs:
             gh release edit "$tag" \
               --title "Musify Cloud ${{ steps.release.outputs.version }}" \
               --notes-file release_notes.md \
-              --target "$target_commit"
+              --target "$target_commit" \
+              "$prerelease_flag"
           else
             gh release create "$tag" \
               --title "Musify Cloud ${{ steps.release.outputs.version }}" \
               --notes-file release_notes.md \
-              --target "$target_commit"
+              --target "$target_commit" \
+              "$prerelease_flag"
           fi
 
           gh release upload "$tag" dist/MusifyCloud-arm64-v8a.apk dist/MusifyCloud.apk dist/SHA256SUMS.txt --clobber
@@ -237,6 +251,7 @@ jobs:
       # never starts anything. An explicit workflow_dispatch does run, which is
       # how every other cross-workflow hand-off in this repository works.
       - name: Sync Musify AI with this release
+        if: steps.release.outputs.prerelease != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
