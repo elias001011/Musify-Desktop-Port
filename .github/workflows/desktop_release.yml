@@ -263,6 +263,8 @@ jobs:
           - Desktop speaker button with inline volume slider in the miniplayer and expanded player.
           - Desktop updater follows this repository's desktop-v* release channel.
           - Interface scale slider and remappable keyboard shortcuts.
+          - Title bar that follows the app's light/dark theme, and an option to start maximized.
+          - Choose the folder where downloaded songs are saved.
           - Optional Local Sync: playlists, liked songs and history merge directly between devices over Wi-Fi, with no account or server.
 
           Assets:

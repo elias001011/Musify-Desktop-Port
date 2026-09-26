@@ -118,6 +118,28 @@ change upstream mobile behavior. The control appears in:
 The shared widget is `lib/widgets/desktop_volume_control.dart`, and the audio
 API is exposed by `MusifyAudioHandler.volumeStream`, `volume`, and `setVolume`.
 
+## Desktop Window And Downloads Folder
+
+The native window is driven from Dart over the `musify/window` method channel
+(`lib/services/desktop_window_service.dart`), handled in
+`linux/runner/my_application.cc` and `windows/runner/flutter_window.cpp`:
+
+- `setTitleBarTheme` paints the title bar with the app theme's background and
+  text colours. On Linux it styles the GNOME header bar (`#musify-header-bar`)
+  and sets GTK's dark preference; on Windows it uses DWM (dark frame everywhere,
+  caption/text colours on Windows 11).
+- `maximize` is called before `runApp` when "Start maximized" is on, so the
+  window shows up maximized on its first frame.
+
+The "Downloads folder" setting (`lib/services/downloads_location_service.dart`)
+moves `tracks/` and `artworks/` to the chosen folder and rewrites the absolute
+paths stored in `offlineSongs` and `offlinePlaylists`. The choice lives in the
+`userNoBackup` box because it is a path on this machine. A folder missing at
+startup is not recreated: downloads fall back to the default location until it
+is back. Only files named like downloads (`<youtube id>.m4a` / `.jpg`) are ever
+moved or deleted, since the chosen folder may hold the user's own files. Hive
+data itself stays in the default location.
+
 ## Remotes
 
 Recommended local remotes:

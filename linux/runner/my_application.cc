@@ -1,6 +1,7 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <string.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -10,6 +11,11 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  GtkWindow* window;
+  // Null when the window manager draws the title bar instead of GTK.
+  GtkWidget* header_bar;
+  GtkCssProvider* title_bar_css;
+  FlMethodChannel* window_channel;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -19,11 +25,82 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
+// Paints the header bar with the colours of the app theme (sent from
+// lib/services/desktop_window_service.dart), so it switches with the app's
+// light/dark mode instead of following the system GTK theme.
+static void apply_title_bar_theme(MyApplication* self, gboolean dark,
+                                  int64_t background, int64_t foreground) {
+  g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
+               dark, nullptr);
+
+  if (self->header_bar == nullptr) {
+    return;
+  }
+
+  const guint bg = static_cast<guint>(background) & 0xFFFFFF;
+  const guint fg = static_cast<guint>(foreground) & 0xFFFFFF;
+  g_autofree gchar* css = g_strdup_printf(
+      "#musify-header-bar {"
+      "  background: #%06x; color: #%06x;"
+      "  border: none; box-shadow: none;"
+      "  min-height: 38px; padding: 0 6px;"
+      "}"
+      "#musify-header-bar .title { color: #%06x; font-weight: bold; }"
+      "#musify-header-bar button {"
+      "  color: #%06x; background: none; border: none; box-shadow: none;"
+      "}"
+      "#musify-header-bar button:hover { background: alpha(#%06x, 0.12); }"
+      "#musify-header-bar button:active { background: alpha(#%06x, 0.2); }",
+      bg, fg, fg, fg, fg, fg);
+  gtk_css_provider_load_from_data(self->title_bar_css, css, -1, nullptr);
+}
+
+static void window_method_call_cb(FlMethodChannel* channel,
+                                  FlMethodCall* method_call,
+                                  gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  const gchar* method = fl_method_call_get_name(method_call);
+  FlValue* args = fl_method_call_get_args(method_call);
+  g_autoptr(FlMethodResponse) response = nullptr;
+
+  if (strcmp(method, "maximize") == 0) {
+    gtk_window_maximize(self->window);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (strcmp(method, "setTitleBarTheme") == 0) {
+    FlValue* dark = nullptr;
+    FlValue* background = nullptr;
+    FlValue* foreground = nullptr;
+    if (fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      dark = fl_value_lookup_string(args, "dark");
+      background = fl_value_lookup_string(args, "background");
+      foreground = fl_value_lookup_string(args, "foreground");
+    }
+    if (dark == nullptr || fl_value_get_type(dark) != FL_VALUE_TYPE_BOOL ||
+        background == nullptr ||
+        fl_value_get_type(background) != FL_VALUE_TYPE_INT ||
+        foreground == nullptr ||
+        fl_value_get_type(foreground) != FL_VALUE_TYPE_INT) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "bad_args", "Expected dark, background and foreground", nullptr));
+    } else {
+      apply_title_bar_theme(self, fl_value_get_bool(dark),
+                            fl_value_get_int(background),
+                            fl_value_get_int(foreground));
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+    }
+  } else {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+
+  fl_method_call_respond(method_call, response, nullptr);
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+  self->window = window;
 
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
@@ -44,10 +121,18 @@ static void my_application_activate(GApplication* application) {
 #endif
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
+    gtk_widget_set_name(GTK_WIDGET(header_bar), "musify-header-bar");
     gtk_widget_show(GTK_WIDGET(header_bar));
     gtk_header_bar_set_title(header_bar, "Musify");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
+    self->header_bar = GTK_WIDGET(header_bar);
+
+    self->title_bar_css = gtk_css_provider_new();
+    gtk_style_context_add_provider_for_screen(
+        gtk_window_get_screen(window),
+        GTK_STYLE_PROVIDER(self->title_bar_css),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
   } else {
     gtk_window_set_title(window, "Musify");
   }
@@ -74,6 +159,13 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  self->window_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "musify/window", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->window_channel, window_method_call_cb, self, nullptr);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -121,6 +213,8 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  g_clear_object(&self->window_channel);
+  g_clear_object(&self->title_bar_css);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 

@@ -19,7 +19,10 @@
  *     please visit: https://github.com/gokadzev/Musify
  */
 
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -29,6 +32,8 @@ import 'package:musify/main.dart';
 import 'package:musify/screens/search_page.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/data_manager.dart';
+import 'package:musify/services/downloads_location_service.dart';
+import 'package:musify/services/io_service.dart';
 import 'package:musify/services/library_merge_service.dart';
 import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/local_sync_service.dart';
@@ -685,6 +690,24 @@ class SettingsPage extends StatelessWidget {
             );
           },
         ),
+        ValueListenableBuilder<bool>(
+          valueListenable: startMaximized,
+          builder: (context, value, _) {
+            return CustomBar(
+              context.l10n!.startMaximized,
+              FluentIcons.maximize_24_regular,
+              description: context.l10n!.startMaximizedDescription,
+              trailing: Switch(
+                value: value,
+                onChanged: (value) {
+                  startMaximized.value = value;
+                  addOrUpdateData<bool>('settings', 'startMaximized', value);
+                },
+              ),
+            );
+          },
+        ),
+        const _DownloadsFolderBar(),
         CustomBar(
           context.l10n!.keyboardShortcuts,
           FluentIcons.keyboard_24_regular,
@@ -1101,5 +1124,147 @@ class SettingsPage extends StatelessWidget {
         icon: result.success ? null : FluentIcons.error_circle_24_regular,
       );
     }
+  }
+}
+
+/// The desktop "Downloads folder" option. Stateful so its description follows
+/// the folder once the downloads have been moved.
+class _DownloadsFolderBar extends StatefulWidget {
+  const _DownloadsFolderBar();
+
+  @override
+  State<_DownloadsFolderBar> createState() => _DownloadsFolderBarState();
+}
+
+class _DownloadsFolderBarState extends State<_DownloadsFolderBar> {
+  @override
+  Widget build(BuildContext context) {
+    final custom = DownloadsLocation.customPath;
+    final description = DownloadsLocation.unavailable
+        ? context.l10n!.downloadsFolderUnavailable(custom ?? '')
+        : custom ??
+              '${context.l10n!.downloadsFolderDefault} '
+                  '(${DownloadsLocation.defaultPath})';
+
+    return CustomBar(
+      context.l10n!.downloadsFolder,
+      FluentIcons.folder_open_24_regular,
+      description: description,
+      onTap: _showDialog,
+    );
+  }
+
+  void _showDialog() {
+    final custom = DownloadsLocation.customPath;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          icon: Icon(
+            FluentIcons.folder_open_24_regular,
+            color: Theme.of(dialogContext).colorScheme.primary,
+            size: 32,
+          ),
+          title: Text(context.l10n!.downloadsFolder),
+          content: SelectableText(
+            custom ?? DownloadsLocation.defaultPath,
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            if (custom != null)
+              OutlinedButton(
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  _confirmChange(null);
+                },
+                child: Text(context.l10n!.downloadsFolderReset),
+              ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _pickFolder();
+              },
+              child: Text(context.l10n!.downloadsFolderChoose),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _pickFolder() async {
+    String? picked;
+    try {
+      picked = await FilePicker.getDirectoryPath(
+        dialogTitle: context.l10n!.downloadsFolder,
+        initialDirectory: downloadsDirPath,
+      );
+    } catch (e, stackTrace) {
+      logger.log('Folder picker failed', error: e, stackTrace: stackTrace);
+      if (mounted) {
+        showToast(context, context.l10n!.downloadsFolderPickerUnavailable);
+      }
+      return;
+    }
+    if (picked != null && mounted) _confirmChange(picked);
+  }
+
+  /// Moves the downloads to [folder] (null for the default location) once the
+  /// user confirms, blocking the UI while the files are moved.
+  void _confirmChange(String? folder) {
+    if (offlinePlaylistService.activeDownloads.isNotEmpty) {
+      showToast(context, context.l10n!.downloadsFolderBusy);
+      return;
+    }
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => ConfirmationDialog(
+        confirmationMessage: context.l10n!.downloadsFolderMoveConfirm(
+          folder ?? DownloadsLocation.defaultPath,
+        ),
+        submitMessage: context.l10n!.confirm,
+        onCancel: () => Navigator.pop(dialogContext),
+        onSubmit: () {
+          Navigator.pop(dialogContext);
+          _move(folder);
+        },
+      ),
+    );
+  }
+
+  Future<void> _move(String? folder) async {
+    final l10n = context.l10n!;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content: Row(
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(width: 20),
+                Expanded(child: Text(l10n.downloadsFolderMoving)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final status = await DownloadsLocation.change(folder);
+    navigator.pop();
+
+    if (!mounted) return;
+    setState(() {});
+    showToast(context, switch (status) {
+      DownloadsMoveStatus.moved => l10n.downloadsFolderMoved,
+      DownloadsMoveStatus.partiallyMoved => l10n.downloadsFolderPartiallyMoved,
+      DownloadsMoveStatus.notWritable => l10n.downloadsFolderNotWritable,
+    });
   }
 }

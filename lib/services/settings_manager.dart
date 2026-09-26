@@ -92,6 +92,11 @@ double _readInterfaceScale() {
 
 final interfaceScale = ValueNotifier<double>(_readInterfaceScale());
 
+/// Desktop only: open the window maximized instead of at its default size.
+final startMaximized = ValueNotifier<bool>(
+  Hive.box('settings').get('startMaximized', defaultValue: false),
+);
+
 List<double> _readEqualizerGains() {
   final raw = Hive.box('settings')
       .get('equalizerBandGains', defaultValue: const <dynamic>[]);
@@ -216,6 +221,7 @@ void reloadSettingsFromStorage() {
     defaultValue: false,
   );
   interfaceScale.value = _readInterfaceScale();
+  startMaximized.value = settings.get('startMaximized', defaultValue: false);
   KeyboardShortcutsManager.reload();
   equalizerEnabled.value = settings.get(
     'equalizerEnabled',

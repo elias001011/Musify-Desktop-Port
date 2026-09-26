@@ -23,7 +23,6 @@
 
 import 'dart:async';
 import 'dart:collection';
-import 'dart:io';
 
 import 'package:hive/hive.dart';
 import 'package:material_ui/material_ui.dart';
@@ -475,17 +474,7 @@ class OfflinePlaylistService {
     }
 
     try {
-      final tracksDir = Directory('$applicationDirPath/${FilePaths.tracksDir}');
-      final artworksDir = Directory(
-        '$applicationDirPath/${FilePaths.artworksDir}',
-      );
-
-      if (await tracksDir.exists()) {
-        await tracksDir.delete(recursive: true);
-      }
-      if (await artworksDir.exists()) {
-        await artworksDir.delete(recursive: true);
-      }
+      await FilePaths.deleteDownloadedFiles(userOfflineSongs.value);
 
       await FilePaths.ensureDirectoriesExist();
 

@@ -839,7 +839,11 @@ Future<bool> makeSongOffline(dynamic song) async {
     }
 
     if (isSongAlreadyOffline(ytid)) {
-      final existingPath = FilePaths.getAudioPath(ytid);
+      // The stored path first: the downloads folder may have changed since.
+      final storedPath = getOfflineSongByYtid(ytid)['audioPath'];
+      final existingPath = storedPath is String && storedPath.isNotEmpty
+          ? storedPath
+          : FilePaths.getAudioPath(ytid);
       if (await File(existingPath).exists()) {
         unawaited(cacheSponsorBlockSegments(ytid));
         return true;
@@ -953,9 +957,19 @@ Future<bool> makeSongOffline(dynamic song) async {
 
 Future<bool> removeSongFromOffline(dynamic songId) async {
   try {
-    final audioPath = FilePaths.getAudioPath(songId);
+    // Prefer the stored paths: the downloads folder may have changed since
+    // the song was downloaded.
+    final storedSong = getOfflineSongByYtid(songId.toString());
+    final storedAudioPath = storedSong['audioPath'];
+    final storedArtworkPath = storedSong['artworkPath'];
+    final audioPath = storedAudioPath is String && storedAudioPath.isNotEmpty
+        ? storedAudioPath
+        : FilePaths.getAudioPath(songId);
     final audioFile = File(audioPath);
-    final artworkPath = FilePaths.getArtworkPath(songId);
+    final artworkPath =
+        storedArtworkPath is String && storedArtworkPath.isNotEmpty
+        ? storedArtworkPath
+        : FilePaths.getArtworkPath(songId);
     final artworkFile = File(artworkPath);
 
     try {

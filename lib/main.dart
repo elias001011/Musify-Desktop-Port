@@ -36,6 +36,8 @@ import 'package:musify/extensions/l10n.dart';
 import 'package:musify/localization/app_localizations.dart';
 import 'package:musify/services/audio_service.dart';
 import 'package:musify/services/data_manager.dart';
+import 'package:musify/services/desktop_window_service.dart';
+import 'package:musify/services/downloads_location_service.dart';
 import 'package:musify/services/io_service.dart';
 import 'package:musify/services/keyboard_shortcuts_manager.dart';
 import 'package:musify/services/listening_stats_service.dart';
@@ -371,7 +373,9 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
               if (!isDesktopPlatform) {
                 return content;
               }
-              content = GlobalShortcuts(child: content);
+              content = DesktopTitleBarTheme(
+                child: GlobalShortcuts(child: content),
+              );
               return ValueListenableBuilder<double>(
                 valueListenable: interfaceScale,
                 builder: (context, scale, innerChild) {
@@ -399,6 +403,12 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   JustAudioMediaKit.ensureInitialized();
   await initialisation();
+
+  // Before runApp, so the window shows up maximized on its first frame
+  // instead of opening at the default size and then jumping.
+  if (isDesktopPlatform && startMaximized.value) {
+    await DesktopWindow.maximize();
+  }
 
   runApp(const Musify());
 }
@@ -461,6 +471,7 @@ Future<void> initialisation() async {
   }
 
   applicationDirPath = (await getApplicationDocumentsDirectory()).path;
+  await DownloadsLocation.initialise();
   await FilePaths.ensureDirectoriesExist();
   // Whatever a crash or a kill mid-song left behind: nothing ever reads it.
   unawaited(clearStreamBuffers());
