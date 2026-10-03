@@ -27,7 +27,6 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:musify/constants/clients.dart';
 import 'package:musify/main.dart';
 import 'package:musify/models/position_data.dart';
 import 'package:musify/services/common_services.dart';
@@ -35,7 +34,6 @@ import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/services/settings_manager.dart';
-import 'package:musify/services/stream_buffer_service.dart';
 import 'package:musify/utilities/map_utils.dart';
 import 'package:musify/utilities/media_duration.dart';
 import 'package:musify/utilities/mediaitem.dart';
@@ -93,10 +91,6 @@ class MusifyAudioHandler extends BaseAudioHandler {
   int _currentQueueIndex = 0;
   int _currentLoadingIndex = -1;
   int _currentLoadingTransitionId = -1;
-
-  /// Segments to seek past while the current song streams, kept with the song
-  /// they were looked up for so a stale transition can't skip another song.
-  ({String ytid, List<Map<String, int>> segments})? _activeSkipSegments;
   bool _isUpdatingState = false;
   bool _pendingPlaybackStateUpdate = false;
   bool _pendingForcedPlaybackStateUpdate = false;
@@ -218,15 +212,6 @@ class MusifyAudioHandler extends BaseAudioHandler {
         _logStreamError('Processing state stream error', error, stackTrace);
       },
     );
-
-    audioPlayer.positionStream
-        .throttleTime(const Duration(milliseconds: 200))
-        .listen(
-          _skipSponsoredSegment,
-          onError: (error, stackTrace) {
-            _logStreamError('Position stream error', error, stackTrace);
-          },
-        );
 
     audioPlayer.durationStream.listen(
       (duration) {
@@ -873,52 +858,48 @@ class MusifyAudioHandler extends BaseAudioHandler {
     }
   }
 
+  /// Queues one similar song when the current song is the last of the queue.
   Future<void> _backgroundAddSongsToQueue() async {
-    // Fire and forget - this runs as a background task without blocking playback
-    if (offlineMode.value) return;
+    // Repeat modes keep the queue cycling, so extending it would corrupt it.
+    if (offlineMode.value ||
+        hasNext ||
+        repeatNotifier.value != AudioServiceRepeatMode.none) {
+      return;
+    }
 
-    // Use microtask to avoid blocking the current operation
-    unawaited(
-      Future.microtask(() async {
-        try {
-          // Only add songs if we're still playing
-          if (!audioPlayer.playing) {
-            return;
-          }
+    final baseYtid = _getCurrentSongForRecommendations()?['ytid']?.toString();
+    if (baseYtid == null || baseYtid.isEmpty) return;
 
-          final baseSong = _getCurrentSongForRecommendations();
-          if (baseSong == null) {
-            return;
-          }
+    try {
+      final knownYtids = {
+        for (final song in [..._queueList, ..._historyList])
+          if (song['ytid'] != null) song['ytid'].toString(),
+      };
 
-          // Fetch similar songs silently in the background
-          await getSimilarSong(baseSong['ytid']).timeout(
+      final recommended =
+          await getSimilarSong(baseYtid, excludedYtIds: knownYtids).timeout(
             const Duration(seconds: 10),
             onTimeout: () {
               logger.log('Background song fetch timed out');
+              return null;
             },
           );
 
-          // If we got a recommendation, add it to the queue
-          // But only if still playing (user might have paused during fetch)
-          if (!audioPlayer.playing) {
-            return;
-          }
+      // The user may have skipped, paused or extended the queue meanwhile.
+      final isStillRelevant =
+          audioPlayer.playing &&
+          !hasNext &&
+          _getCurrentSongForRecommendations()?['ytid']?.toString() == baseYtid;
+      if (recommended == null || !isStillRelevant) return;
 
-          if (nextRecommendedSong != null) {
-            final songToAdd = nextRecommendedSong;
-            nextRecommendedSong = null;
-            await _insertRecommendedSong(songToAdd);
-          }
-        } catch (e, stackTrace) {
-          logger.log(
-            'Error in background song addition',
-            error: e,
-            stackTrace: stackTrace,
-          );
-        }
-      }),
-    );
+      await _insertRecommendedSong(recommended);
+    } catch (e, stackTrace) {
+      logger.log(
+        'Error in background song addition',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   Map? _getCurrentSongForRecommendations() {
@@ -2754,10 +2735,6 @@ class MusifyAudioHandler extends BaseAudioHandler {
     try {
       final tag = mapToMediaItem(song);
 
-      // Only a song served from the growing buffer file needs segments skipped
-      // as it plays; every other source has them clipped out of its audio.
-      _activeSkipSegments = null;
-
       if (isOffline) {
         final fileSource = AudioSource.file(songUrl, tag: tag);
 
@@ -2770,15 +2747,7 @@ class MusifyAudioHandler extends BaseAudioHandler {
       }
 
       final uri = Uri.parse(songUrl);
-
-      final bufferedSource = await _buildBufferedAudioSource(song, uri, tag);
-      if (bufferedSource != null) return bufferedSource;
-
-      final audioSource = AudioSource.uri(
-        uri,
-        headers: _isYoutubeStreamUri(uri) ? customClientHeaders : null,
-        tag: tag,
-      );
+      final audioSource = AudioSource.uri(uri, tag: tag);
 
       if (!sponsorBlockSupport.value) {
         return audioSource;
@@ -2797,81 +2766,6 @@ class MusifyAudioHandler extends BaseAudioHandler {
       );
       return null;
     }
-  }
-
-  /// Plays a song out of a buffer file downloading in ranged chunks, which
-  /// fills faster than playback drains it. Returns null for anything the
-  /// buffer doesn't apply to — radio stations, live tracks, a stream that
-  /// couldn't be resolved — leaving the caller on the plain streaming path.
-  Future<AudioSource?> _buildBufferedAudioSource(
-    Map song,
-    Uri uri,
-    MediaItem tag,
-  ) async {
-    if (!streamBufferEnabled) return null;
-
-    final songId = song['ytid']?.toString();
-    if (songId == null || songId.isEmpty) return null;
-    if (song['isLive'] == true) return null;
-    if (!_isYoutubeStreamUri(uri)) return null;
-
-    try {
-      final streamInfo = await fetchBestAudioStream(songId);
-      if (streamInfo == null) return null;
-
-      await _loadSkipSegmentsForPlayback(songId);
-
-      return BufferedStreamAudioSource(
-        songId: songId,
-        streamInfo: streamInfo,
-        tag: tag,
-      );
-    } catch (e, stackTrace) {
-      logger.log(
-        'Error building buffered audio source for $songId',
-        error: e,
-        stackTrace: stackTrace,
-      );
-      return null;
-    }
-  }
-
-  /// Arms [_skipSponsoredSegment] for [songId], since a growing buffer file
-  /// can't be clipped into segments the way a finished file can.
-  Future<void> _loadSkipSegmentsForPlayback(String songId) async {
-    if (!sponsorBlockSupport.value) return;
-
-    final segments = await getSkipSegments(songId);
-    if (segments.isEmpty) return;
-
-    segments.sort((a, b) => (a['start'] ?? 0).compareTo(b['start'] ?? 0));
-    _activeSkipSegments = (ytid: songId, segments: segments);
-  }
-
-  /// Seeks past a sponsored segment as playback reaches it.
-  void _skipSponsoredSegment(Duration position) {
-    final active = _activeSkipSegments;
-    if (active == null || !audioPlayer.playing) return;
-    if (currentSong?['ytid']?.toString() != active.ytid) return;
-
-    final seconds = position.inSeconds;
-    for (final segment in active.segments) {
-      final start = segment['start'] ?? 0;
-      final end = segment['end'] ?? 0;
-      if (end <= start) continue;
-
-      if (seconds >= start && seconds < end) {
-        unawaited(audioPlayer.seek(Duration(seconds: end)));
-        return;
-      }
-    }
-  }
-
-  /// Whether [uri] points at a YouTube stream, and so needs the headers of
-  /// the client that minted it. Radio stations keep the player's own headers.
-  static bool _isYoutubeStreamUri(Uri uri) {
-    final host = uri.host.toLowerCase();
-    return host == 'googlevideo.com' || host.endsWith('.googlevideo.com');
   }
 
   AudioSource? _applyOfflineSponsorBlock(
@@ -3036,6 +2930,15 @@ class MusifyAudioHandler extends BaseAudioHandler {
       ..clear()
       ..addAll(cloneMaps(_queueList));
 
+    _shuffleQueueList(unplayedManualSongs, manualSongIds);
+  }
+
+  /// Shuffles the whole queue, keeping the current song first and any
+  /// unplayed manually added songs right after it.
+  void _shuffleQueueList(
+    List<Map> unplayedManualSongs,
+    Set<String> manualSongIds,
+  ) {
     final currentSong = _queueList[_currentQueueIndex];
     final currentQueueEntryId = _queueEntryIds.ensureId(currentSong);
 
@@ -3092,6 +2995,31 @@ class MusifyAudioHandler extends BaseAudioHandler {
 
     _originalQueueList.clear();
     _updateQueueMediaItems();
+  }
+
+  /// Reshuffles the queue on every call. Leaves the saved original order
+  /// untouched so turning shuffle mode off still restores it.
+  Future<void> shuffleQueue() async {
+    try {
+      if (_queueList.length < 2 ||
+          _currentQueueIndex < 0 ||
+          _currentQueueIndex >= _queueList.length) {
+        return;
+      }
+
+      _hydrateQueueEntryIds();
+      final unplayedManualSongs = _getUnplayedManualSongs();
+      final manualSongIds = unplayedManualSongs
+          .map(_queueEntryIds.ensureId)
+          .toSet();
+      _shuffleQueueList(unplayedManualSongs, manualSongIds);
+
+      _cleanupOldPreloadedSongs();
+      _preloadUpcomingSongs();
+      _updatePlaybackState(force: true);
+    } catch (e, stackTrace) {
+      logger.log('Error shuffling queue', error: e, stackTrace: stackTrace);
+    }
   }
 
   @override
