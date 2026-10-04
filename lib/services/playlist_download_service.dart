@@ -169,6 +169,12 @@ class OfflinePlaylistService {
       if (context.mounted) {
         showToast(context, '${context.l10n!.error}: $e');
       }
+    } finally {
+      // Ensure cleanup happens even if _handleDownloadCompletion throws
+      if (activeDownloads.contains(playlistId)) {
+        activeDownloads.remove(playlistId);
+        cleanupProgressNotifier(playlistId);
+      }
     }
   }
 
@@ -325,7 +331,8 @@ class OfflinePlaylistService {
       }
 
       // Find the playlist
-      final playlistIndex = offlinePlaylists.value.indexWhere(
+      final currentPlaylists = offlinePlaylists.value;
+      final playlistIndex = currentPlaylists.indexWhere(
         (playlist) =>
             playlist is Map &&
             playlist['ytid']?.toString() == normalizedPlaylistId,
@@ -336,7 +343,7 @@ class OfflinePlaylistService {
         return;
       }
 
-      final playlist = offlinePlaylists.value[playlistIndex] as Map;
+      final playlist = currentPlaylists[playlistIndex] as Map;
 
       // Get songs that are only in this playlist
       final songsInPlaylist = playlist['list'] as List<dynamic>? ?? [];
@@ -366,7 +373,8 @@ class OfflinePlaylistService {
       }
 
       // Remove playlist from offline playlists
-      final updatedPlaylists = List<dynamic>.from(offlinePlaylists.value)
+      final latestPlaylists = offlinePlaylists.value;
+      final updatedPlaylists = List<dynamic>.from(latestPlaylists)
         ..removeWhere(
           (p) => p is Map && p['ytid']?.toString() == normalizedPlaylistId,
         );
