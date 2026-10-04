@@ -116,7 +116,7 @@ void main() {
     await server.forgetAllDevices();
 
     final socket = await Socket.connect('127.0.0.1', server.serverPort!);
-    final body = '{"clientId":"stranger","library":{}}';
+    const body = '{"clientId":"stranger","library":{}}';
     socket.write(
       'POST /api/sync/merge HTTP/1.1\r\n'
       'Host: 127.0.0.1\r\n'

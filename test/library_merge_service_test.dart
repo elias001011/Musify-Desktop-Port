@@ -53,7 +53,7 @@ void main() {
       await user.put('likedSongs', [song('a'), song('b')]);
       await user.put('playlists', ['PL1']);
       await user.put('recentlyPlayedSongs', [
-        {...song('a'), 'listeningCount': 3, 'lastPlayed': DateTime(2026, 1, 1)},
+        {...song('a'), 'listeningCount': 3, 'lastPlayed': DateTime(2026)},
       ]);
 
       final exported = LibraryMergeService.exportLibrary();
@@ -235,7 +235,7 @@ void main() {
   test('recently played keeps the latest play and the higher count', () async {
     final user = Hive.box('user');
     await user.put('recentlyPlayedSongs', [
-      {...song('a'), 'listeningCount': 5, 'lastPlayed': DateTime(2026, 1, 1)},
+      {...song('a'), 'listeningCount': 5, 'lastPlayed': DateTime(2026)},
       {...song('b'), 'listeningCount': 1, 'lastPlayed': DateTime(2026, 1, 3)},
     ]);
 
