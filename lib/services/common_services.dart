@@ -37,6 +37,7 @@ import 'package:musify/services/proxy_manager.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/app_utils.dart';
 import 'package:musify/utilities/formatter.dart';
+import 'package:musify/utilities/map_utils.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 List globalSongs = [];
@@ -80,17 +81,11 @@ Set<String> _createSongIdCache(ValueNotifier<List> source) {
   return cache;
 }
 
-Set<String> _songIds(Iterable songs) => songs
-    .whereType<Map>()
-    .map((song) => song['ytid']?.toString())
-    .whereType<String>()
-    .where((ytid) => ytid.isNotEmpty)
-    .toSet();
+Set<String> _songIds(Iterable songs) =>
+    songs.whereType<Map>().map(songYtid).whereType<String>().toSet();
 
 final _cachedLikedSongIds = _createSongIdCache(userLikedSongsList);
 final _cachedOfflineSongIds = _createSongIdCache(userOfflineSongs);
-
-dynamic nextRecommendedSong;
 
 var _songLikeUpdateToken = 0;
 final _latestSongLikeUpdateTokens = <String, int>{};
@@ -330,42 +325,25 @@ List<Map> _sampleSeedSongs(List songs, int count) {
 }
 
 Future<List> _getRecommendationsFromMixedSources() async {
-  final playlistSongs = [
-    ...userLikedSongsList.value,
-    ...userRecentlyPlayed.value,
+  final recommendationSources = <Iterable<dynamic>>[
+    userLikedSongsList.value,
+    userRecentlyPlayed.value,
   ];
 
   if (globalSongs.isEmpty) {
     const playlistId = 'PLgzTt0k8mXzEk586ze4BjvDXR7c-TUSnx';
     globalSongs = await getSongsFromPlaylist(playlistId);
   }
-  playlistSongs.addAll(globalSongs.take(10));
+  recommendationSources.add(globalSongs.take(10));
 
   if (userCustomPlaylists.value.isNotEmpty) {
     for (final userPlaylist in userCustomPlaylists.value) {
-      final _list = List.from(userPlaylist['list'] as List)..shuffle();
-      playlistSongs.addAll(_list.take(5));
+      final playlistSongs = userPlaylist['list'] as List;
+      recommendationSources.add(_sampleSeedSongs(playlistSongs, 5));
     }
   }
 
-  return _deduplicateAndShuffle(playlistSongs);
-}
-
-List _deduplicateAndShuffle(List playlistSongs) {
-  final seenYtIds = <String>{};
-  final uniqueSongs = <Map>[];
-
-  playlistSongs.shuffle();
-
-  for (final song in playlistSongs) {
-    if (song['ytid'] != null && seenYtIds.add(song['ytid'])) {
-      uniqueSongs.add(song);
-      // Early exit when we have enough songs
-      if (uniqueSongs.length >= 15) break;
-    }
-  }
-
-  return uniqueSongs;
+  return sampleUniqueSongs(recommendationSources, 15);
 }
 
 Future<void> updateSongLikeStatus(
@@ -424,18 +402,10 @@ Future<Map?> _resolveSongForLikedStatus(String songId, Map? songData) async {
     return Map<String, dynamic>.from(songData!);
   }
 
-  final cachedSong = _findSongById(userLikedSongsList.value, songId);
+  final cachedSong = findSongByYtid(userLikedSongsList.value, songId);
   if (cachedSong != null) return Map<String, dynamic>.from(cachedSong);
 
   return getSongDetails(userLikedSongsList.value.length, songId);
-}
-
-Map? _findSongById(Iterable<dynamic> songs, String songId) {
-  for (final song in songs) {
-    if (song is Map && song['ytid']?.toString() == songId) return song;
-  }
-
-  return null;
 }
 
 List _deduplicateLikedSongs(Iterable<dynamic> likedSongs) {
@@ -664,16 +634,22 @@ Future<List<Map<String, int>>> getSkipSegments(String id) async {
   }
 }
 
-Future<void> getSimilarSong(String songYtId) async {
+/// The first song related to [songYtId] whose ytid is not in [excludedYtIds].
+Future<Map<String, dynamic>?> getSimilarSong(
+  String songYtId, {
+  Set<String> excludedYtIds = const {},
+}) async {
   try {
     final song = await ytClient.videos.get(songYtId);
     final relatedSongs = await ytClient.videos.getRelatedVideos(song) ?? [];
 
-    if (relatedSongs.isNotEmpty) {
-      nextRecommendedSong = returnSongLayout(0, relatedSongs[0]);
-    } else {
-      logger.log('No related songs found for $songYtId');
+    for (final video in relatedSongs) {
+      final candidate = returnSongLayout(0, video);
+      if (!excludedYtIds.contains(candidate['ytid']?.toString())) {
+        return candidate;
+      }
     }
+    logger.log('No new related songs found for $songYtId');
   } catch (e, stackTrace) {
     logger.log(
       'Error while fetching next similar song:',
@@ -681,6 +657,7 @@ Future<void> getSimilarSong(String songYtId) async {
       stackTrace: stackTrace,
     );
   }
+  return null;
 }
 
 /// In-memory cache of the audio stream picked for a song at the current
@@ -975,28 +952,29 @@ Future<bool> makeSongOffline(dynamic song) async {
   }
 }
 
+Future<void> _deleteFileIfExists(File file, String errorDescription) async {
+  try {
+    if (await file.exists()) {
+      await file.delete(recursive: true);
+    }
+  } catch (e, stackTrace) {
+    logger.log(
+      'Error deleting $errorDescription',
+      error: e,
+      stackTrace: stackTrace,
+    );
+  }
+}
+
 Future<bool> removeSongFromOffline(dynamic songId) async {
   try {
     final audioPath = FilePaths.getAudioPath(songId);
-    final audioFile = File(audioPath);
     final artworkPath = FilePaths.getArtworkPath(songId);
-    final artworkFile = File(artworkPath);
 
-    try {
-      if (await audioFile.exists()) await audioFile.delete(recursive: true);
-    } catch (e, stackTrace) {
-      logger.log('Error deleting audio file', error: e, stackTrace: stackTrace);
-    }
-
-    try {
-      if (await artworkFile.exists()) await artworkFile.delete(recursive: true);
-    } catch (e, stackTrace) {
-      logger.log(
-        'Error deleting artwork file',
-        error: e,
-        stackTrace: stackTrace,
-      );
-    }
+    await Future.wait([
+      _deleteFileIfExists(File(audioPath), 'audio file'),
+      _deleteFileIfExists(File(artworkPath), 'artwork file'),
+    ]);
 
     try {
       userOfflineSongs.value = List.from(userOfflineSongs.value)

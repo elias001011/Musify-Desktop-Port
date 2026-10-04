@@ -8,9 +8,20 @@ import '../models/initial_data.dart';
 import '../models/youtube_page.dart';
 import '../youtube_http_client.dart';
 
+// The WEB client stops issuing continuation tokens after ~200 videos; WEB_REMIX does not.
+const _musicContext = {
+  'client': {
+    'clientName': 'WEB_REMIX',
+    'clientVersion': '1.20250922.03.00',
+    'hl': 'en',
+    'gl': 'US',
+  },
+};
+
 class PlaylistPage extends YoutubePage<_InitialData> {
   final String playlistId;
   final String? _visitorData;
+  final bool _useMusicClient;
 
   late final List<_Video> videos = initialData.playlistVideos;
   late final String? title = initialData.title;
@@ -20,27 +31,46 @@ class PlaylistPage extends YoutubePage<_InitialData> {
   late final int? videoCount = initialData.videoCount;
 
   PlaylistPage.id(this.playlistId, _InitialData initialData,
-      [this._visitorData])
+      [this._visitorData, this._useMusicClient = false])
       : super.fromInitialData(initialData);
 
   PlaylistPage.parse(String raw, this.playlistId)
       : _visitorData = null,
+        _useMusicClient = false,
         super(parser.parse(raw), (root) => _InitialData(root));
 
   Future<PlaylistPage?> nextPage(YoutubeHttpClient httpClient) async {
     final token = initialData.continuationToken;
     if (token == null || token.isEmpty) return null;
 
-    final data = await httpClient.sendContinuation('browse', token, headers: {
-      'x-youtube-client-name': '1',
-      'x-goog-visitor-id': _visitorData ?? '',
-    });
+    final data = _useMusicClient
+        ? await httpClient.sendPost('browse', {
+            'context': _musicContext,
+            'continuation': token,
+          })
+        : await httpClient.sendContinuation('browse', token, headers: {
+            'x-youtube-client-name': '1',
+            'x-goog-visitor-id': _visitorData ?? '',
+          });
 
     final newInitialData = _InitialData(data);
     // Guard against infinite loops with a stuck token.
     if (newInitialData.continuationToken == token) return null;
 
-    return PlaylistPage.id(playlistId, newInitialData, _visitorData);
+    return PlaylistPage.id(
+        playlistId, newInitialData, _visitorData, _useMusicClient);
+  }
+
+  /// Fetches the first page through the WEB_REMIX client, whose pagination is not capped.
+  static Future<PlaylistPage> getViaMusicClient(
+      YoutubeHttpClient httpClient, String id) {
+    return retry(httpClient, () async {
+      final data = await httpClient.sendPost('browse', {
+        'context': _musicContext,
+        'browseId': id.startsWith('VL') ? id : 'VL$id',
+      });
+      return PlaylistPage.id(id, _InitialData(data), null, true);
+    });
   }
 
   static Future<PlaylistPage> get(YoutubeHttpClient httpClient, String id) {
@@ -140,32 +170,44 @@ class _InitialData extends InitialData {
     final items = _videoItems;
     if (items == null) return null;
 
-    final item = items.firstWhereOrNull((e) =>
-        e['continuationItemRenderer'] != null ||
-        e['continuationItemViewModel'] != null);
-    if (item == null) return null;
+    // Classic shape: continuationItemRenderer.
+    final rendererItem =
+        items.firstWhereOrNull((e) => e['continuationItemRenderer'] != null);
+    if (rendererItem != null) {
+      final endpoint = rendererItem
+          .getJson<JsonMap>('continuationItemRenderer/continuationEndpoint');
+      if (endpoint != null) {
+        // Direct token.
+        final token = endpoint.getJson<String>('continuationCommand/token');
+        if (token != null) return token;
 
-    final viewModelToken = item.getJson<String>(
-            'continuationItemViewModel/continuationCommand/innertubeCommand/continuationCommand/token') ??
-        item.getJson<String>(
-            'continuationItemViewModel/continuationCommand/token');
-    if (viewModelToken != null) return viewModelToken;
+        // Some responses nest the token inside a commandExecutorCommand.
+        final nested = endpoint
+            .getJson<List<dynamic>>('commandExecutorCommand/commands')
+            ?.cast<JsonMap>()
+            .map((c) => c.getJson<String>('continuationCommand/token'))
+            .nonNulls
+            .firstOrNull;
+        if (nested != null) return nested;
+      }
+    }
 
-    final endpoint =
-        item.getJson<JsonMap>('continuationItemRenderer/continuationEndpoint');
-    if (endpoint == null) return null;
+    // Newer shape: continuationItemViewModel (seen alongside lockupViewModel
+    // rows). Token sits under continuationCommand -> innertubeCommand ->
+    // continuationCommand -> token (yes, doubly nested).
+    final viewModelItem =
+        items.firstWhereOrNull((e) => e['continuationItemViewModel'] != null);
+    if (viewModelItem != null) {
+      final token = viewModelItem.getJson<String>(
+          'continuationItemViewModel/continuationCommand/innertubeCommand/continuationCommand/token');
+      if (token != null) return token;
 
-    // Direct token.
-    final token = endpoint.getJson<String>('continuationCommand/token');
-    if (token != null) return token;
+      // Defensive fallback in case the double-nesting isn't present.
+      return viewModelItem.getJson<String>(
+          'continuationItemViewModel/continuationCommand/token');
+    }
 
-    // Some responses nest the token inside a commandExecutorCommand.
-    return endpoint
-        .getJson<List<dynamic>>('commandExecutorCommand/commands')
-        ?.cast<JsonMap>()
-        .map((c) => c.getJson<String>('continuationCommand/token'))
-        .nonNulls
-        .firstOrNull;
+    return null;
   }
 
   /// The flat list of items (videos + continuation marker) for the current page.
@@ -184,9 +226,16 @@ class _InitialData extends InitialData {
       }
     }
 
-    // Initial page: tabs -> sectionList -> itemSection.
-    // Newer YouTube pages put videos directly in itemSection as lockupViewModel;
-    // older pages nest them under playlistVideoListRenderer.
+    // Music client: the rows sit in a musicPlaylistShelfRenderer.
+    final musicSections = root.getJson<List<dynamic>>(
+        'contents/twoColumnBrowseResultsRenderer/secondaryContents/sectionListRenderer/contents');
+    for (final section in musicSections?.cast<JsonMap>() ?? const <JsonMap>[]) {
+      final contents =
+          section.getJson<List<dynamic>>('musicPlaylistShelfRenderer/contents');
+      if (contents != null) return contents.cast<JsonMap>();
+    }
+
+    // Initial page: tabs → sectionList → itemSection → playlistVideoListRenderer.
     final tabs = root
         .getJson<List<dynamic>>('contents/twoColumnBrowseResultsRenderer/tabs');
     if (tabs == null) return null;
@@ -201,13 +250,21 @@ class _InitialData extends InitialData {
             section.getJson<List<dynamic>>('itemSectionRenderer/contents');
         if (itemContents == null) continue;
 
-        final items = itemContents.cast<JsonMap>();
-        if (items.any(_isVideoListItem)) return items;
-
-        for (final item in items) {
+        for (final item in itemContents.cast<JsonMap>()) {
           final contents =
               item.getJson<List<dynamic>>('playlistVideoListRenderer/contents');
           if (contents != null) return contents.cast<JsonMap>();
+        }
+
+        // Newer layout: the videos sit directly in itemSectionRenderer/contents
+        // as lockupViewModel entries, with no playlistVideoListRenderer wrapper
+        // at all. Confirmed against live playlists on 2026-09-27 (see
+        // https://github.com/OrionZ43/youtube_explode_dart/commit/cf8f881).
+        if (itemContents.any((e) =>
+            e is Map &&
+            (e.containsKey('lockupViewModel') ||
+                e.containsKey('continuationItemRenderer')))) {
+          return itemContents.cast<JsonMap>();
         }
       }
     }
@@ -218,47 +275,62 @@ class _InitialData extends InitialData {
     final items = _videoItems;
     if (items == null) return const [];
 
-    return items.map(_Video.fromItem).nonNulls.toList();
-  }
+    final result = <_Video>[];
+    for (final item in items) {
+      final renderer = item['playlistVideoRenderer'] as JsonMap? ??
+          item['richItemRenderer']?['content']?['playlistVideoRenderer']
+              as JsonMap?;
+      if (renderer != null) {
+        result.add(_RendererVideo(renderer));
+        continue;
+      }
 
-  static bool _isVideoListItem(JsonMap item) =>
-      item['playlistVideoRenderer'] != null ||
-      item.getJson<JsonMap>('richItemRenderer/content/playlistVideoRenderer') !=
-          null ||
-      item['lockupViewModel'] != null ||
-      item['continuationItemRenderer'] != null ||
-      item['continuationItemViewModel'] != null;
+      // YouTube moved playlist rows (both on the initial page and on
+      // continuation/pagination requests) to a component-based
+      // `lockupViewModel` layout. Playlists also list channels and other
+      // playlists this way, so only keep entries that are actually videos.
+      final lockup = item['lockupViewModel'] as JsonMap?;
+      if (lockup != null &&
+          lockup['contentType'] == 'LOCKUP_CONTENT_TYPE_VIDEO') {
+        result.add(_LockupVideo(lockup));
+        continue;
+      }
+
+      final musicRow = item['musicResponsiveListItemRenderer'] as JsonMap?;
+      if (musicRow != null) {
+        final video = _MusicVideo(musicRow);
+        // Rows for unavailable tracks carry no video id.
+        if (video.id.isNotEmpty) result.add(video);
+      }
+    }
+    return result;
+  }
 }
 
-class _Video {
+/// A single entry of a playlist page, in either of the two layouts YouTube
+/// serves: the classic `playlistVideoRenderer` or the newer `lockupViewModel`.
+abstract class _Video {
+  String get id;
+  String get author;
+  String get channelId;
+  String get title;
+  String get description;
+  Duration? get duration;
+  int get viewCount;
+  String? get uploadDateRaw;
+}
+
+/// The classic playlist row: `playlistVideoRenderer` (or the same, nested
+/// inside `richItemRenderer`).
+class _RendererVideo implements _Video {
   final JsonMap root;
-  _Video(this.root);
+  _RendererVideo(this.root);
 
-  static _Video? fromItem(JsonMap item) {
-    final renderer = item['playlistVideoRenderer'] as JsonMap? ??
-        item.getJson<JsonMap>('richItemRenderer/content/playlistVideoRenderer');
-    if (renderer != null) return _Video(renderer);
+  @override
+  String get id => root.getT<String>('videoId')!;
 
-    final viewModel = item.getJson<JsonMap>('lockupViewModel');
-    if (viewModel == null ||
-        viewModel.getT<String>('contentType') != 'LOCKUP_CONTENT_TYPE_VIDEO') {
-      return null;
-    }
-
-    return _Video(viewModel);
-  }
-
-  bool get _isLockupViewModel =>
-      root.getT<String>('contentType') == 'LOCKUP_CONTENT_TYPE_VIDEO';
-
-  String get id =>
-      root.getT<String>('videoId') ??
-      root.getT<String>('contentId') ??
-      root.getJson<String>(
-          'rendererContext/commandContext/onTap/innertubeCommand/watchEndpoint/videoId')!;
-
+  @override
   String get author =>
-      _metadataPartText(0, 0) ??
       root
           .getJson<List<dynamic>>('ownerText/runs')
           ?.cast<Map<dynamic, dynamic>>()
@@ -269,14 +341,8 @@ class _Video {
           .parseRuns() ??
       '';
 
+  @override
   String get channelId =>
-      root.getJson<String>('metadata/lockupMetadataViewModel/metadata/contentMetadataViewModel/metadataRows/0/metadataParts/0/text/commandRuns/0/onTap/innertubeCommand/browseEndpoint/browseId') ??
-      root.getJson<String>(
-          'metadata/lockupMetadataViewModel/image/decoratedAvatarViewModel/rendererContext/commandContext/onTap/innertubeCommand/browseEndpoint/browseId') ??
-      root.getJson<String>(
-          'metadata/lockupMetadataViewModel/image/avatarStackViewModel/rendererContext/commandContext/onTap/innertubeCommand/showDialogCommand/panelLoadingStrategy/inlineContent/dialogViewModel/customContent/listViewModel/listItems/0/listItemViewModel/rendererContext/commandContext/onTap/innertubeCommand/browseEndpoint/browseId') ??
-      root.getJson<String>(
-          'metadata/lockupMetadataViewModel/image/avatarStackViewModel/rendererContext/commandContext/onTap/innertubeCommand/showDialogCommand/panelLoadingStrategy/inlineContent/dialogViewModel/customContent/listViewModel/listItems/0/listItemViewModel/title/commandRuns/0/onTap/innertubeCommand/browseEndpoint/browseId') ??
       root.getJson<String>(
           'ownerText/runs/0/navigationEndpoint/browseEndpoint/browseId') ??
       root.getJson<String>(
@@ -285,14 +351,15 @@ class _Video {
           'shortBylineText/runs/0/navigationEndpoint/showDialogCommand/panelLoadingStrategy/inlineContent/dialogViewModel/customContent/listViewModel/listItems/0/listItemViewModel/rendererContext/commandContext/onTap/innertubeCommand/browseEndpoint/browseId') ??
       '';
 
+  @override
   String get title =>
-      root.getJson<String>('metadata/lockupMetadataViewModel/title/content') ??
       root
           .getJson<List<dynamic>>('title/runs')
           ?.cast<Map<dynamic, dynamic>>()
           .parseRuns() ??
       '';
 
+  @override
   String get description =>
       root
           .getJson<List<dynamic>>('descriptionSnippet')
@@ -300,31 +367,129 @@ class _Video {
           .parseRuns() ??
       '';
 
+  @override
   Duration? get duration =>
-      root
-          .getJson<String>(
-              'contentImage/thumbnailViewModel/overlays/0/thumbnailBottomOverlayViewModel/badges/0/thumbnailBadgeViewModel/text')
-          ?.toDuration() ??
       root.getJson<String>('lengthText/simpleText')?.toDuration();
 
+  @override
   int get viewCount =>
-      _metadataPartText(1, 0).parseIntWithUnits() ??
       root.getJson<String>('viewCountText/simpleText').parseInt() ??
       _videoInfo?.split('•').elementAtSafe(0)?.stripNonDigits().parseInt() ??
       0;
 
-  String? get uploadDateRaw =>
-      _metadataPartText(1, 1) ?? _videoInfo?.split('•').elementAtSafe(1);
+  @override
+  String? get uploadDateRaw => _videoInfo?.split('•').elementAtSafe(1);
 
   String? get _videoInfo => root
       .getJson<List<dynamic>>('videoInfo/runs')
       ?.cast<Map<dynamic, dynamic>>()
       .parseRuns();
+}
 
-  String? _metadataPartText(int row, int part) {
-    if (!_isLockupViewModel) return null;
+/// The layout YouTube moved playlists to: every entry is a `lockupViewModel`
+/// with a flat `contentId` and a `lockupMetadataViewModel` for the text.
+class _LockupVideo implements _Video {
+  final JsonMap root;
+  _LockupVideo(this.root);
 
-    return root.getJson<String>(
-        'metadata/lockupMetadataViewModel/metadata/contentMetadataViewModel/metadataRows/$row/metadataParts/$part/text/content');
+  JsonMap? get _metadata =>
+      root.getJson<JsonMap>('metadata/lockupMetadataViewModel');
+
+  @override
+  String get id => root.getT<String>('contentId') ?? '';
+
+  @override
+  String get title =>
+      _metadata?.getJson<String>('title/content') ??
+      root.getJson<String>('metadata/lockupMetadataViewModel/title/content') ??
+      '';
+
+  /// The channel name is the first metadata row under the title.
+  @override
+  String get author =>
+      _metadata?.getJson<String>(
+          'metadata/contentMetadataViewModel/metadataRows/0/metadataParts/0/text/content') ??
+      '';
+
+  @override
+  String get channelId =>
+      _metadata?.getJson<String>('image/decoratedAvatarViewModel/avatar/avatarViewModel/rendererContext/commandContext/onTap/innertubeCommand/browseEndpoint/browseId') ??
+      _metadata?.getJson<String>(
+          'image/decoratedAvatarViewModel/rendererContext/commandContext/onTap/innertubeCommand/browseEndpoint/browseId') ??
+      _metadata?.getJson<String>(
+          'metadata/contentMetadataViewModel/metadataRows/0/metadataParts/0/text/commandRuns/0/onTap/innertubeCommand/browseEndpoint/browseId') ??
+      '';
+
+  @override
+  String get description => '';
+
+  /// Duration lives in the badge drawn over the thumbnail ("4:20").
+  @override
+  Duration? get duration {
+    final overlays =
+        root.getJson<List<dynamic>>('contentImage/thumbnailViewModel/overlays');
+    if (overlays == null) return null;
+    for (final overlay in overlays.cast<JsonMap>()) {
+      final badges = overlay
+          .getJson<List<dynamic>>('thumbnailBottomOverlayViewModel/badges');
+      if (badges == null) continue;
+      for (final badge in badges.cast<JsonMap>()) {
+        final text = badge.getJson<String>('thumbnailBadgeViewModel/text');
+        final parsed = text?.toDuration();
+        if (parsed != null) return parsed;
+      }
+    }
+    return null;
   }
+
+  /// Not served in this layout.
+  @override
+  int get viewCount => 0;
+
+  @override
+  String? get uploadDateRaw => null;
+}
+
+/// A row of the WEB_REMIX layout: `musicResponsiveListItemRenderer`.
+class _MusicVideo implements _Video {
+  final JsonMap root;
+  _MusicVideo(this.root);
+
+  List<Map<dynamic, dynamic>> _runs(int column) =>
+      root
+          .getJson<List<dynamic>>(
+              'flexColumns/$column/musicResponsiveListItemFlexColumnRenderer/text/runs')
+          ?.cast<Map<dynamic, dynamic>>() ??
+      const [];
+
+  @override
+  String get id => root.getJson<String>('playlistItemData/videoId') ?? '';
+
+  @override
+  String get title => _runs(0).parseRuns();
+
+  @override
+  String get author => _runs(1).parseRuns();
+
+  // Tracks without an artist page still need a syntactically valid channel id.
+  @override
+  String get channelId =>
+      root.getJson<String>(
+          'flexColumns/1/musicResponsiveListItemFlexColumnRenderer/text/runs/0/navigationEndpoint/browseEndpoint/browseId') ??
+      'UC0000000000000000000000';
+
+  @override
+  String get description => '';
+
+  @override
+  Duration? get duration => root
+      .getJson<String>(
+          'fixedColumns/0/musicResponsiveListItemFixedColumnRenderer/text/runs/0/text')
+      ?.toDuration();
+
+  @override
+  int get viewCount => 0;
+
+  @override
+  String? get uploadDateRaw => null;
 }
