@@ -15,6 +15,8 @@ struct _MyApplication {
   // Null when the window manager draws the title bar instead of GTK.
   GtkWidget* header_bar;
   GtkCssProvider* title_bar_css;
+  // GTK's dark preference before the app changes it, to restore it later.
+  gboolean default_prefer_dark_theme;
   FlMethodChannel* window_channel;
 };
 
@@ -55,6 +57,17 @@ static void apply_title_bar_theme(MyApplication* self, gboolean dark,
   gtk_css_provider_load_from_data(self->title_bar_css, css, -1, nullptr);
 }
 
+// Drops the app colours and restores GTK's own dark preference, so the header
+// bar goes back to the system theme.
+static void reset_title_bar_theme(MyApplication* self) {
+  g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
+               self->default_prefer_dark_theme, nullptr);
+
+  if (self->title_bar_css != nullptr) {
+    gtk_css_provider_load_from_data(self->title_bar_css, "", -1, nullptr);
+  }
+}
+
 static void window_method_call_cb(FlMethodChannel* channel,
                                   FlMethodCall* method_call,
                                   gpointer user_data) {
@@ -88,6 +101,9 @@ static void window_method_call_cb(FlMethodChannel* channel,
                             fl_value_get_int(foreground));
       response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
     }
+  } else if (strcmp(method, "resetTitleBarTheme") == 0) {
+    reset_title_bar_theme(self);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
   } else {
     response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
   }
@@ -120,6 +136,10 @@ static void my_application_activate(GApplication* application) {
   }
 #endif
   if (use_header_bar) {
+    g_object_get(gtk_settings_get_default(),
+                 "gtk-application-prefer-dark-theme",
+                 &self->default_prefer_dark_theme, nullptr);
+
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_set_name(GTK_WIDGET(header_bar), "musify-header-bar");
     gtk_widget_show(GTK_WIDGET(header_bar));

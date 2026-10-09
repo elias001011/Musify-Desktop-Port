@@ -91,6 +91,12 @@ final startMaximized = ValueNotifier<bool>(
   Hive.box('settings').get('startMaximized', defaultValue: false),
 );
 
+/// Desktop only: paint the title bar with the app's colours. Off leaves the
+/// title bar to the system theme.
+final customTitleBar = ValueNotifier<bool>(
+  Hive.box('settings').get('customTitleBar', defaultValue: true),
+);
+
 List<double> _readEqualizerGains() {
   final raw = Hive.box('settings')
       .get('equalizerBandGains', defaultValue: const <dynamic>[]);
@@ -212,6 +218,7 @@ void reloadSettingsFromStorage() {
   );
   interfaceScale.value = _readInterfaceScale();
   startMaximized.value = settings.get('startMaximized', defaultValue: false);
+  customTitleBar.value = settings.get('customTitleBar', defaultValue: true);
   KeyboardShortcutsManager.reload();
   equalizerEnabled.value = settings.get(
     'equalizerEnabled',

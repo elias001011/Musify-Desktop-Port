@@ -103,6 +103,9 @@ Windows, Linux and macOS, with two things a phone build has no need for:
   as i3 sets none, so the UI comes out small. This makes the size an in-app
   setting instead, independent of the window manager. It is stored as
   `interfaceScale` and applied on top of any system scaling.
+- *Title bar in app colours.* On by default: the window's title bar takes the
+  app's colours and follows its light/dark mode. Turn it off to keep the
+  system's own title bar. It is stored as `customTitleBar`.
 - *Keyboard shortcuts.* A screen listing every playback and navigation action
   with its current key combination; each one can be rebound (press the new
   combination, conflicts are rejected) and the whole set can be reset to

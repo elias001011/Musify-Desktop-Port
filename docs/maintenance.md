@@ -127,7 +127,12 @@ The native window is driven from Dart over the `musify/window` method channel
 - `setTitleBarTheme` paints the title bar with the app theme's background and
   text colours. On Linux it styles the GNOME header bar (`#musify-header-bar`)
   and sets GTK's dark preference; on Windows it uses DWM (dark frame everywhere,
-  caption/text colours on Windows 11).
+  caption/text colours on Windows 11). It is sent only while the
+  "Title bar in app colours" setting (`customTitleBar`) is on.
+- `resetTitleBarTheme` is sent instead when that setting is turned off: it
+  restores GTK's dark preference and clears the header bar CSS on Linux, and
+  resets the DWM caption/text colours and the dark frame to the system's on
+  Windows.
 - `maximize` is called before `runApp` when "Start maximized" is on, so the
   window shows up maximized on its first frame.
 

@@ -34,6 +34,9 @@ class FlutterWindow : public Win32Window {
   // Paints the title bar with the colours last sent from the app theme.
   void ApplyTitleBarTheme();
 
+  // Hands the title bar back to the system theme.
+  void ResetTitleBarTheme();
+
   // The project to run.
   flutter::DartProject project_;
 

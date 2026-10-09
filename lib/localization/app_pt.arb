@@ -143,6 +143,8 @@
   "interfaceScaleDescription": "Deixa o texto e os ícones principais do app maiores ou menores.",
   "startMaximized": "Abrir maximizado",
   "startMaximizedDescription": "Abre a janela maximizada em vez do tamanho padrão.",
+  "customTitleBar": "Barra de título nas cores do app",
+  "customTitleBarDescription": "Pinta a barra de título da janela com as cores do app, acompanhando o modo claro e escuro. Desative para usar a barra de título do sistema.",
   "downloadsFolder": "Pasta de downloads",
   "downloadsFolderDefault": "Local padrão",
   "downloadsFolderUnavailable": "{path} não está disponível, então os novos downloads vão para o local padrão por enquanto.",

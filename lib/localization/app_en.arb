@@ -143,6 +143,8 @@
   "interfaceScaleDescription": "Make text and key icons across the app larger or smaller.",
   "startMaximized": "Start maximized",
   "startMaximizedDescription": "Open the window maximized instead of at its default size.",
+  "customTitleBar": "Title bar in app colours",
+  "customTitleBarDescription": "Paint the window's title bar with the app's colours, following light and dark mode. Turn it off to use the system's own title bar.",
   "downloadsFolder": "Downloads folder",
   "downloadsFolderDefault": "Default location",
   "downloadsFolderUnavailable": "{path} is unavailable, so new downloads go to the default location for now.",

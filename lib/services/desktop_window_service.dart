@@ -25,6 +25,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/main.dart';
+import 'package:musify/services/settings_manager.dart';
 
 /// Talks to the desktop runners (`linux/runner/my_application.cc` and
 /// `windows/runner/flutter_window.cpp`) about the native window around the
@@ -60,6 +61,15 @@ class DesktopWindow {
     );
   }
 
+  /// Hands the title bar back to the system theme once the app colours are
+  /// turned off.
+  static void resetTitleBar() {
+    if (_lastTitleBarTheme == null) return;
+    _lastTitleBarTheme = null;
+
+    unawaited(_invoke('resetTitleBarTheme'));
+  }
+
   static Future<void> _invoke(String method, [Object? arguments]) async {
     if (!isDesktopPlatform) return;
     try {
@@ -78,7 +88,8 @@ class DesktopWindow {
 
 /// Keeps the native title bar in step with the theme above it. Placed in
 /// `MaterialApp.builder`, so it rebuilds (and repaints the title bar) whenever
-/// the theme mode or accent colour changes.
+/// the theme mode or accent colour changes. When the "Title bar in app colours"
+/// setting is off, the title bar is left to the system theme instead.
 class DesktopTitleBarTheme extends StatelessWidget {
   const DesktopTitleBarTheme({super.key, required this.child});
 
@@ -86,7 +97,17 @@ class DesktopTitleBarTheme extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    DesktopWindow.syncTitleBar(Theme.of(context));
-    return child;
+    return ValueListenableBuilder<bool>(
+      valueListenable: customTitleBar,
+      builder: (context, enabled, child) {
+        if (enabled) {
+          DesktopWindow.syncTitleBar(Theme.of(context));
+        } else {
+          DesktopWindow.resetTitleBar();
+        }
+        return child!;
+      },
+      child: child,
+    );
   }
 }

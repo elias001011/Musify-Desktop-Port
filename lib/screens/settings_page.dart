@@ -693,6 +693,23 @@ class SettingsPage extends StatelessWidget {
             );
           },
         ),
+        ValueListenableBuilder<bool>(
+          valueListenable: customTitleBar,
+          builder: (context, value, _) {
+            return CustomBar(
+              context.l10n!.customTitleBar,
+              FluentIcons.color_background_24_regular,
+              description: context.l10n!.customTitleBarDescription,
+              trailing: Switch(
+                value: value,
+                onChanged: (value) {
+                  customTitleBar.value = value;
+                  addOrUpdateData<bool>('settings', 'customTitleBar', value);
+                },
+              ),
+            );
+          },
+        ),
         const _DownloadsFolderBar(),
         CustomBar(
           context.l10n!.keyboardShortcuts,

@@ -16,6 +16,8 @@ constexpr DWORD kDwmUseImmersiveDarkMode = 20;
 // dark/light frame.
 constexpr DWORD kDwmCaptionColor = 35;
 constexpr DWORD kDwmTextColor = 36;
+// DWMWA_COLOR_DEFAULT: lets DWM pick the caption and text colours again.
+constexpr COLORREF kDwmColorDefault = 0xFFFFFFFF;
 
 // Reads an ARGB colour sent as a Dart int into a COLORREF.
 bool ReadColor(const flutter::EncodableMap& args, const char* key,
@@ -165,7 +167,27 @@ void FlutterWindow::HandleWindowCall(
     return;
   }
 
+  if (method == "resetTitleBarTheme") {
+    has_title_bar_theme_ = false;
+    ResetTitleBarTheme();
+    result->Success();
+    return;
+  }
+
   result->NotImplemented();
+}
+
+void FlutterWindow::ResetTitleBarTheme() {
+  HWND hwnd = GetHandle();
+  if (hwnd == nullptr) {
+    return;
+  }
+  COLORREF default_color = kDwmColorDefault;
+  DwmSetWindowAttribute(hwnd, kDwmCaptionColor, &default_color,
+                        sizeof(default_color));
+  DwmSetWindowAttribute(hwnd, kDwmTextColor, &default_color,
+                        sizeof(default_color));
+  UpdateTheme(hwnd);
 }
 
 void FlutterWindow::ApplyTitleBarTheme() {
