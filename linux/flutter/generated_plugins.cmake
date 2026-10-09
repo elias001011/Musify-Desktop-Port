@@ -3,8 +3,8 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  app_links_linux
   dynamic_color
-  gtk
   media_kit_libs_linux
   url_launcher_linux
 )

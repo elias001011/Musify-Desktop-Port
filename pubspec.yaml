@@ -5,14 +5,14 @@ repository: https://github.com/elias001011/Musify-Desktop-Port
 issue_tracker: https://github.com/elias001011/Musify-Desktop-Port/issues
 
 publish_to: 'none'
-version: 10.5.2+184 # run update.sh after changing the version
+version: 10.5.3+185 # run update.sh after changing the version
 
 environment:
   sdk: '>=3.13.0 <4.0.0'
   flutter: ^3.47.6
 
 dependencies:
-  app_links: ^7.2.1
+  app_links: ^7.2.2
   audio_service: ^0.18.19
   audio_session: ^0.2.4
   cached_network_image: ^4.0.4
@@ -32,7 +32,7 @@ dependencies:
   intl: ^0.20.2
   just_audio: ^0.10.6
   just_audio_media_kit: ^2.1.0
-  material_ui: ^1.5.0
+  material_ui: ^1.6.0
   media_kit_libs_linux: ^1.2.1
   media_kit_libs_windows_audio: ^1.0.9
   path_provider: ^2.1.6

@@ -91,9 +91,7 @@ class NavigationManager {
         }
 
         if (isOffline && currentPath.contains('/artist/')) {
-          final artistId = _decodePathParameter(
-            state.pathParameters['artistId'],
-          );
+          final artistId = state.pathParameters['artistId'] ?? '';
           if (!offlinePlaylistService.isPlaylistDownloaded(artistId)) {
             return homePath;
           }
@@ -321,7 +319,7 @@ class NavigationManager {
       path: 'artist/:artistId',
       pageBuilder: (context, state) => _pushPage(
         child: ArtistPage(
-          artistId: _decodePathParameter(state.pathParameters['artistId']),
+          artistId: state.pathParameters['artistId'] ?? '',
           artistData: _extraAsMap(state.extra),
         ),
         state: state,
@@ -331,9 +329,7 @@ class NavigationManager {
           path: 'songs',
           pageBuilder: (context, state) => _pushPage(
             child: PlaylistPage(
-              playlistId: _decodePathParameter(
-                state.pathParameters['artistId'],
-              ),
+              playlistId: state.pathParameters['artistId'] ?? '',
               playlistData: _extraAsMap(state.extra),
               cubeIcon: FluentIcons.person_24_filled,
               isArtist: true,
@@ -352,7 +348,7 @@ class NavigationManager {
       path: 'album/:albumId',
       pageBuilder: (context, state) => _pushPage(
         child: PlaylistPage(
-          playlistId: _decodePathParameter(state.pathParameters['albumId']),
+          playlistId: state.pathParameters['albumId'] ?? '',
           playlistData: _extraAsMap(state.extra),
           cubeIcon: FluentIcons.cd_16_regular,
         ),
@@ -383,11 +379,6 @@ class NavigationManager {
     } catch (_) {}
 
     return homePath;
-  }
-
-  static String _decodePathParameter(String? value) {
-    if (value == null || value.isEmpty) return '';
-    return Uri.decodeComponent(value);
   }
 
   static Map? _extraAsMap(Object? extra) {
