@@ -27,6 +27,13 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
+// Height and padding of the header bar. It is applied with or without the app
+// colours, so the title bar keeps the same compact size in both modes.
+static const char kHeaderBarSizeCss[] =
+    "#musify-header-bar {"
+    "  min-height: 38px; padding: 0 6px;"
+    "}";
+
 // Paints the header bar with the colours of the app theme (sent from
 // lib/services/desktop_window_service.dart), so it switches with the app's
 // light/dark mode instead of following the system GTK theme.
@@ -42,10 +49,10 @@ static void apply_title_bar_theme(MyApplication* self, gboolean dark,
   const guint bg = static_cast<guint>(background) & 0xFFFFFF;
   const guint fg = static_cast<guint>(foreground) & 0xFFFFFF;
   g_autofree gchar* css = g_strdup_printf(
+      "%s"
       "#musify-header-bar {"
       "  background: #%06x; color: #%06x;"
       "  border: none; box-shadow: none;"
-      "  min-height: 38px; padding: 0 6px;"
       "}"
       "#musify-header-bar .title { color: #%06x; font-weight: bold; }"
       "#musify-header-bar button {"
@@ -53,18 +60,19 @@ static void apply_title_bar_theme(MyApplication* self, gboolean dark,
       "}"
       "#musify-header-bar button:hover { background: alpha(#%06x, 0.12); }"
       "#musify-header-bar button:active { background: alpha(#%06x, 0.2); }",
-      bg, fg, fg, fg, fg, fg);
+      kHeaderBarSizeCss, bg, fg, fg, fg, fg, fg);
   gtk_css_provider_load_from_data(self->title_bar_css, css, -1, nullptr);
 }
 
 // Drops the app colours and restores GTK's own dark preference, so the header
-// bar goes back to the system theme.
+// bar goes back to the system theme. Its compact size stays.
 static void reset_title_bar_theme(MyApplication* self) {
   g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
                self->default_prefer_dark_theme, nullptr);
 
   if (self->title_bar_css != nullptr) {
-    gtk_css_provider_load_from_data(self->title_bar_css, "", -1, nullptr);
+    gtk_css_provider_load_from_data(self->title_bar_css, kHeaderBarSizeCss, -1,
+                                    nullptr);
   }
 }
 
@@ -153,6 +161,8 @@ static void my_application_activate(GApplication* application) {
         gtk_window_get_screen(window),
         GTK_STYLE_PROVIDER(self->title_bar_css),
         GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    gtk_css_provider_load_from_data(self->title_bar_css, kHeaderBarSizeCss, -1,
+                                    nullptr);
   } else {
     gtk_window_set_title(window, "Musify");
   }
