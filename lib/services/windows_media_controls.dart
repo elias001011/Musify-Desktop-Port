@@ -78,9 +78,7 @@ class WindowsMediaControls {
           await channel.invokeMethod<void>('update', update);
           _lastUpdate = update;
         })
-        .catchError((Object error, StackTrace stackTrace) {
-          onError(error, stackTrace);
-        });
+        .catchError(onError);
   }
 
   Future<void> _onMethodCall(MethodCall call) async {

@@ -30,7 +30,7 @@ void main() {
   late WindowsMediaControls controls;
   late List<MethodCall> calls;
   late List<Object> errors;
-  bool failNextUpdate = false;
+  var failNextUpdate = false;
 
   Future<void> flush() => Future<void>.delayed(Duration.zero);
   Map<dynamic, dynamic> getUpdate() =>
