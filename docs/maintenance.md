@@ -105,6 +105,36 @@ Offline mode is manual and local-only. Local Sync never touches settings, so
 one device going offline does not force another synced device offline; it only
 pauses that device's automatic syncs.
 
+## Windows System Media Controls
+
+`lib/services/windows_media_controls.dart` mirrors the existing audio handler's
+track and playback streams into the `musify/media_controls` method channel.
+`windows/runner/media_controls.cpp` registers SMTC against the runner's top-level
+window with `ISystemMediaTransportControlsInterop::GetForWindow`. The existing
+libmpv player continues to handle all audio; no extra player or plugin is needed.
+The Windows runner uses C++20 for the SDK's C++/WinRT headers on recent MSVC.
+
+Windows media buttons are posted to the native window before invoking Dart, so
+Flutter channel calls stay on the platform thread even with the app minimized.
+Play, pause, next, previous and stop use the same handler as the app UI. Track
+metadata supports remote covers and decoded local file paths, and clears old
+artwork on track changes. A paused session remains available for resume; idle,
+completed and failed playback release the media controls. The runner unregisters
+the button handler and disables SMTC before destroying the Flutter engine.
+
+`flutter test test/windows_media_controls_test.dart` checks the Dart bridge on
+Linux and Windows in the desktop release workflow. Compilation on the Windows
+runner verifies the native SDK integration, but does not verify the actual media
+flyout or physical keyboard. For issue #13, validate those manually with the app
+focused, unfocused and minimized, including online/offline covers, rapid track
+changes, pause/resume, the end of the queue and closing/reopening the app.
+
+Publish test builds by dispatching `desktop_release.yml` from the test branch,
+with its commit SHA as `source_ref`, a new numeric desktop tag and
+`prerelease=true`. Do not push a release tag to trigger a test build: the tag
+trigger publishes stable releases. Keep the issue open until Windows feedback
+confirms the behavior.
+
 ## Desktop Volume Control
 
 The desktop volume slider is a downstream desktop feature. It is exposed only on

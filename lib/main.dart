@@ -48,6 +48,7 @@ import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/services/router_service.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/services/update_manager.dart';
+import 'package:musify/services/windows_media_controls.dart';
 import 'package:musify/theme/app_themes.dart';
 import 'package:musify/utilities/flutter_toast.dart';
 import 'package:musify/utilities/language_utils.dart';
@@ -59,6 +60,7 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 late MusifyAudioHandler audioHandler;
 StreamSubscription<String?>? sharingIntentSubscription;
 StreamSubscription<Uri?>? appLinksSubscription;
+WindowsMediaControls? windowsMediaControls;
 
 final logger = Logger();
 final appLinks = AppLinks();
@@ -239,6 +241,7 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
       _onIncomingPairingRequest,
     );
     unawaited(LocalSyncService.instance.dispose());
+    unawaited(windowsMediaControls?.dispose());
     Hive.close();
     unawaited(sharingIntentSubscription?.cancel());
     unawaited(appLinksSubscription?.cancel());
@@ -446,6 +449,26 @@ Future<void> initialisation() async {
         },
       ),
     );
+
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      final controls = WindowsMediaControls(
+        onError: (error, stackTrace) => logger.log(
+          'Windows media controls error',
+          error: error,
+          stackTrace: stackTrace,
+        ),
+      );
+      try {
+        await controls.start(audioHandler);
+        windowsMediaControls = controls;
+      } catch (error, stackTrace) {
+        logger.log(
+          'Could not initialize Windows media controls',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
 
     // Init router
     NavigationManager.instance;
