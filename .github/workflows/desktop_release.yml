@@ -138,6 +138,9 @@ jobs:
       - name: Analyze Dart code
         run: flutter analyze
 
+      - name: Test Windows media control bridge
+        run: flutter test test/windows_media_controls_test.dart
+
       - name: Build Linux release
         run: |
           flutter build linux \
@@ -186,6 +189,9 @@ jobs:
 
       - name: Get Flutter dependencies
         run: flutter pub get
+
+      - name: Test Windows media control bridge
+        run: flutter test test/windows_media_controls_test.dart
 
       - name: Build Windows release
         run: |
