@@ -112,6 +112,7 @@ track and playback streams into the `musify/media_controls` method channel.
 `windows/runner/media_controls.cpp` registers SMTC against the runner's top-level
 window with `ISystemMediaTransportControlsInterop::GetForWindow`. The existing
 libmpv player continues to handle all audio; no extra player or plugin is needed.
+The Windows runner uses C++20 for the SDK's C++/WinRT headers on recent MSVC.
 
 Windows media buttons are posted to the native window before invoking Dart, so
 Flutter channel calls stay on the platform thread even with the app minimized.
