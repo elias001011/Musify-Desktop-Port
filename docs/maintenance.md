@@ -224,3 +224,27 @@ git remote add upstream https://github.com/gokadzev/Musify.git
 
 The original upstream project should remain the source of application updates.
 Desktop-only changes should stay small and easy to carry forward.
+
+## Desktop playback and Linux media controls
+
+Linux exports `org.mpris.MediaPlayer2.musify.instance<PID>` on the session bus.
+The service mirrors the audio handler, including metadata, artwork, volume,
+transport controls and seeking. `DesktopEntry=musify` matches the packaged
+`musify.desktop` file. Closing the app releases the service; a missing session
+bus is logged without preventing playback.
+
+`packages/just_audio_media_kit` vendors version 2.1.0 with small desktop patches:
+flatten nested SponsorBlock sources, retain HTTP headers on clips, and disable
+MPV disk caching before opening media. The 32 MiB memory buffer stays enabled;
+this does not introduce the reverted streamed-song buffer or change when
+recommendations are fetched. Keep the package's MIT license with future updates.
+
+Run the native regression with a local libmpv installation:
+
+```bash
+MUSIFY_TEST_LIBMPV=/usr/lib/x86_64-linux-gnu/libmpv.so.2 flutter test test/desktop_audio_native_test.dart
+```
+
+The publication-date parser regression covers search and recommendations and can
+be contributed separately to upstream. PR #963 handles failed-song recovery;
+PR #972 proposes a streamed-song buffer. Neither is reimplemented here.

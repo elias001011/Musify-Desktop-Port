@@ -41,6 +41,8 @@ class DesktopWindow {
   /// appear maximized instead of resizing after it shows up.
   static Future<void> maximize() => _invoke('maximize');
 
+  static Future<void> raise() => _invoke('raise');
+
   /// Paints the native title bar with the app's own colours, so it follows
   /// the light/dark theme and the accent instead of the system theme.
   static void syncTitleBar(ThemeData theme) {

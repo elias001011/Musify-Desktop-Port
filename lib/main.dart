@@ -39,6 +39,7 @@ import 'package:musify/services/desktop_window_service.dart';
 import 'package:musify/services/downloads_location_service.dart';
 import 'package:musify/services/io_service.dart';
 import 'package:musify/services/keyboard_shortcuts_manager.dart';
+import 'package:musify/services/linux_media_controls.dart';
 import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/local_sync_service.dart';
 import 'package:musify/services/logger_service.dart';
@@ -61,6 +62,7 @@ late MusifyAudioHandler audioHandler;
 StreamSubscription<String?>? sharingIntentSubscription;
 StreamSubscription<Uri?>? appLinksSubscription;
 WindowsMediaControls? windowsMediaControls;
+LinuxMediaControls? linuxMediaControls;
 
 final logger = Logger();
 final appLinks = AppLinks();
@@ -244,6 +246,7 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
     );
     unawaited(LocalSyncService.instance.dispose());
     unawaited(windowsMediaControls?.dispose());
+    unawaited(linuxMediaControls?.dispose());
     Hive.close();
     unawaited(sharingIntentSubscription?.cancel());
     unawaited(appLinksSubscription?.cancel());
@@ -405,6 +408,7 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  JustAudioMediaKit.title = 'Musify';
   JustAudioMediaKit.ensureInitialized();
   await initialisation();
 
@@ -466,6 +470,37 @@ Future<void> initialisation() async {
       } catch (error, stackTrace) {
         logger.log(
           'Could not initialize Windows media controls',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.linux) {
+      final controls = LinuxMediaControls(
+        handler: audioHandler,
+        volume: () => audioHandler.volume,
+        volumeStream: audioHandler.volumeStream,
+        setVolume: audioHandler.setVolume,
+        canGoNext: () =>
+            audioHandler.hasNext ||
+            (playNextSongAutomatically.value &&
+                !offlineMode.value &&
+                audioHandler.currentSong != null),
+        canGoPrevious: () => audioHandler.hasPrevious,
+        raise: DesktopWindow.raise,
+        onError: (error, stackTrace) => logger.log(
+          'Linux media controls error',
+          error: error,
+          stackTrace: stackTrace,
+        ),
+      );
+      try {
+        await controls.start();
+        linuxMediaControls = controls;
+      } catch (error, stackTrace) {
+        logger.log(
+          'Could not initialize Linux media controls',
           error: error,
           stackTrace: stackTrace,
         );

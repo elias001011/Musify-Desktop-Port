@@ -87,6 +87,9 @@ static void window_method_call_cb(FlMethodChannel* channel,
   if (strcmp(method, "maximize") == 0) {
     gtk_window_maximize(self->window);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (strcmp(method, "raise") == 0) {
+    gtk_window_present(self->window);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
   } else if (strcmp(method, "setTitleBarTheme") == 0) {
     FlValue* dark = nullptr;
     FlValue* background = nullptr;

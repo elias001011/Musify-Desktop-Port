@@ -16,6 +16,7 @@ dependencies:
   audio_service: ^0.18.19
   audio_session: ^0.2.4
   cached_network_image: ^4.0.4
+  dbus: ^0.8.0
   dynamic_color: ^2.1.0
   file_picker: ^13.1.0
   fluentui_system_icons: ^1.1.273
@@ -31,7 +32,8 @@ dependencies:
   http: ^1.6.0
   intl: ^0.20.2
   just_audio: ^0.10.6
-  just_audio_media_kit: ^2.1.0
+  just_audio_media_kit:
+    path: ./packages/just_audio_media_kit
   material_ui: ^1.6.0
   media_kit_libs_linux: ^1.2.1
   media_kit_libs_windows_audio: ^1.0.9
@@ -50,6 +52,9 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+  just_audio_platform_interface: ^4.6.0
+  media_kit: ^1.2.6
 
   # flutter_lints: ^2.0.0
 
