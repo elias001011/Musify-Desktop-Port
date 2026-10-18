@@ -19,18 +19,9 @@
  *     please visit: https://github.com/gokadzev/Musify
  */
 
-import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// Whether the app is running on a desktop platform (Linux, Windows or macOS).
-///
-/// Desktop-only affordances such as the "Desktop layout" settings section and
-/// the global keyboard shortcuts are gated behind this.
-bool get isDesktopPlatform =>
-    !kIsWeb &&
-    (defaultTargetPlatform == TargetPlatform.linux ||
-        defaultTargetPlatform == TargetPlatform.windows ||
-        defaultTargetPlatform == TargetPlatform.macOS);
+export 'package:musify/utilities/platform_utils.dart' show isDesktopPlatform;
 
 const recommendedCubesNumber = 8;
 

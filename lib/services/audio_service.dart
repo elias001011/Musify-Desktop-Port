@@ -37,6 +37,7 @@ import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/map_utils.dart';
 import 'package:musify/utilities/media_duration.dart';
 import 'package:musify/utilities/mediaitem.dart';
+import 'package:musify/utilities/platform_utils.dart';
 import 'package:musify/utilities/queue_entry_utils.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -45,6 +46,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
     final androidEqualizer = Platform.isAndroid ? AndroidEqualizer() : null;
     _androidEqualizer = androidEqualizer;
     audioPlayer = AudioPlayer(
+      handleInterruptions: isMobilePlatform,
+      handleAudioSessionActivation: isMobilePlatform,
       audioPipeline: androidEqualizer == null
           ? null
           : AudioPipeline(androidAudioEffects: [androidEqualizer]),
@@ -59,15 +62,19 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
     _androidAutoBrowser = AndroidAutoBrowser(this);
     _setupEventSubscriptions();
-    _androidAutoBrowser.setupMediaBrowserSubscriptions();
+    if (isAndroidPlatform) {
+      _androidAutoBrowser.setupMediaBrowserSubscriptions();
+    }
     _updatePlaybackState();
 
-    audioPlayer.setAndroidAudioAttributes(
-      const AndroidAudioAttributes(
-        contentType: AndroidAudioContentType.music,
-        usage: AndroidAudioUsage.media,
-      ),
-    );
+    if (isAndroidPlatform) {
+      audioPlayer.setAndroidAudioAttributes(
+        const AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.music,
+          usage: AndroidAudioUsage.media,
+        ),
+      );
+    }
 
     _initialize();
   }
@@ -499,8 +506,10 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   Future<void> _initialize() async {
     try {
-      final session = await AudioSession.instance;
-      await session.configure(const AudioSessionConfiguration.music());
+      if (isMobilePlatform) {
+        final session = await AudioSession.instance;
+        await session.configure(const AudioSessionConfiguration.music());
+      }
 
       // Always set loop mode to off - we handle all repeating through _handleSongCompletion
       // This ensures ProcessingState.completed is always fired for song transitions
@@ -1699,8 +1708,10 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   Future<void> onTaskRemoved() async {
     try {
       await stop();
-      final session = await AudioSession.instance;
-      await session.setActive(false);
+      if (isMobilePlatform) {
+        final session = await AudioSession.instance;
+        await session.setActive(false);
+      }
     } catch (e, stackTrace) {
       logger.log('Error in onTaskRemoved', error: e, stackTrace: stackTrace);
     }

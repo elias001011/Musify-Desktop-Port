@@ -52,11 +52,11 @@ an optional desktop convenience.
 
 ### Required: making it run on a PC
 
-**The desktop runners.** Flutter needs a native host per platform, and upstream
-has only the Android one. This repository adds the `linux/` and `windows/`
-trees: CMake builds, a GTK application for Linux, a Win32 window for Windows,
-the generated plugin registrants, and a Windows app icon and manifest. That is
-around 2,800 lines of platform scaffolding that upstream has no reason to carry.
+**The desktop runners.** Flutter needs a native host per platform. Upstream now
+includes a basic Linux runner. This repository keeps its customized GTK runner
+and adds the Windows host, with desktop window controls, platform packaging and
+app icons. Upstream Linux changes are reconciled with these integrations when
+syncing, so the desktop features remain available on both platforms.
 
 **Audio playback.** `just_audio`, which Musify uses for everything, has no
 native desktop implementation. Playback goes through

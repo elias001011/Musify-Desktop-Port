@@ -31,7 +31,6 @@ import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/localization/app_localizations.dart';
 import 'package:musify/services/audio_service.dart';
@@ -52,6 +51,7 @@ import 'package:musify/services/windows_media_controls.dart';
 import 'package:musify/theme/app_themes.dart';
 import 'package:musify/utilities/flutter_toast.dart';
 import 'package:musify/utilities/language_utils.dart';
+import 'package:musify/utilities/platform_utils.dart';
 import 'package:musify/utilities/playlist_utils.dart';
 import 'package:musify/utilities/sharing_intent.dart';
 import 'package:path_provider/path_provider.dart';
@@ -131,7 +131,9 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addObserver(this);
 
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    if (isMobilePlatform) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
 
     final platformDispatcher = PlatformDispatcher.instance;
 
