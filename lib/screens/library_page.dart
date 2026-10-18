@@ -203,14 +203,11 @@ class _LibraryPageState extends State<LibraryPage> {
 
     final hasFolders = folders.isNotEmpty;
     final hasCustomPlaylists = playlistsNotInFolders.isNotEmpty;
-    final hasAnythingAfterOffline = hasFolders || hasCustomPlaylists;
-    final shouldShowLibraryShortcuts = !isOffline;
-    final shouldShowCustomSection =
-        shouldShowLibraryShortcuts || hasAnythingAfterOffline;
+    final hasLibraryContent = !isOffline || hasFolders || hasCustomPlaylists;
 
     final slivers = <Widget>[];
 
-    if (shouldShowCustomSection) {
+    if (hasLibraryContent) {
       slivers.add(
         SliverToBoxAdapter(
           child: Column(
@@ -243,7 +240,7 @@ class _LibraryPageState extends State<LibraryPage> {
                         ],
                       ),
               ),
-              if (shouldShowLibraryShortcuts) ...[
+              if (!isOffline) ...[
                 PlaylistBar(
                   context.l10n!.recentlyPlayed,
                   onPressed: () =>
@@ -264,7 +261,14 @@ class _LibraryPageState extends State<LibraryPage> {
                   onPressed: () =>
                       NavigationManager.router.go('/library/userSongs/offline'),
                   cubeIcon: FluentIcons.cloud_off_24_regular,
-                  borderRadius: hasAnythingAfterOffline
+                  showBuildActions: false,
+                ),
+                PlaylistBar(
+                  context.l10n!.radioStations,
+                  onPressed: () =>
+                      NavigationManager.router.go('/library/radioStations'),
+                  cubeIcon: FluentIcons.sound_source_24_regular,
+                  borderRadius: hasCustomPlaylists || hasFolders
                       ? BorderRadius.zero
                       : commonCustomBarRadiusLast,
                   showBuildActions: false,
