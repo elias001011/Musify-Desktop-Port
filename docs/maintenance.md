@@ -237,7 +237,7 @@ bus is logged without preventing playback.
 flatten nested SponsorBlock sources, retain HTTP headers on clips, and disable
 MPV disk caching before opening media. The 32 MiB memory buffer stays enabled;
 this does not introduce the reverted streamed-song buffer or change when
-recommendations are fetched. Keep the package's MIT license with future updates.
+recommendations are fetched. Keep the package's Unlicense with future updates.
 
 Run the native regression with a local libmpv installation:
 

@@ -1,7 +1,7 @@
 # Musify desktop compatibility patches
 
 Vendored from `just_audio_media_kit` 2.1.0 (Pato05/just_audio_media_kit),
-under the accompanying MIT license. Keep this patch small and review it when
+under the accompanying Unlicense. Keep this patch small and review it when
 updating the package.
 
 - Flatten nested concatenating/looping sources before opening the MPV playlist.
