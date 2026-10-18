@@ -138,8 +138,8 @@ jobs:
       - name: Analyze Dart code
         run: flutter analyze
 
-      - name: Test Windows media control bridge
-        run: flutter test test/windows_media_controls_test.dart
+      - name: Test Dart code
+        run: flutter test
 
       - name: Build Linux release
         run: |
@@ -198,6 +198,9 @@ jobs:
           flutter build windows `
             --release `
             --dart-define=MUSIFY_DESKTOP_RELEASE_TAG="${{ needs.preflight.outputs.tag }}"
+
+      - name: Verify Windows application icons
+        run: python .github/scripts/check_windows_icons.py build/windows/x64/runner/Release/musify.exe
 
       - name: Package portable Windows release
         shell: pwsh

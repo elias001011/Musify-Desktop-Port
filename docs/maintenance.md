@@ -107,6 +107,9 @@ pauses that device's automatic syncs.
 
 ## Windows System Media Controls
 
+The reporter confirmed the keyboard controls, metadata and artwork on Windows
+in issue #13, and PR #15 brought the implementation into master.
+
 `lib/services/windows_media_controls.dart` mirrors the existing audio handler's
 track and playback streams into the `musify/media_controls` method channel.
 `windows/runner/media_controls.cpp` registers SMTC against the runner's top-level
@@ -134,6 +137,41 @@ with its commit SHA as `source_ref`, a new numeric desktop tag and
 `prerelease=true`. Do not push a release tag to trigger a test build: the tag
 trigger publishes stable releases. Keep the issue open until Windows feedback
 confirms the behavior.
+
+## Windows Application Icon And Identity
+
+The Windows ICO is generated from the same Musify launcher PNG used by the Linux
+package, with sizes from 16 to 256 pixels. It is embedded in `musify.exe` and
+used by the native window, Explorer, installer, shortcuts and uninstaller.
+`musify-icon.png` is also installed beside the executable for Windows' media
+and notification identity; it is included in both the installer and portable ZIP.
+
+Before creating the window, `app_identity.cpp` sets the process AppUserModelID
+to `com.gokadzev.musify` and registers `DisplayName` and `IconUri` under
+`HKCU\Software\Classes\AppUserModelId\com.gokadzev.musify`. This needs no admin
+rights and runs for portable builds as well. The PNG path is resolved from the
+executable directory on every launch, so moving the portable folder updates it.
+Installer shortcuts use the same AppUserModelID. Registration failures are
+logged and do not prevent playback.
+
+The Windows release job checks the actual executable's icon resources against
+the source ICO and verifies that the notification PNG is bundled correctly.
+Actual shell appearance still needs a Windows desktop to verify; old pinned
+shortcuts can retain cached icons until they are pinned again.
+
+## Upstream Master Sync — 2026-10-18
+
+Merged upstream through `bca477ae` (Linux support PR #990). Preserved this port's
+Linux runner, dock identity, window theming, shortcuts, downloads, Local Sync,
+Windows audio backend, SMTC and desktop updater. The duplicate upstream desktop
+platform helper is shared through `platform_utils.dart`.
+
+The merge incorporates the Android HTTP playback fix from `9ddeeb11`, radio
+additions and translations. That HTTP fix changes Android's network policy;
+it is not a new YouTube playback fix for Windows/Linux. The applicable upstream
+audio guards keep Android effects/attributes, media browsing and AudioSession
+activation off desktop platforms. The `archive` and `image` lockfile versions
+match upstream while retaining this port's Windows dependencies.
 
 ## Desktop Volume Control
 

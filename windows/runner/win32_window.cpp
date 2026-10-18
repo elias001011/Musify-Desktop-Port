@@ -144,6 +144,20 @@ bool Win32Window::Create(const std::wstring& title,
     return false;
   }
 
+  // Give both shell icon queries an appropriately sized resource, including
+  // the small title-bar/Alt+Tab icon rather than scaling the class icon down.
+  for (const auto icon_type : {ICON_BIG, ICON_SMALL}) {
+    const bool small = icon_type == ICON_SMALL;
+    const auto icon = LoadImage(
+        GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
+        GetSystemMetrics(small ? SM_CXSMICON : SM_CXICON),
+        GetSystemMetrics(small ? SM_CYSMICON : SM_CYICON), LR_SHARED);
+    if (icon) {
+      SendMessage(window, WM_SETICON, static_cast<WPARAM>(icon_type),
+                  reinterpret_cast<LPARAM>(icon));
+    }
+  }
+
   UpdateTheme(window);
 
   return OnCreate();

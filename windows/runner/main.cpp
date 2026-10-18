@@ -4,6 +4,7 @@
 #include <roapi.h>
 
 #include "flutter_window.h"
+#include "app_identity.h"
 #include "utils.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
@@ -18,6 +19,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (FAILED(::RoInitialize(RO_INIT_SINGLETHREADED))) {
     return EXIT_FAILURE;
   }
+
+  ConfigureAppIdentity();
 
   flutter::DartProject project(L"data");
 
