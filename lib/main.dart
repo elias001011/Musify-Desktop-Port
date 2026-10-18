@@ -489,6 +489,7 @@ Future<void> initialisation() async {
                 audioHandler.currentSong != null),
         canGoPrevious: () => audioHandler.hasPrevious,
         raise: DesktopWindow.raise,
+        position: () => audioHandler.currentPositionData.position,
         onError: (error, stackTrace) => logger.log(
           'Linux media controls error',
           error: error,

@@ -67,6 +67,7 @@ void main() {
     raised = 0;
     controls = LinuxMediaControls(
       handler: handler,
+      position: () => handler.sought ?? const Duration(seconds: 10),
       bus: DBusClient(address),
       name: 'org.mpris.MediaPlayer2.musify.test',
       volume: () => currentVolume,
@@ -178,6 +179,29 @@ void main() {
       expect(handler.sought, Duration.zero);
       await command('Seek', [const DBusInt64(200000000)]);
       expect(handler.commands.last, 'next');
+    },
+  );
+
+  test(
+    'Seeked reports the new player position before UI state catches up',
+    () async {
+      final seeked = DBusSignalStream(
+        observer,
+        sender: controls.name,
+        path: controls.path,
+        interface: player,
+        name: 'Seeked',
+      ).first;
+      await flush();
+      final metadata = (await property('Metadata')).asStringVariantDict();
+      await command('SetPosition', [
+        metadata['mpris:trackid']!,
+        const DBusInt64(20000000),
+      ]);
+      expect((await seeked.timeout(const Duration(seconds: 2))).values, [
+        const DBusInt64(20000000),
+      ]);
+      expect((await property('Position')).asInt64(), 20000000);
     },
   );
 

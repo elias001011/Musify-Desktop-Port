@@ -16,6 +16,7 @@ class LinuxMediaControls extends DBusObject {
     required this.canGoPrevious,
     required this.onError,
     this.raise,
+    this.position,
     DBusClient? bus,
     String? name,
   }) : _bus = bus ?? DBusClient.session(),
@@ -32,6 +33,7 @@ class LinuxMediaControls extends DBusObject {
   final bool Function() canGoPrevious;
   final void Function(Object, StackTrace) onError;
   final Future<void> Function()? raise;
+  final Duration Function()? position;
   final DBusClient _bus;
   final String name;
   final _subscriptions = <StreamSubscription<dynamic>>[];
@@ -90,10 +92,8 @@ class LinuxMediaControls extends DBusObject {
         : '/org/mpris/MediaPlayer2/track/t${utf8.encode(_item!.id).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
   );
 
-  int get _position => _state.position.inMicroseconds.clamp(
-    0,
-    _item?.duration?.inMicroseconds ?? 0x7fffffffffffffff,
-  );
+  int get _position => (position?.call() ?? _state.position).inMicroseconds
+      .clamp(0, _item?.duration?.inMicroseconds ?? 0x7fffffffffffffff);
 
   Map<String, DBusValue> get _rootProperties => {
     'CanQuit': const DBusBoolean(false),
