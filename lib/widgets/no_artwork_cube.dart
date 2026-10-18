@@ -21,6 +21,7 @@
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:musify/utilities/platform_utils.dart';
 
 class NullArtworkWidget extends StatelessWidget {
   const NullArtworkWidget({
@@ -44,7 +45,10 @@ class NullArtworkWidget extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
 
     final badgeSize = size * 0.4;
-    final calculatedIconSize = iconSize ?? (badgeSize * 0.5);
+    final requestedIconSize = iconSize ?? (badgeSize * 0.5);
+    final calculatedIconSize = isDesktopPlatform
+        ? requestedIconSize.clamp(0.0, badgeSize * 0.8)
+        : requestedIconSize;
 
     return SizedBox(
       width: size,
