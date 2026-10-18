@@ -34,6 +34,7 @@ void main() {
   late _Handler handler;
   late StreamController<double> volumes;
   late List<Object> errors;
+  late Future<Uri?> Function(Uri) resolveArtwork;
   var currentVolume = 0.5;
   var canNext = true;
   var raised = 0;
@@ -61,12 +62,14 @@ void main() {
     observer = DBusClient(address);
     handler = _Handler();
     errors = [];
+    resolveArtwork = (source) async => source;
     volumes = StreamController<double>.broadcast();
     currentVolume = 0.5;
     canNext = true;
     raised = 0;
     controls = LinuxMediaControls(
       handler: handler,
+      resolveArtwork: (source) => resolveArtwork(source),
       position: () => handler.sought ?? const Duration(seconds: 10),
       bus: DBusClient(address),
       name: 'org.mpris.MediaPlayer2.musify.test',
@@ -236,4 +239,29 @@ void main() {
     await controls.dispose();
     expect(await observer.nameHasOwner(controls.name), false);
   });
+  test(
+    'Linux publishes the square cover without blocking media commands',
+    () async {
+      final cover = Completer<Uri?>();
+      resolveArtwork = (_) => cover.future;
+      handler.mediaItem.add(
+        MediaItem(
+          id: 'new',
+          title: 'New song',
+          artUri: Uri.parse('https://example.com/wide.jpg'),
+        ),
+      );
+      await flush();
+      var metadata = (await property('Metadata')).asStringVariantDict();
+      expect(metadata['xesam:title'], const DBusString('New song'));
+      expect(metadata.containsKey('mpris:artUrl'), false);
+      await command('Pause');
+      expect(handler.commands.last, 'pause');
+      final square = Uri.file('${directory.path}/square.png');
+      cover.complete(square);
+      await flush();
+      metadata = (await property('Metadata')).asStringVariantDict();
+      expect(metadata['mpris:artUrl'], DBusString(square.toString()));
+    },
+  );
 }

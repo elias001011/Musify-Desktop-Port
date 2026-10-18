@@ -248,3 +248,8 @@ MUSIFY_TEST_LIBMPV=/usr/lib/x86_64-linux-gnu/libmpv.so.2 flutter test test/deskt
 The publication-date parser regression covers search and recommendations and can
 be contributed separately to upstream. PR #963 handles failed-song recovery;
 PR #972 proposes a streamed-song buffer. Neither is reimplemented here.
+
+System media artwork is center-cropped to a 512px square for both MPRIS and
+SMTC. Only the desktop controls use this generated PNG; mobile and in-app
+artwork keep their original images. Covers load independently of text and
+transport updates, and late results are discarded after a track change.

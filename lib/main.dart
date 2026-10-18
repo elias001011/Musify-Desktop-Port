@@ -35,6 +35,7 @@ import 'package:musify/extensions/l10n.dart';
 import 'package:musify/localization/app_localizations.dart';
 import 'package:musify/services/audio_service.dart';
 import 'package:musify/services/data_manager.dart';
+import 'package:musify/services/desktop_media_artwork.dart';
 import 'package:musify/services/desktop_window_service.dart';
 import 'package:musify/services/downloads_location_service.dart';
 import 'package:musify/services/io_service.dart';
@@ -65,6 +66,7 @@ WindowsMediaControls? windowsMediaControls;
 LinuxMediaControls? linuxMediaControls;
 
 final logger = Logger();
+final desktopMediaArtwork = DesktopMediaArtwork();
 final appLinks = AppLinks();
 
 bool get _supportsSharingIntent =>
@@ -458,6 +460,7 @@ Future<void> initialisation() async {
 
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
       final controls = WindowsMediaControls(
+        resolveArtwork: desktopMediaArtwork.resolve,
         onError: (error, stackTrace) => logger.log(
           'Windows media controls error',
           error: error,
@@ -479,6 +482,7 @@ Future<void> initialisation() async {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.linux) {
       final controls = LinuxMediaControls(
         handler: audioHandler,
+        resolveArtwork: desktopMediaArtwork.resolve,
         volume: () => audioHandler.volume,
         volumeStream: audioHandler.volumeStream,
         setVolume: audioHandler.setVolume,

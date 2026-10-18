@@ -3,17 +3,25 @@ import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:musify/services/desktop_media_artwork.dart';
 
 /// Mirrors the existing audio handler into the Windows runner's SMTC session.
 /// The player remains the source of truth, including for commands from Windows.
 class WindowsMediaControls {
   WindowsMediaControls({
     required this.onError,
+    this.resolveArtwork,
     this.channel = const MethodChannel('musify/media_controls'),
   });
 
   final void Function(Object error, StackTrace stackTrace) onError;
   final MethodChannel channel;
+  final MediaArtworkResolver? resolveArtwork;
+  late final _artwork = MediaArtworkState(
+    resolve: resolveArtwork,
+    onChanged: _scheduleUpdate,
+    onError: onError,
+  );
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   AudioHandler? _handler;
   MediaItem? _item;
@@ -34,6 +42,7 @@ class WindowsMediaControls {
     _subscriptions.addAll([
       handler.mediaItem.listen((item) {
         _item = item;
+        _artwork.update(item?.artUri);
         _scheduleUpdate();
       }),
       handler.playbackState.listen((state) {
@@ -55,7 +64,7 @@ class WindowsMediaControls {
     _pending = _pending
         .then((_) async {
           if (_disposed) return;
-          final artUri = _item?.artUri;
+          final artUri = _artwork.uri;
           final update = <String, Object?>{
             'enabled': _active,
             'status': !_active
@@ -104,6 +113,7 @@ class WindowsMediaControls {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    _artwork.dispose();
     channel.setMethodCallHandler(null);
     for (final subscription in _subscriptions) {
       await subscription.cancel();

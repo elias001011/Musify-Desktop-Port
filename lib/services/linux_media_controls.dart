@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:dbus/dbus.dart';
+import 'package:musify/services/desktop_media_artwork.dart';
 
 /// Exposes the existing audio handler to Linux desktops and media keys.
 class LinuxMediaControls extends DBusObject {
@@ -17,6 +18,7 @@ class LinuxMediaControls extends DBusObject {
     required this.onError,
     this.raise,
     this.position,
+    this.resolveArtwork,
     DBusClient? bus,
     String? name,
   }) : _bus = bus ?? DBusClient.session(),
@@ -34,6 +36,12 @@ class LinuxMediaControls extends DBusObject {
   final void Function(Object, StackTrace) onError;
   final Future<void> Function()? raise;
   final Duration Function()? position;
+  final MediaArtworkResolver? resolveArtwork;
+  late final _artwork = MediaArtworkState(
+    resolve: resolveArtwork,
+    onChanged: _update,
+    onError: onError,
+  );
   final DBusClient _bus;
   final String name;
   final _subscriptions = <StreamSubscription<dynamic>>[];
@@ -56,6 +64,7 @@ class LinuxMediaControls extends DBusObject {
       _subscriptions.addAll([
         handler.mediaItem.listen((item) {
           _item = item;
+          _artwork.update(item?.artUri);
           _update();
         }),
         handler.playbackState.listen((state) {
@@ -130,8 +139,8 @@ class LinuxMediaControls extends DBusObject {
         'xesam:title': DBusString(item.title),
         'xesam:artist': DBusArray.string([item.artist ?? '']),
         'xesam:album': DBusString(item.album ?? ''),
-        if (item.artUri != null)
-          'mpris:artUrl': DBusString(item.artUri.toString()),
+        if (_artwork.uri != null)
+          'mpris:artUrl': DBusString(_artwork.uri.toString()),
         if (item.duration != null)
           'mpris:length': DBusInt64(item.duration!.inMicroseconds),
       },
@@ -372,6 +381,7 @@ class LinuxMediaControls extends DBusObject {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    _artwork.dispose();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }

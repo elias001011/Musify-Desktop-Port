@@ -214,4 +214,18 @@ void main() {
       expect(handler.commands, isEmpty);
     },
   );
+  test('resolved square artwork reaches Windows as a local file', () async {
+    await controls.dispose();
+    final square = Uri.file(r'C:\Musify\cover.png', windows: true);
+    controls = WindowsMediaControls(
+      onError: (error, _) => errors.add(error),
+      resolveArtwork: (_) async => square,
+    );
+    await controls.start(handler);
+    play(artwork: Uri.parse('https://example.com/wide.jpg'));
+    await flush();
+    expect(getUpdate()['artUri'], '');
+    expect(getUpdate()['artPath'], r'C:\Musify\cover.png');
+    expect(getUpdate()['title'], 'Song');
+  });
 }
