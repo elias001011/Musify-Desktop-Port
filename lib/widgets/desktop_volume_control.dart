@@ -32,7 +32,7 @@ class DesktopVolumeControl extends StatefulWidget {
   const DesktopVolumeControl({
     super.key,
     required this.iconSize,
-    this.sliderWidth = 136,
+    this.sliderWidth = 96,
     this.compact = false,
   });
 
@@ -46,149 +46,124 @@ class DesktopVolumeControl extends StatefulWidget {
 
 class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
   bool _isExpanded = false;
+  double _volumeBeforeMute = 1;
 
   @override
   Widget build(BuildContext context) {
     if (!supportsDesktopVolumeControl) return const SizedBox.shrink();
 
+    final colors = Theme.of(context).colorScheme;
+    final color = widget.compact ? colors.primary : colors.onSurfaceVariant;
     return StreamBuilder<double>(
       stream: audioHandler.volumeStream,
       initialData: audioHandler.volume,
       builder: (context, snapshot) {
         final volume = (snapshot.data ?? 1.0).clamp(0.0, 1.0);
-        if (!widget.compact) {
-          final panelHeight = widget.sliderWidth + 40;
-          return MenuAnchor(
-            style: const MenuStyle(
-              alignment: Alignment.topCenter,
-              padding: WidgetStatePropertyAll(EdgeInsets.zero),
-              minimumSize: WidgetStatePropertyAll(Size.zero),
-            ),
-            alignmentOffset: Offset(-32, -panelHeight - 8),
-            menuChildren: [
-              Focus(
-                autofocus: true,
-                child: SizedBox(
-                  width: 64,
-                  height: panelHeight,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: _buildSlider(context, vertical: true),
-                  ),
-                ),
-              ),
-            ],
-            builder: (context, controller, child) => _buildButton(
-              context,
-              volume,
-              () => controller.isOpen ? controller.close() : controller.open(),
-            ),
-          );
-        }
+        final slider = SizedBox(
+          width: widget.sliderWidth + (widget.compact ? 44 : 0),
+          height: widget.compact ? null : 32,
+          child: _buildSlider(context, volume),
+        );
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildButton(
-              context,
-              volume,
-              () => setState(() => _isExpanded = !_isExpanded),
-            ),
-            ClipRect(
-              child: AnimatedSize(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
-                child: _isExpanded
-                    ? SizedBox(
-                        width: widget.sliderWidth + 44,
-                        child: _buildSlider(context),
-                      )
-                    : const SizedBox.shrink(),
+            IconButton(
+              icon: Icon(_iconForVolume(volume), color: color),
+              iconSize: widget.iconSize,
+              tooltip: context.l10n!.volume,
+              style: IconButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                foregroundColor: color,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                side: BorderSide.none,
+                shape: widget.compact
+                    ? null
+                    : RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
               ),
+              onPressed: () {
+                if (widget.compact) {
+                  setState(() => _isExpanded = !_isExpanded);
+                } else if (volume > 0) {
+                  _volumeBeforeMute = volume;
+                  audioHandler.setVolume(0);
+                } else {
+                  audioHandler.setVolume(_volumeBeforeMute);
+                }
+              },
             ),
+            if (widget.compact)
+              ClipRect(
+                child: AnimatedSize(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  child: _isExpanded ? slider : const SizedBox.shrink(),
+                ),
+              )
+            else
+              slider,
           ],
         );
       },
     );
   }
 
-  Widget _buildButton(
-    BuildContext context,
-    double volume,
-    VoidCallback onPressed,
-  ) {
+  Widget _buildSlider(BuildContext context, double volume) {
     final colors = Theme.of(context).colorScheme;
-    final color = widget.compact ? colors.primary : colors.onSurfaceVariant;
-    return IconButton(
-      icon: Icon(_iconForVolume(volume), color: color),
-      iconSize: widget.iconSize,
-      tooltip: context.l10n!.volume,
-      style: IconButton.styleFrom(
-        backgroundColor: Colors.transparent,
-        foregroundColor: color,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        side: BorderSide.none,
-        shape: widget.compact
+    final slider = SliderTheme(
+      data: SliderTheme.of(context).copyWith(
+        trackHeight: widget.compact ? 6 : 3,
+        activeTrackColor: widget.compact
+            ? colors.primary
+            : colors.onSurfaceVariant,
+        inactiveTrackColor: colors.surfaceContainerHighest,
+        thumbColor: widget.compact ? colors.primary : colors.onSurfaceVariant,
+        thumbShape: widget.compact
             ? null
-            : RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            : const RoundSliderThumbShape(enabledThumbRadius: 4),
+        overlayShape: widget.compact
+            ? null
+            : const RoundSliderOverlayShape(overlayRadius: 8),
+        padding: widget.compact
+            ? null
+            : const EdgeInsets.symmetric(horizontal: 8),
       ),
-      onPressed: onPressed,
+      child: Slider(
+        value: volume,
+        semanticFormatterCallback: (value) => '${(value * 100).round()}%',
+        onChanged: audioHandler.setVolume,
+      ),
     );
-  }
-
-  Widget _buildSlider(BuildContext context, {bool vertical = false}) {
-    final colors = Theme.of(context).colorScheme;
-    return StreamBuilder<double>(
-      stream: audioHandler.volumeStream,
-      initialData: audioHandler.volume,
-      builder: (context, snapshot) {
-        final volume = (snapshot.data ?? 1.0).clamp(0.0, 1.0);
-        final slider = SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            trackHeight: 6,
-            activeTrackColor: colors.primary,
-            inactiveTrackColor: colors.surfaceContainerHighest,
-            thumbColor: colors.primary,
-          ),
-          child: Slider(
-            value: volume,
-            semanticFormatterCallback: (value) => '${(value * 100).round()}%',
-            onChanged: audioHandler.setVolume,
-          ),
-        );
-        final percentage = Text(
-          '${(volume * 100).round()}%',
-          textAlign: vertical ? TextAlign.center : TextAlign.end,
-          style: Theme.of(context).textTheme.bodySmall
-              ?.copyWith(color: colors.onSurface),
-        );
-        return Listener(
-          onPointerSignal: (event) {
-            if (event is! PointerScrollEvent) return;
-            final delta = event.scrollDelta.dy != 0
-                ? event.scrollDelta.dy
-                : event.scrollDelta.dx;
-            if (delta == 0) return;
-            GestureBinding.instance.pointerSignalResolver.register(event, (_) {
-              audioHandler.setVolume(
-                (audioHandler.volume - delta / 400).clamp(0.0, 1.0),
-              );
-            });
-          },
-          child: vertical
-              ? Column(
-                  children: [
-                    Expanded(child: RotatedBox(quarterTurns: 3, child: slider)),
-                    percentage,
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(child: slider),
-                    SizedBox(width: 44, child: percentage),
-                  ],
-                ),
-        );
+    return Listener(
+      onPointerSignal: (event) {
+        if (event is! PointerScrollEvent) return;
+        final delta = event.scrollDelta.dy != 0
+            ? event.scrollDelta.dy
+            : event.scrollDelta.dx;
+        if (delta == 0) return;
+        GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+          audioHandler.setVolume(
+            (audioHandler.volume - delta / 400).clamp(0.0, 1.0),
+          );
+        });
       },
+      child: widget.compact
+          ? Row(
+              children: [
+                Expanded(child: slider),
+                SizedBox(
+                  width: 44,
+                  child: Text(
+                    '${(volume * 100).round()}%',
+                    textAlign: TextAlign.end,
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: colors.onSurface),
+                  ),
+                ),
+              ],
+            )
+          : slider,
     );
   }
 

@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:material_ui/material_ui.dart';
@@ -222,7 +221,7 @@ void main() {
   );
 
   testWidgets(
-    'expanded full-player volume fits a 400 px desktop window',
+    'full-player volume stays small, adjusts and restores mute at 400 px',
     (tester) async {
       tester.view.physicalSize = const Size(400, 800);
       tester.view.devicePixelRatio = 1;
@@ -262,37 +261,51 @@ void main() {
       final colors = Theme.of(tester.element(volume)).colorScheme;
       expect((button.icon as Icon).color, colors.onSurfaceVariant);
       expect(button.style!.backgroundColor!.resolve({}), Colors.transparent);
-      await tester.tap(volume);
-      await tester.pumpAndSettle();
-      expect(tester.getRect(find.byType(BottomActionsRow)), panel);
-      expect(tester.getRect(volume), buttonBounds);
       expect(find.byType(Slider), findsOneWidget);
+      expect(find.text('50%'), findsNothing);
       final bounds = tester.getRect(find.byType(Slider));
       expect(bounds.left, greaterThanOrEqualTo(0));
       expect(bounds.right, lessThanOrEqualTo(400));
-      expect(bounds.height, greaterThan(bounds.width));
-      expect(bounds.bottom, lessThan(buttonBounds.top));
+      expect(bounds.height, 32);
+      expect(bounds.width, 96);
+      final theme = SliderTheme.of(tester.element(find.byType(Slider)));
+      expect(theme.trackHeight, 3);
+      expect(theme.activeTrackColor, colors.onSurfaceVariant);
+      expect(
+        (theme.thumbShape! as RoundSliderThumbShape).enabledThumbRadius,
+        4,
+      );
+      await tester.tap(volume);
+      await tester.pumpAndSettle();
+      expect(audioHandler.volume, 0);
+      expect(find.byType(Slider), findsOneWidget);
+      await tester.tap(volume);
+      await tester.pumpAndSettle();
+      expect(audioHandler.volume, 0.5);
       await audioHandler.setVolume(0.75);
       await tester.pumpAndSettle();
-      expect(find.text('75%'), findsOneWidget);
+      expect(tester.widget<Slider>(find.byType(Slider)).value, 0.75);
       final center = tester.getCenter(find.byType(Slider));
       await tester.sendEventToBinding(
         PointerScrollEvent(position: center, scrollDelta: const Offset(0, 20)),
       );
       await tester.pumpAndSettle();
       expect(audioHandler.volume, closeTo(0.7, 0.0001));
-      final before = audioHandler.volume;
-      await tester.drag(find.byType(Slider), const Offset(0, -25));
-      await tester.pumpAndSettle();
-      expect(audioHandler.volume, greaterThan(before));
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pumpAndSettle();
-      expect(find.byType(Slider), findsNothing);
       await tester.tap(volume);
       await tester.pumpAndSettle();
-      await tester.tapAt(const Offset(390, 50));
+      expect(audioHandler.volume, 0);
+      await tester.tap(volume);
       await tester.pumpAndSettle();
-      expect(find.byType(Slider), findsNothing);
+      expect(audioHandler.volume, closeTo(0.7, 0.0001));
+      final thumb = Offset(
+        bounds.left + 8 + (bounds.width - 16) * 0.7,
+        center.dy,
+      );
+      await tester.dragFrom(thumb, const Offset(15, 0));
+      await tester.pumpAndSettle();
+      expect(audioHandler.volume, greaterThan(0.7));
+      expect(tester.getRect(find.byType(BottomActionsRow)), panel);
+      expect(tester.getRect(volume), buttonBounds);
       expect(tester.takeException(), isNull);
     },
     variant: const TargetPlatformVariant({
