@@ -20,9 +20,10 @@
  */
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:musify/constants/app_constants.dart';
 import 'package:musify/main.dart';
+import 'package:musify/utilities/platform_utils.dart';
 
 bool get supportsDesktopVolumeControl => isDesktopPlatform;
 
@@ -61,13 +62,15 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              icon: Icon(_iconForVolume(volume), color: colorScheme.primary),
+              icon: Icon(
+                _iconForVolume(volume),
+                color: colorScheme.onPrimaryContainer,
+              ),
               iconSize: widget.iconSize,
               tooltip: 'Volume',
               style: IconButton.styleFrom(
-                backgroundColor: _isExpanded
-                    ? colorScheme.primary.withValues(alpha: 0.15)
-                    : Colors.transparent,
+                backgroundColor: colorScheme.primaryContainer,
+                foregroundColor: colorScheme.onPrimaryContainer,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -76,19 +79,60 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
               onPressed: () => setState(() => _isExpanded = !_isExpanded),
             ),
             ClipRect(
-              child: AnimatedContainer(
+              child: AnimatedSize(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOutCubic,
-                width: _isExpanded ? widget.sliderWidth : 0,
                 child: _isExpanded
                     ? SizedBox(
-                        width: widget.sliderWidth,
-                        child: Slider(
-                          value: volume,
-                          onChanged: audioHandler.setVolume,
+                        width: widget.sliderWidth + 44,
+                        child: Listener(
+                          onPointerSignal: (event) {
+                            if (event is! PointerScrollEvent) return;
+                            final delta = event.scrollDelta.dy != 0
+                                ? event.scrollDelta.dy
+                                : event.scrollDelta.dx;
+                            if (delta == 0) return;
+                            GestureBinding.instance.pointerSignalResolver
+                                .register(event, (_) {
+                                  audioHandler.setVolume(
+                                    (audioHandler.volume - delta.sign * 0.05)
+                                        .clamp(0.0, 1.0),
+                                  );
+                                });
+                          },
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: SliderTheme(
+                                  data: SliderTheme.of(context).copyWith(
+                                    trackHeight: 6,
+                                    activeTrackColor: colorScheme.primary,
+                                    inactiveTrackColor:
+                                        colorScheme.surfaceContainerHighest,
+                                    thumbColor: colorScheme.primary,
+                                  ),
+                                  child: Slider(
+                                    value: volume,
+                                    semanticFormatterCallback: (value) =>
+                                        '${(value * 100).round()}%',
+                                    onChanged: audioHandler.setVolume,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 44,
+                                child: Text(
+                                  '${(volume * 100).round()}%',
+                                  textAlign: TextAlign.end,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(color: colorScheme.onSurface),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       )
-                    : null,
+                    : const SizedBox.shrink(),
               ),
             ),
           ],
