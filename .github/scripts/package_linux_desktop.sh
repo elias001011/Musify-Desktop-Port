@@ -10,12 +10,6 @@ DEB_REVISION="${DEB_REVISION:-1}"
 PACKAGE_VERSION="${VERSION}-${DEB_REVISION}"
 PACKAGE_ROOT="build/linux-package/${APP_NAME}_${PACKAGE_VERSION}_amd64"
 APP_DIR="${PACKAGE_ROOT}/usr/lib/${APP_NAME}"
-# Keep this in sync with APPLICATION_ID in linux/CMakeLists.txt: the GTK app id
-# is what the running window reports as its WM_CLASS, and without this line
-# GNOME Shell cannot match the window to this desktop entry, so the dock shows
-# a generic placeholder icon.
-APP_ID="com.gokadzev.musify"
-
 if [[ ! -x "${BUNDLE_DIR}/${APP_NAME}" ]]; then
   echo "Linux release bundle not found at ${BUNDLE_DIR}" >&2
   exit 1
@@ -36,16 +30,7 @@ if [[ -f "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" ]]; then
     "${PACKAGE_ROOT}/usr/share/icons/hicolor/192x192/apps/${APP_NAME}.png"
 fi
 
-cat > "${PACKAGE_ROOT}/usr/share/applications/${APP_NAME}.desktop" <<DESKTOP
-[Desktop Entry]
-Type=Application
-Name=${APP_DISPLAY_NAME}
-Exec=${APP_NAME}
-Icon=${APP_NAME}
-StartupWMClass=${APP_ID}
-Categories=Audio;Music;Player;
-Terminal=false
-DESKTOP
+install -m 0644 "linux/musify.desktop" "${PACKAGE_ROOT}/usr/share/applications/${APP_NAME}.desktop"
 
 INSTALLED_SIZE="$(du -sk "${PACKAGE_ROOT}/usr" | cut -f1)"
 cat > "${PACKAGE_ROOT}/DEBIAN/control" <<CONTROL
