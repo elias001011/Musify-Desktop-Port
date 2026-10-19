@@ -193,6 +193,12 @@ jobs:
       - name: Test Windows media control bridge
         run: flutter test test/windows_media_controls_test.dart
 
+      - name: Test Windows Runtime initialization
+        run: |
+          cmake -S test/windows_runtime -B build/windows-runtime-test -A x64
+          cmake --build build/windows-runtime-test --config Release
+          ctest --test-dir build/windows-runtime-test -C Release --output-on-failure
+
       - name: Build Windows release
         run: |
           flutter build windows `
