@@ -167,8 +167,8 @@ extension StringUtility2 on String? {
   }
 
   static final _relativeDate = RegExp(
-    r'^(?:(?:streamed|premiered)(?:\s+live)?\s+)?(\d+)\s+'
-    r'(second|minute|hour|day|week|month|year)s?\s+ago$',
+    r'^(?:(?:streamed|premiered)(?:\s+live)?\s+)?(\d+)\s*'
+    r'([a-z]+)\s+ago$',
     caseSensitive: false,
   );
 
@@ -179,17 +179,19 @@ extension StringUtility2 on String? {
     final qty = int.tryParse(match[1]!);
     if (qty == null) return null;
     final secondsPerUnit = switch (match[2]!.toLowerCase()) {
-      'second' => 1,
-      'minute' => 60,
-      'hour' => 3600,
-      'day' => 86400,
-      'week' => 604800,
-      'month' => 2592000,
-      'year' => 31536000,
-      _ => 1,
+      's' || 'sec' || 'second' || 'seconds' => 1,
+      'm' || 'min' || 'minute' || 'minutes' => 60,
+      'h' || 'hr' || 'hour' || 'hours' => 3600,
+      'd' || 'day' || 'days' => 86400,
+      'w' || 'wk' || 'week' || 'weeks' => 604800,
+      'mo' || 'month' || 'months' => 2592000,
+      'y' || 'yr' || 'year' || 'years' => 31536000,
+      _ => null,
     };
-    // Bound the multiplication before constructing a Duration (64-bit micros).
-    if (qty > 8640000000000 ~/ secondsPerUnit) return null;
+    // Keep the duration within DateTime's supported range.
+    if (secondsPerUnit == null || qty > 8640000000000 ~/ secondsPerUnit) {
+      return null;
+    }
     try {
       return DateTime.now().subtract(Duration(seconds: qty * secondsPerUnit));
     } on ArgumentError {

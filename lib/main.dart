@@ -411,7 +411,6 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   JustAudioMediaKit.title = 'Musify';
-  JustAudioMediaKit.ensureInitialized();
   await initialisation();
 
   // Before runApp, so the window shows up maximized on its first frame
@@ -436,27 +435,33 @@ Future<void> initialisation() async {
 
     await LocalSyncService.instance.initialise();
 
-    audioHandler = await AudioService.init(
-      builder: MusifyAudioHandler.new,
-      config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.gokadzev.musify',
-        androidNotificationChannelName: 'Musify',
-        androidNotificationIcon: 'drawable/ic_launcher_foreground',
-        androidShowNotificationBadge: true,
-        androidStopForegroundOnPause: false,
-        // Handed to Android Auto on the browsable root. Without the search
-        // flag the car never offers a search box, and without the content
-        // style keys it falls back to an undifferentiated list of everything.
-        androidBrowsableRootExtras: {
-          AndroidContentStyle.supportedKey: true,
-          AndroidContentStyle.browsableHintKey:
-              AndroidContentStyle.gridItemHintValue,
-          AndroidContentStyle.playableHintKey:
-              AndroidContentStyle.listItemHintValue,
-          'android.media.browse.SEARCH_SUPPORTED': true,
-        },
-      ),
-    );
+    if (isMobilePlatform) {
+      audioHandler = await AudioService.init(
+        builder: MusifyAudioHandler.new,
+        config: const AudioServiceConfig(
+          androidNotificationChannelId: 'com.gokadzev.musify',
+          androidNotificationChannelName: 'Musify',
+          androidNotificationIcon: 'drawable/ic_launcher_foreground',
+          androidShowNotificationBadge: true,
+          androidStopForegroundOnPause: false,
+          // Handed to Android Auto on the browsable root. Without the search
+          // flag the car never offers a search box, and without the content
+          // style keys it falls back to an undifferentiated list of everything.
+          androidBrowsableRootExtras: {
+            AndroidContentStyle.supportedKey: true,
+            AndroidContentStyle.browsableHintKey:
+                AndroidContentStyle.gridItemHintValue,
+            AndroidContentStyle.playableHintKey:
+                AndroidContentStyle.listItemHintValue,
+            'android.media.browse.SEARCH_SUPPORTED': true,
+          },
+        ),
+      );
+    } else {
+      JustAudioMediaKit.title = 'Musify';
+      JustAudioMediaKit.ensureInitialized();
+      audioHandler = MusifyAudioHandler();
+    }
 
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
       final controls = WindowsMediaControls(

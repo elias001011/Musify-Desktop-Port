@@ -95,7 +95,11 @@ class RelatedVideosClient {
         duration.toDuration(),
         ThumbnailSet(videoId),
         [],
-        Engagement(videoCount.parseViewCount() ?? videoCount.parseInt() ?? 0, null, null),
+        Engagement(
+          videoCount.parseViewCount() ?? videoCount.parseInt() ?? 0,
+          null,
+          null,
+        ),
         false,
       );
     }

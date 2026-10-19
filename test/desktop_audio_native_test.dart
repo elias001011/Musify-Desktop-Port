@@ -40,6 +40,9 @@ void main() {
     'native MPV loads nested clips repeatedly with headers and no disk cache errors',
     () async {
       TestWidgetsFlutterBinding.ensureInitialized();
+      final previousMode = NativePlayer.test;
+      NativePlayer.test = true;
+      addTearDown(() => NativePlayer.test = previousMode);
       MediaKit.ensureInitialized(libmpv: library);
       final wav = _silentWav();
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
