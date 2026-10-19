@@ -3,9 +3,9 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/main.dart' show audioHandler;
 import 'package:musify/services/audio_service.dart';
 import 'package:musify/widgets/desktop_volume_control.dart';
