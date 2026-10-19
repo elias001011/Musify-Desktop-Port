@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:material_ui/material_ui.dart';
@@ -23,10 +24,19 @@ class _Handler extends MusifyAudioHandler {
   @override
   Stream<double> get volumeStream => changes.stream;
   @override
+  Stream<List<Map>> get queueAsMapStream => Stream.value([
+    {'ytid': 'test'},
+  ]);
+  @override
   Future<void> setVolume(double next) async {
     value = next;
     changes.add(next);
   }
+}
+
+class _LyricsController {
+  const _LyricsController();
+  void flipcard() {}
 }
 
 class _VolumeLocalizations extends AppLocalizationsEn {
@@ -85,7 +95,7 @@ void main() {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
       home: const Scaffold(
-        body: Center(child: DesktopVolumeControl(iconSize: 22)),
+        body: Center(child: DesktopVolumeControl(iconSize: 22, compact: true)),
       ),
     ),
   );
@@ -208,6 +218,86 @@ void main() {
     variant: const TargetPlatformVariant({
       TargetPlatform.android,
       TargetPlatform.iOS,
+    }),
+  );
+
+  testWidgets(
+    'expanded full-player volume fits a 400 px desktop window',
+    (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        const MaterialApp(
+          localizationsDelegates: [
+            AppLocalizations.delegate,
+            ...GlobalMaterialLocalizations.delegates,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: Center(
+              child: BottomActionsRow(
+                metadata: MediaItem(
+                  id: 'test',
+                  title: 'Song',
+                  extras: {'ytid': 'test'},
+                ),
+                iconSize: 24,
+                isLargeScreen: false,
+                lyricsController: _LyricsController(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final volume = find.descendant(
+        of: find.byType(DesktopVolumeControl),
+        matching: find.byType(IconButton),
+      );
+      final panel = tester.getRect(find.byType(BottomActionsRow));
+      final buttonBounds = tester.getRect(volume);
+      final button = tester.widget<IconButton>(volume);
+      final colors = Theme.of(tester.element(volume)).colorScheme;
+      expect((button.icon as Icon).color, colors.onSurfaceVariant);
+      expect(button.style!.backgroundColor!.resolve({}), Colors.transparent);
+      await tester.tap(volume);
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.byType(BottomActionsRow)), panel);
+      expect(tester.getRect(volume), buttonBounds);
+      expect(find.byType(Slider), findsOneWidget);
+      final bounds = tester.getRect(find.byType(Slider));
+      expect(bounds.left, greaterThanOrEqualTo(0));
+      expect(bounds.right, lessThanOrEqualTo(400));
+      expect(bounds.height, greaterThan(bounds.width));
+      expect(bounds.bottom, lessThan(buttonBounds.top));
+      await audioHandler.setVolume(0.75);
+      await tester.pumpAndSettle();
+      expect(find.text('75%'), findsOneWidget);
+      final center = tester.getCenter(find.byType(Slider));
+      await tester.sendEventToBinding(
+        PointerScrollEvent(position: center, scrollDelta: const Offset(0, 20)),
+      );
+      await tester.pumpAndSettle();
+      expect(audioHandler.volume, closeTo(0.7, 0.0001));
+      final before = audioHandler.volume;
+      await tester.drag(find.byType(Slider), const Offset(0, -25));
+      await tester.pumpAndSettle();
+      expect(audioHandler.volume, greaterThan(before));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(Slider), findsNothing);
+      await tester.tap(volume);
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(390, 50));
+      await tester.pumpAndSettle();
+      expect(find.byType(Slider), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.linux,
+      TargetPlatform.windows,
     }),
   );
 
