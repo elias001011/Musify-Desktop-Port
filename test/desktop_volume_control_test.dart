@@ -13,6 +13,7 @@ import 'package:musify/main.dart' show audioHandler;
 import 'package:musify/services/audio_service.dart';
 import 'package:musify/widgets/desktop_volume_control.dart';
 import 'package:musify/widgets/mini_player.dart';
+import 'package:musify/widgets/now_playing/bottom_actions_row.dart';
 
 class _Handler extends MusifyAudioHandler {
   final changes = StreamController<double>.broadcast();
@@ -170,6 +171,46 @@ void main() {
       expect(find.byType(Slider), findsNothing);
     }, variant: TargetPlatformVariant.only(platform));
   }
+  testWidgets(
+    'mobile action buttons keep their original spacing',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          localizationsDelegates: [
+            AppLocalizations.delegate,
+            ...GlobalMaterialLocalizations.delegates,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: Center(
+              child: BottomActionsRow(
+                metadata: MediaItem(
+                  id: 'radio',
+                  title: 'Radio',
+                  extras: {'isLive': true, 'ytid': 'radio'},
+                ),
+                iconSize: 24,
+                isLargeScreen: true,
+                lyricsController: null,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final buttons = find.byType(IconButton);
+      expect(buttons, findsNWidgets(2));
+      final panel = tester.getRect(find.byType(BottomActionsRow));
+      final first = tester.getRect(buttons.first);
+      final last = tester.getRect(buttons.last);
+      expect(first.left - panel.left, closeTo(panel.right - last.right, 0.01));
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
+
   testWidgets('expanded mini player fits a 400 px desktop window', (
     tester,
   ) async {
