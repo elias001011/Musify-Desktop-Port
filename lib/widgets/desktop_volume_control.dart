@@ -28,81 +28,45 @@ import 'package:musify/utilities/platform_utils.dart';
 
 bool get supportsDesktopVolumeControl => isDesktopPlatform;
 
-class DesktopVolumeControl extends StatefulWidget {
-  const DesktopVolumeControl({
-    super.key,
-    required this.iconSize,
-    this.sliderWidth = 96,
-    this.compact = false,
-  });
-
-  final double iconSize;
-  final double sliderWidth;
-  final bool compact;
-
-  @override
-  State<DesktopVolumeControl> createState() => _DesktopVolumeControlState();
-}
-
-class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
-  bool _isExpanded = false;
-  double _volumeBeforeMute = 1;
+class DesktopVolumeControl extends StatelessWidget {
+  const DesktopVolumeControl({super.key});
 
   @override
   Widget build(BuildContext context) {
     if (!supportsDesktopVolumeControl) return const SizedBox.shrink();
 
     final colors = Theme.of(context).colorScheme;
-    final color = widget.compact ? colors.primary : colors.onSurfaceVariant;
     return StreamBuilder<double>(
       stream: audioHandler.volumeStream,
       initialData: audioHandler.volume,
       builder: (context, snapshot) {
         final volume = (snapshot.data ?? 1.0).clamp(0.0, 1.0);
-        final slider = SizedBox(
-          width: widget.sliderWidth + (widget.compact ? 44 : 0),
-          height: widget.compact ? null : 32,
-          child: _buildSlider(context, volume),
-        );
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              icon: Icon(_iconForVolume(volume), color: color),
-              iconSize: widget.iconSize,
+              icon: Icon(
+                _iconForVolume(volume),
+                color: colors.onSurfaceVariant,
+              ),
+              iconSize: 22,
               tooltip: context.l10n!.volume,
               style: IconButton.styleFrom(
                 backgroundColor: Colors.transparent,
-                foregroundColor: color,
+                foregroundColor: colors.onSurfaceVariant,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 side: BorderSide.none,
-                shape: widget.compact
-                    ? null
-                    : RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-              ),
-              onPressed: () {
-                if (widget.compact) {
-                  setState(() => _isExpanded = !_isExpanded);
-                } else if (volume > 0) {
-                  _volumeBeforeMute = volume;
-                  audioHandler.setVolume(0);
-                } else {
-                  audioHandler.setVolume(_volumeBeforeMute);
-                }
-              },
-            ),
-            if (widget.compact)
-              ClipRect(
-                child: AnimatedSize(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOutCubic,
-                  child: _isExpanded ? slider : const SizedBox.shrink(),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              )
-            else
-              slider,
+              ),
+              onPressed: audioHandler.toggleMute,
+            ),
+            SizedBox(
+              width: 96,
+              height: 32,
+              child: _buildSlider(context, volume),
+            ),
           ],
         );
       },
@@ -113,21 +77,13 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
     final colors = Theme.of(context).colorScheme;
     final slider = SliderTheme(
       data: SliderTheme.of(context).copyWith(
-        trackHeight: widget.compact ? 6 : 3,
-        activeTrackColor: widget.compact
-            ? colors.primary
-            : colors.onSurfaceVariant,
+        trackHeight: 4,
+        activeTrackColor: colors.onSurfaceVariant,
         inactiveTrackColor: colors.surfaceContainerHighest,
-        thumbColor: widget.compact ? colors.primary : colors.onSurfaceVariant,
-        thumbShape: widget.compact
-            ? null
-            : const RoundSliderThumbShape(enabledThumbRadius: 4),
-        overlayShape: widget.compact
-            ? null
-            : const RoundSliderOverlayShape(overlayRadius: 8),
-        padding: widget.compact
-            ? null
-            : const EdgeInsets.symmetric(horizontal: 8),
+        thumbColor: colors.onSurfaceVariant,
+        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 4),
+        overlayShape: const RoundSliderOverlayShape(overlayRadius: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
       ),
       child: Slider(
         value: volume,
@@ -148,30 +104,13 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
           );
         });
       },
-      child: widget.compact
-          ? Row(
-              children: [
-                Expanded(child: slider),
-                SizedBox(
-                  width: 44,
-                  child: Text(
-                    '${(volume * 100).round()}%',
-                    textAlign: TextAlign.end,
-                    style: Theme.of(context).textTheme.bodySmall
-                        ?.copyWith(color: colors.onSurface),
-                  ),
-                ),
-              ],
-            )
-          : slider,
+      child: slider,
     );
   }
 
   IconData _iconForVolume(double volume) {
     if (volume <= 0.0) return FluentIcons.speaker_mute_24_regular;
     if (volume < 0.5) return FluentIcons.speaker_1_24_regular;
-    return widget.compact
-        ? FluentIcons.speaker_2_20_regular
-        : FluentIcons.speaker_2_24_regular;
+    return FluentIcons.speaker_2_24_regular;
   }
 }

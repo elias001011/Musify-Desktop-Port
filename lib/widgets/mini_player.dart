@@ -341,11 +341,7 @@ class _ControlsWidget extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const DesktopVolumeControl(
-          iconSize: 22,
-          sliderWidth: 112,
-          compact: true,
-        ),
+        const DesktopVolumeControl(),
         if (supportsDesktopVolumeControl) const SizedBox(width: 4),
         _CircularPlayButton(
           colorScheme: colorScheme,

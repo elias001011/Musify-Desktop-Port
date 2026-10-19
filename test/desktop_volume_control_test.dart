@@ -93,9 +93,7 @@ void main() {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
-      home: const Scaffold(
-        body: Center(child: DesktopVolumeControl(iconSize: 22, compact: true)),
-      ),
+      home: const Scaffold(body: Center(child: DesktopVolumeControl())),
     ),
   );
 
@@ -108,26 +106,23 @@ void main() {
       final button = tester.widget<IconButton>(find.byType(IconButton));
       expect(button.style!.backgroundColor!.resolve({}), Colors.transparent);
       expect(button.style!.side!.resolve({}), BorderSide.none);
-      expect((button.icon as Icon).color, colors.primary);
+      expect((button.icon as Icon).color, colors.onSurfaceVariant);
       expect(
         button.tooltip,
         AppLocalizations.of(tester.element(find.byType(IconButton)))!.volume,
       );
-      await tester.tap(find.byType(IconButton));
-      await tester.pumpAndSettle();
-      expect(find.text('50%'), findsOneWidget);
       final slider = tester.widget<Slider>(find.byType(Slider));
       final theme = SliderTheme.of(tester.element(find.byType(Slider)));
-      expect(theme.trackHeight, 6);
-      expect(theme.activeTrackColor, colors.primary);
+      expect(theme.trackHeight, 4);
+      expect(theme.activeTrackColor, colors.onSurfaceVariant);
       expect(theme.inactiveTrackColor, colors.surfaceContainerHighest);
       slider.onChanged!(0.75);
       await tester.pumpAndSettle();
       expect(audioHandler.volume, 0.75);
-      expect(find.text('75%'), findsOneWidget);
+
       await audioHandler.setVolume(0.25);
       await tester.pumpAndSettle();
-      expect(find.text('25%'), findsOneWidget);
+
       expect(tester.widget<Slider>(find.byType(Slider)).value, 0.25);
     },
     variant: const TargetPlatformVariant({
@@ -140,8 +135,6 @@ void main() {
     'wheel adjusts current volume and clamps both ends',
     (tester) async {
       await mount(tester);
-      await tester.tap(find.byType(IconButton));
-      await tester.pumpAndSettle();
       final center = tester.getCenter(find.byType(Slider));
       Future<void> scroll(double delta) async {
         await tester.sendEventToBinding(
@@ -269,7 +262,7 @@ void main() {
       expect(bounds.height, 32);
       expect(bounds.width, 96);
       final theme = SliderTheme.of(tester.element(find.byType(Slider)));
-      expect(theme.trackHeight, 3);
+      expect(theme.trackHeight, 4);
       expect(theme.activeTrackColor, colors.onSurfaceVariant);
       expect(
         (theme.thumbShape! as RoundSliderThumbShape).enabledThumbRadius,
@@ -314,9 +307,42 @@ void main() {
     }),
   );
 
-  testWidgets('expanded mini player fits a 400 px desktop window', (
-    tester,
-  ) async {
+  testWidgets(
+    'separate controls share volume and mute restoration',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          localizationsDelegates: [
+            _VolumeDelegate(),
+            ...GlobalMaterialLocalizations.delegates,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: Column(
+              children: [DesktopVolumeControl(), DesktopVolumeControl()],
+            ),
+          ),
+        ),
+      );
+      final buttons = find.byType(IconButton);
+      tester.widget<Slider>(find.byType(Slider).first).onChanged!(0.35);
+      await tester.pumpAndSettle();
+      expect(tester.widget<Slider>(find.byType(Slider).last).value, 0.35);
+      await tester.tap(buttons.first);
+      await tester.pumpAndSettle();
+      expect(audioHandler.volume, 0);
+      await tester.tap(buttons.last);
+      await tester.pumpAndSettle();
+      expect(audioHandler.volume, 0.35);
+      expect(tester.widget<Slider>(find.byType(Slider).first).value, 0.35);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.linux,
+      TargetPlatform.windows,
+    }),
+  );
+
+  testWidgets('standard volume fits a 400 px mini player', (tester) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -339,10 +365,6 @@ void main() {
         ),
       ),
     );
-    for (var i = 0; i < 10; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-    await tester.tap(find.byType(DesktopVolumeControl).first);
     for (var i = 0; i < 10; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }

@@ -150,6 +150,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   Stream<double> get volumeStream => audioPlayer.volumeStream;
 
+  double _volumeBeforeMute = 1;
+
   double get volume => audioPlayer.volume;
 
   /// The full song map backing the current queue entry (same shape as search
@@ -1769,6 +1771,14 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
     } catch (e, stackTrace) {
       logger.log('Error in pause()', error: e, stackTrace: stackTrace);
     }
+  }
+
+  Future<void> toggleMute() {
+    if (volume > 0) {
+      _volumeBeforeMute = volume;
+      return setVolume(0);
+    }
+    return setVolume(_volumeBeforeMute);
   }
 
   Future<void> setVolume(double value) async {

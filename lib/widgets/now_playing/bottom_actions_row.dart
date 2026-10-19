@@ -135,8 +135,7 @@ class _BottomActionsRowState extends State<BottomActionsRow> {
         final queue = snapshot.data ?? [];
 
         final actions = <Widget>[
-          if (supportsDesktopVolumeControl)
-            const DesktopVolumeControl(iconSize: 22),
+          if (supportsDesktopVolumeControl) const DesktopVolumeControl(),
           if (!isRadioStation)
             _buildActionButton(
               context: context,
