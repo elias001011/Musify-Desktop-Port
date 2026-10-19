@@ -24,8 +24,8 @@ std::string ReadString(const flutter::EncodableMap& args, const char* key) {
   return {};
 }
 
-bool ReadEnabled(const flutter::EncodableMap& args) {
-  auto it = args.find(flutter::EncodableValue("enabled"));
+bool ReadBool(const flutter::EncodableMap& args, const char* key) {
+  auto it = args.find(flutter::EncodableValue(key));
   return it != args.end() && std::holds_alternative<bool>(it->second) &&
          std::get<bool>(it->second);
 }
@@ -59,8 +59,8 @@ void MediaControls::Initialize() {
   controls_.IsPlayEnabled(true);
   controls_.IsPauseEnabled(true);
   controls_.IsStopEnabled(true);
-  controls_.IsNextEnabled(true);
-  controls_.IsPreviousEnabled(true);
+  controls_.IsNextEnabled(false);
+  controls_.IsPreviousEnabled(false);
   controls_.PlaybackStatus(MediaPlaybackStatus::Stopped);
 
   // SMTC raises this on a worker thread. Only post a value to the window;
@@ -95,7 +95,11 @@ void MediaControls::Dispose() {
 
 void MediaControls::Update(const flutter::EncodableMap& args) {
   if (!controls_) return;
-  enabled_ = ReadEnabled(args);
+  enabled_ = ReadBool(args, "enabled");
+  can_go_next_ = enabled_ && ReadBool(args, "canGoNext");
+  can_go_previous_ = enabled_ && ReadBool(args, "canGoPrevious");
+  controls_.IsNextEnabled(can_go_next_);
+  controls_.IsPreviousEnabled(can_go_previous_);
   if (!enabled_) {
     controls_.PlaybackStatus(MediaPlaybackStatus::Stopped);
     controls_.IsEnabled(false);
@@ -157,8 +161,12 @@ bool MediaControls::HandleMessage(UINT message, WPARAM button) {
   switch (static_cast<SystemMediaTransportControlsButton>(button)) {
     case SystemMediaTransportControlsButton::Play: command = "play"; break;
     case SystemMediaTransportControlsButton::Pause: command = "pause"; break;
-    case SystemMediaTransportControlsButton::Next: command = "next"; break;
-    case SystemMediaTransportControlsButton::Previous: command = "previous"; break;
+    case SystemMediaTransportControlsButton::Next:
+      if (!can_go_next_) return true;
+      command = "next"; break;
+    case SystemMediaTransportControlsButton::Previous:
+      if (!can_go_previous_) return true;
+      command = "previous"; break;
     case SystemMediaTransportControlsButton::Stop: command = "stop"; break;
     default: return true;
   }

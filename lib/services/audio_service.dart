@@ -199,6 +199,16 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   bool get hasPrevious => _currentQueueIndex > 0 || _historyList.isNotEmpty;
 
+  bool get canSkipToNext =>
+      _hasCurrentQueueIndex &&
+      (hasNext ||
+          repeatNotifier.value == AudioServiceRepeatMode.all ||
+          (playNextSongAutomatically.value &&
+              audioPlayer.playing &&
+              !offlineMode.value &&
+              repeatNotifier.value == AudioServiceRepeatMode.none &&
+              _currentLoadingIndex == -1));
+
   List<MediaControl> _controls(bool playing) {
     final hasMultipleTracks = _queueList.length > 1;
 

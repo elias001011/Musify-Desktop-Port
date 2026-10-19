@@ -32,6 +32,8 @@ class MediaControls {
   winrt::event_token button_token_{};
   bool subscribed_ = false;
   bool enabled_ = false;
+  bool can_go_next_ = false;
+  bool can_go_previous_ = false;
   bool has_metadata_ = false;
   std::string title_, artist_, album_, art_uri_, art_path_;
 };

@@ -1,11 +1,16 @@
 import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify/services/windows_media_controls.dart';
 
 const _channel = MethodChannel('musify/media_controls');
+
+class _NavigationChanges extends ChangeNotifier {
+  bool get observed => hasListeners;
+}
 
 class _Handler extends BaseAudioHandler {
   final commands = <String>[];
@@ -31,6 +36,9 @@ void main() {
   late List<MethodCall> calls;
   late List<Object> errors;
   var failNextUpdate = false;
+  var canNext = true;
+  var canPrevious = true;
+  late _NavigationChanges navigationChanges;
 
   Future<void> flush() => Future<void>.delayed(Duration.zero);
   Map<dynamic, dynamic> getUpdate() =>
@@ -50,6 +58,9 @@ void main() {
     calls = [];
     errors = [];
     failNextUpdate = false;
+    canNext = true;
+    canPrevious = true;
+    navigationChanges = _NavigationChanges();
     messenger.setMockMethodCallHandler(_channel, (call) async {
       calls.add(call);
       if (call.method == 'update' && failNextUpdate) {
@@ -58,13 +69,19 @@ void main() {
       }
       return null;
     });
-    controls = WindowsMediaControls(onError: (error, _) => errors.add(error));
+    controls = WindowsMediaControls(
+      canGoNext: () => canNext,
+      canGoPrevious: () => canPrevious,
+      navigationChanges: navigationChanges,
+      onError: (error, _) => errors.add(error),
+    );
     await controls.start(handler);
     await flush();
   });
 
   tearDown(() async {
     await controls.dispose();
+    navigationChanges.dispose();
     messenger.setMockMethodCallHandler(_channel, null);
   });
 
@@ -93,6 +110,8 @@ void main() {
     await flush();
     expect(getUpdate(), {
       'enabled': true,
+      'canGoNext': true,
+      'canGoPrevious': true,
       'status': 'playing',
       'title': 'Song',
       'artist': 'Artist',
@@ -101,6 +120,57 @@ void main() {
       'artPath': '',
     });
     expect(errors, isEmpty);
+  });
+
+  test('queue edits refresh navigation while paused', () async {
+    play();
+    handler.playbackState.add(
+      handler.playbackState.value.copyWith(playing: false),
+    );
+    await flush();
+    canNext = false;
+    canPrevious = false;
+    handler.queue.add([]);
+    await flush();
+    expect(getUpdate()['status'], 'paused');
+    expect(getUpdate()['canGoNext'], false);
+    expect(getUpdate()['canGoPrevious'], false);
+    await press('next');
+    await press('previous');
+    expect(handler.commands, isEmpty);
+    canNext = true;
+    handler.queue.add([const MediaItem(id: 'added', title: 'Added')]);
+    await flush();
+    expect(getUpdate()['canGoNext'], true);
+    expect(getUpdate()['canGoPrevious'], false);
+    await press('next');
+    expect(handler.commands, ['next']);
+  });
+
+  test('settings refresh navigation without playback progress', () async {
+    play();
+    handler.playbackState.add(
+      handler.playbackState.value.copyWith(playing: false),
+    );
+    await flush();
+    canNext = false;
+    navigationChanges.notifyListeners();
+    await flush();
+    expect(getUpdate()['canGoNext'], false);
+    canNext = true;
+    navigationChanges.notifyListeners();
+    await flush();
+    expect(getUpdate()['canGoNext'], true);
+  });
+
+  test('stale system clicks are checked against current navigation', () async {
+    play();
+    await flush();
+    canNext = false;
+    canPrevious = false;
+    await press('next');
+    await press('previous');
+    expect(handler.commands, isEmpty);
   });
 
   test('passes a decoded Windows path for offline artwork', () async {
@@ -162,6 +232,8 @@ void main() {
         );
         await flush();
         expect(getUpdate()['enabled'], false);
+        expect(getUpdate()['canGoNext'], false);
+        expect(getUpdate()['canGoPrevious'], false);
         expect(getUpdate()['status'], 'stopped');
         await press('next');
         expect(handler.commands, isEmpty);
@@ -204,6 +276,9 @@ void main() {
       await flush();
       await controls.dispose();
       final count = calls.length;
+      expect(navigationChanges.observed, false);
+      navigationChanges.notifyListeners();
+      handler.queue.add([]);
       handler.mediaItem.add(
         const MediaItem(id: 'track-2', title: 'After dispose'),
       );
@@ -218,6 +293,9 @@ void main() {
     await controls.dispose();
     final square = Uri.file(r'C:\Musify\cover.png', windows: true);
     controls = WindowsMediaControls(
+      canGoNext: () => canNext,
+      canGoPrevious: () => canPrevious,
+      navigationChanges: navigationChanges,
       onError: (error, _) => errors.add(error),
       resolveArtwork: (_) async => square,
     );

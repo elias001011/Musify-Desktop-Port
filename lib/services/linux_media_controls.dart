@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:dbus/dbus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:musify/services/desktop_media_artwork.dart';
 
 /// Exposes the existing audio handler to Linux desktops and media keys.
@@ -19,6 +20,7 @@ class LinuxMediaControls extends DBusObject {
     this.raise,
     this.position,
     this.resolveArtwork,
+    this.navigationChanges,
     DBusClient? bus,
     String? name,
   }) : _bus = bus ?? DBusClient.session(),
@@ -33,6 +35,7 @@ class LinuxMediaControls extends DBusObject {
   final Future<void> Function(double) setVolume;
   final bool Function() canGoNext;
   final bool Function() canGoPrevious;
+  final Listenable? navigationChanges;
   final void Function(Object, StackTrace) onError;
   final Future<void> Function()? raise;
   final Duration Function()? position;
@@ -61,7 +64,9 @@ class LinuxMediaControls extends DBusObject {
       if (reply != DBusRequestNameReply.primaryOwner) {
         throw StateError('MPRIS name unavailable: $name');
       }
+      navigationChanges?.addListener(_update);
       _subscriptions.addAll([
+        handler.queue.listen((_) => _update()),
         handler.mediaItem.listen((item) {
           _item = item;
           _artwork.update(item?.artUri);
@@ -131,8 +136,8 @@ class LinuxMediaControls extends DBusObject {
     'CanPlay': DBusBoolean(_item != null),
     'CanPause': DBusBoolean(_active),
     'CanSeek': DBusBoolean(_canSeek),
-    'CanGoNext': DBusBoolean(canGoNext()),
-    'CanGoPrevious': DBusBoolean(canGoPrevious()),
+    'CanGoNext': DBusBoolean(_active && canGoNext()),
+    'CanGoPrevious': DBusBoolean(_active && canGoPrevious()),
     'Metadata': DBusDict.stringVariant({
       'mpris:trackid': _trackId,
       if (_item case final item?) ...{
@@ -247,7 +252,7 @@ class LinuxMediaControls extends DBusObject {
               if (_canSeek) {
                 final target = _position + offset;
                 if (target > _item!.duration!.inMicroseconds) {
-                  if (canGoNext()) await handler.skipToNext();
+                  if (_active && canGoNext()) await handler.skipToNext();
                 } else {
                   await handler.seek(
                     Duration(microseconds: target < 0 ? 0 : target),
@@ -283,9 +288,9 @@ class LinuxMediaControls extends DBusObject {
               return DBusMethodErrorResponse.invalidArgs();
             switch (methodCall.name) {
               case 'Next':
-                if (canGoNext()) await handler.skipToNext();
+                if (_active && canGoNext()) await handler.skipToNext();
               case 'Previous':
-                if (canGoPrevious()) await handler.skipToPrevious();
+                if (_active && canGoPrevious()) await handler.skipToPrevious();
               case 'Play':
                 if (_item != null && (!_active || !_state.playing))
                   await handler.play();
@@ -381,6 +386,7 @@ class LinuxMediaControls extends DBusObject {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    navigationChanges?.removeListener(_update);
     _artwork.dispose();
     for (final subscription in _subscriptions) {
       await subscription.cancel();

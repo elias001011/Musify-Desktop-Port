@@ -5,17 +5,22 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:musify/services/desktop_media_artwork.dart';
 
-/// Mirrors the existing audio handler into the Windows runner's SMTC session.
-/// The player remains the source of truth, including for commands from Windows.
+/// Exposes the audio handler through the Windows runner's SMTC session.
 class WindowsMediaControls {
   WindowsMediaControls({
     required this.onError,
+    required this.canGoNext,
+    required this.canGoPrevious,
+    this.navigationChanges,
     this.resolveArtwork,
     this.channel = const MethodChannel('musify/media_controls'),
   });
 
   final void Function(Object error, StackTrace stackTrace) onError;
   final MethodChannel channel;
+  final bool Function() canGoNext;
+  final bool Function() canGoPrevious;
+  final Listenable? navigationChanges;
   final MediaArtworkResolver? resolveArtwork;
   late final _artwork = MediaArtworkState(
     resolve: resolveArtwork,
@@ -39,7 +44,9 @@ class WindowsMediaControls {
       channel.setMethodCallHandler(null);
       rethrow;
     }
+    navigationChanges?.addListener(_scheduleUpdate);
     _subscriptions.addAll([
+      handler.queue.listen((_) => _scheduleUpdate()),
       handler.mediaItem.listen((item) {
         _item = item;
         _artwork.update(item?.artUri);
@@ -59,14 +66,15 @@ class WindowsMediaControls {
       _state.processingState != AudioProcessingState.error;
 
   void _scheduleUpdate() {
-    // Serialize native calls and read the latest values when they run, so a
-    // rapid track change cannot leave an older title/cover in the media card.
+    // Serialize calls using the latest track and playback state.
     _pending = _pending
         .then((_) async {
           if (_disposed) return;
           final artUri = _artwork.uri;
           final update = <String, Object?>{
             'enabled': _active,
+            'canGoNext': _active && canGoNext(),
+            'canGoPrevious': _active && canGoPrevious(),
             'status': !_active
                 ? 'stopped'
                 : _state.playing
@@ -99,9 +107,9 @@ class WindowsMediaControls {
         case 'pause':
           await _handler!.pause();
         case 'next':
-          await _handler!.skipToNext();
+          if (canGoNext()) await _handler!.skipToNext();
         case 'previous':
-          await _handler!.skipToPrevious();
+          if (canGoPrevious()) await _handler!.skipToPrevious();
         case 'stop':
           await _handler!.stop();
       }
@@ -113,6 +121,7 @@ class WindowsMediaControls {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    navigationChanges?.removeListener(_scheduleUpdate);
     _artwork.dispose();
     channel.setMethodCallHandler(null);
     for (final subscription in _subscriptions) {

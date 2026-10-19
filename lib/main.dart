@@ -460,6 +460,13 @@ Future<void> initialisation() async {
 
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
       final controls = WindowsMediaControls(
+        canGoNext: () => audioHandler.canSkipToNext,
+        canGoPrevious: () => audioHandler.hasPrevious,
+        navigationChanges: Listenable.merge([
+          repeatNotifier,
+          playNextSongAutomatically,
+          offlineMode,
+        ]),
         resolveArtwork: desktopMediaArtwork.resolve,
         onError: (error, stackTrace) => logger.log(
           'Windows media controls error',
@@ -486,11 +493,12 @@ Future<void> initialisation() async {
         volume: () => audioHandler.volume,
         volumeStream: audioHandler.volumeStream,
         setVolume: audioHandler.setVolume,
-        canGoNext: () =>
-            audioHandler.hasNext ||
-            (playNextSongAutomatically.value &&
-                !offlineMode.value &&
-                audioHandler.currentSong != null),
+        canGoNext: () => audioHandler.canSkipToNext,
+        navigationChanges: Listenable.merge([
+          repeatNotifier,
+          playNextSongAutomatically,
+          offlineMode,
+        ]),
         canGoPrevious: () => audioHandler.hasPrevious,
         raise: DesktopWindow.raise,
         position: () => audioHandler.currentPositionData.position,
