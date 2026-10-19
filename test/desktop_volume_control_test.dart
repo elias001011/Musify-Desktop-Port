@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:musify/localization/app_localizations.dart';
+import 'package:musify/localization/app_localizations_en.dart';
 import 'package:musify/main.dart' show audioHandler;
 import 'package:musify/services/audio_service.dart';
 import 'package:musify/widgets/desktop_volume_control.dart';
+import 'package:musify/widgets/mini_player.dart';
 
 class _Handler extends MusifyAudioHandler {
   final changes = StreamController<double>.broadcast();
@@ -22,6 +26,22 @@ class _Handler extends MusifyAudioHandler {
     value = next;
     changes.add(next);
   }
+}
+
+class _VolumeLocalizations extends AppLocalizationsEn {
+  @override
+  String get volume => 'Localized volume';
+}
+
+class _VolumeDelegate extends LocalizationsDelegate<AppLocalizations> {
+  const _VolumeDelegate();
+  @override
+  bool isSupported(Locale locale) => locale.languageCode == 'en';
+  @override
+  Future<AppLocalizations> load(Locale locale) =>
+      SynchronousFuture(_VolumeLocalizations());
+  @override
+  bool shouldReload(_VolumeDelegate old) => false;
 }
 
 void main() {
@@ -55,6 +75,11 @@ void main() {
 
   Future<void> mount(WidgetTester tester) => tester.pumpWidget(
     MaterialApp(
+      localizationsDelegates: [
+        const _VolumeDelegate(),
+        ...GlobalMaterialLocalizations.delegates,
+      ],
+      supportedLocales: AppLocalizations.supportedLocales,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
@@ -74,6 +99,10 @@ void main() {
       expect(button.style!.backgroundColor!.resolve({}), Colors.transparent);
       expect(button.style!.side!.resolve({}), BorderSide.none);
       expect((button.icon as Icon).color, colors.primary);
+      expect(
+        button.tooltip,
+        AppLocalizations.of(tester.element(find.byType(IconButton)))!.volume,
+      );
       await tester.tap(find.byType(IconButton));
       await tester.pumpAndSettle();
       expect(find.text('50%'), findsOneWidget);
@@ -115,6 +144,12 @@ void main() {
       expect(audioHandler.volume, closeTo(0.55, 0.0001));
       await scroll(20);
       expect(audioHandler.volume, closeTo(0.5, 0.0001));
+      for (var i = 0; i < 20; i++) {
+        await scroll(-1);
+      }
+      expect(audioHandler.volume, closeTo(0.55, 0.0001));
+      await scroll(20);
+      expect(audioHandler.volume, closeTo(0.5, 0.0001));
       await audioHandler.setVolume(1);
       await scroll(-20);
       expect(audioHandler.volume, 1);
@@ -135,4 +170,44 @@ void main() {
       expect(find.byType(Slider), findsNothing);
     }, variant: TargetPlatformVariant.only(platform));
   }
+  testWidgets('expanded mini player fits a 400 px desktop window', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const item = MediaItem(id: 'test', title: 'Song', artist: 'Artist');
+    audioHandler.mediaItem.add(item);
+    audioHandler.queue.add([item, const MediaItem(id: 'next', title: 'Next')]);
+    audioHandler.playbackState.add(
+      PlaybackState(processingState: AudioProcessingState.ready, queueIndex: 0),
+    );
+    await tester.pumpWidget(
+      const MaterialApp(
+        localizationsDelegates: [
+          AppLocalizations.delegate,
+          ...GlobalMaterialLocalizations.delegates,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: Align(alignment: Alignment.bottomCenter, child: MiniPlayer()),
+        ),
+      ),
+    );
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.tap(find.byType(DesktopVolumeControl).first);
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.byType(Slider), findsOneWidget);
+    final bounds = tester.getRect(find.byType(Slider));
+    expect(bounds.left, greaterThanOrEqualTo(0));
+    expect(bounds.right, lessThanOrEqualTo(400));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 2));
+  }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
 }

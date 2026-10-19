@@ -22,6 +22,7 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
 import 'package:musify/utilities/platform_utils.dart';
 
@@ -64,7 +65,7 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
             IconButton(
               icon: Icon(_iconForVolume(volume), color: colorScheme.primary),
               iconSize: widget.iconSize,
-              tooltip: 'Volume',
+              tooltip: context.l10n!.volume,
               style: IconButton.styleFrom(
                 backgroundColor: Colors.transparent,
                 foregroundColor: colorScheme.primary,
@@ -90,8 +91,10 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
                             GestureBinding.instance.pointerSignalResolver
                                 .register(event, (_) {
                                   audioHandler.setVolume(
-                                    (audioHandler.volume - delta.sign * 0.05)
-                                        .clamp(0.0, 1.0),
+                                    (audioHandler.volume - delta / 400).clamp(
+                                      0.0,
+                                      1.0,
+                                    ),
                                   );
                                 });
                           },
