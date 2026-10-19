@@ -62,19 +62,14 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              icon: Icon(
-                _iconForVolume(volume),
-                color: colorScheme.onPrimaryContainer,
-              ),
+              icon: Icon(_iconForVolume(volume), color: colorScheme.primary),
               iconSize: widget.iconSize,
               tooltip: 'Volume',
               style: IconButton.styleFrom(
-                backgroundColor: colorScheme.primaryContainer,
-                foregroundColor: colorScheme.onPrimaryContainer,
+                backgroundColor: Colors.transparent,
+                foregroundColor: colorScheme.primary,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                side: BorderSide.none,
               ),
               onPressed: () => setState(() => _isExpanded = !_isExpanded),
             ),

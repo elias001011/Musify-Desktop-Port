@@ -71,11 +71,9 @@ void main() {
       final colors = Theme.of(tester.element(find.byType(IconButton)))
           .colorScheme;
       final button = tester.widget<IconButton>(find.byType(IconButton));
-      expect(
-        button.style!.backgroundColor!.resolve({}),
-        colors.primaryContainer,
-      );
-      expect((button.icon as Icon).color, colors.onPrimaryContainer);
+      expect(button.style!.backgroundColor!.resolve({}), Colors.transparent);
+      expect(button.style!.side!.resolve({}), BorderSide.none);
+      expect((button.icon as Icon).color, colors.primary);
       await tester.tap(find.byType(IconButton));
       await tester.pumpAndSettle();
       expect(find.text('50%'), findsOneWidget);
