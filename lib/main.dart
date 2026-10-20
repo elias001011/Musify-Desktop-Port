@@ -66,7 +66,6 @@ WindowsMediaControls? windowsMediaControls;
 LinuxMediaControls? linuxMediaControls;
 
 final logger = Logger();
-final desktopMediaArtwork = DesktopMediaArtwork();
 final appLinks = AppLinks();
 
 bool get _supportsSharingIntent =>
@@ -464,6 +463,7 @@ Future<void> initialisation() async {
     }
 
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      final artwork = DesktopMediaArtwork();
       final controls = WindowsMediaControls(
         canGoNext: () => audioHandler.canSkipToNext,
         canGoPrevious: () => audioHandler.hasPrevious,
@@ -472,7 +472,7 @@ Future<void> initialisation() async {
           playNextSongAutomatically,
           offlineMode,
         ]),
-        resolveArtwork: desktopMediaArtwork.resolve,
+        resolveArtwork: artwork.resolve,
         onError: (error, stackTrace) => logger.log(
           'Windows media controls error',
           error: error,
@@ -492,6 +492,7 @@ Future<void> initialisation() async {
     }
 
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.linux) {
+      final artwork = DesktopMediaArtwork();
       final controls = LinuxMediaControls(
         handler: audioHandler,
         skipToNext: () => audioHandler.skipToNext(
@@ -500,7 +501,7 @@ Future<void> initialisation() async {
         skipToPrevious: () => audioHandler.skipToPrevious(
           playWhenReady: audioHandler.shouldContinuePlayback,
         ),
-        resolveArtwork: desktopMediaArtwork.resolve,
+        resolveArtwork: artwork.resolve,
         volume: () => audioHandler.volume,
         volumeStream: audioHandler.volumeStream,
         setVolume: audioHandler.setVolume,
