@@ -48,6 +48,9 @@ const String desktopBuildReleaseTag = String.fromEnvironment(
 const String downloadUrlKey = 'url';
 const String downloadUrlArm64Key = 'arm64url';
 const String downloadFilename = 'Musify.apk';
+const String mobileBuildReleaseTag = String.fromEnvironment(
+  'MUSIFY_MOBILE_RELEASE_TAG',
+);
 
 bool get _checksDesktopReleases =>
     !kIsWeb && (Platform.isLinux || Platform.isWindows);
@@ -69,12 +72,21 @@ Future<void> _checkAndroidAppUpdates() async {
   if (response.statusCode != 200) return;
   final decoded = json.decode(response.body);
   if (decoded is! List) return;
-  final release = decoded.whereType<Map>().where((item) =>
-    item['draft'] != true && item['prerelease'] != true &&
-    item['tag_name'].toString().startsWith('mobile-v')).firstOrNull;
+  final release = decoded
+      .whereType<Map>()
+      .where(
+        (item) =>
+            item['draft'] != true &&
+            item['prerelease'] != true &&
+            item['tag_name'].toString().startsWith('mobile-v'),
+      )
+      .firstOrNull;
   if (release == null) return;
   final version = release['tag_name'].toString().replaceFirst('mobile-v', '');
-  if (!isLatestVersionHigher(appVersion, version)) return;
+  final installed = mobileBuildReleaseTag.isEmpty
+      ? appVersion
+      : mobileBuildReleaseTag.replaceFirst('mobile-v', '');
+  if (!isLatestVersionHigher(installed, version)) return;
   await _showUpdateDialog(
     latestVersion: version,
     releaseBody: release['body']?.toString() ?? '',
@@ -85,7 +97,8 @@ Future<void> _checkAndroidAppUpdates() async {
           : ['MusifyCloud.apk', 'MusifyCloud-arm64-v8a.apk'];
       for (final name in names) {
         for (final asset in assets) {
-          if (asset['name'] == name) return asset['browser_download_url'].toString();
+          if (asset['name'] == name)
+            return asset['browser_download_url'].toString();
         }
       }
       return release['html_url'].toString();
@@ -312,9 +325,10 @@ bool isLatestVersionHigher(String appVersion, String latestVersion) {
 }
 
 List<int> _versionParts(String version) {
-  return RegExp(
-    r'\d+',
-  ).allMatches(version).map((match) => int.parse(match.group(0)!)).toList();
+  return RegExp(r'\d+')
+      .allMatches(version)
+      .map((match) => int.parse(match.group(0)!))
+      .toList();
 }
 
 Future<String> getCPUArchitecture() async {

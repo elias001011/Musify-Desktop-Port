@@ -280,7 +280,7 @@ jobs:
           - Interface scale slider and remappable keyboard shortcuts.
           - Title bar that follows the app's light/dark theme, and an option to start maximized.
           - Choose the folder where downloaded songs are saved.
-          - Optional Local Sync: playlists, liked songs and history merge directly between devices over Wi-Fi, with no account or server.
+          - Local Sync protocol 2: encrypted pairing, selectable data, multi-device convergence and listening recap with complete-month conflict handling. Pair devices again after upgrading. Android and desktop now build from master.
 
           Assets:
           - Musify-linux-x64.deb: Debian/Ubuntu package.

@@ -19,35 +19,23 @@
  *     please visit: https://github.com/gokadzev/Musify
  */
 
+import 'dart:async';
+import 'dart:math';
+
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:musify/screens/search_page.dart';
 import 'package:musify/services/backed_up_state_manager.dart';
-import 'package:musify/services/common_services.dart';
-import 'package:musify/services/playlists_manager.dart';
+import 'package:musify/services/listening_stats_service.dart';
+import 'package:musify/services/local_sync/sync_data.dart';
+import 'package:musify/services/local_sync/sync_merge.dart';
 
-/// What to do when both devices hold a custom playlist with the same title but
-/// a different id (a playlist created separately on each device).
-///
-/// A playlist that shares its id on both devices is always the same playlist
-/// and its songs are merged regardless of the strategy.
-enum PlaylistConflictStrategy { merge, keepBoth, overwrite }
+export 'local_sync/sync_data.dart' show SyncCategory, syncCategoryKeys;
 
-/// Builds the library payload exchanged between two devices and merges an
-/// incoming payload into local storage.
-///
-/// The merge is additive: songs, playlists and folders present on the other
-/// device are added here, nothing is removed. That keeps a sync safe to run
-/// in either direction and at any time, at the cost of deletions not
-/// propagating between devices.
 class LibraryMergeService {
   LibraryMergeService._();
-
-  static const int schemaVersion = 1;
-
-  static const String _dateTimeMarker = '__musifyType';
-
-  /// Storage keys in the `user` box that take part in a sync.
-  static const List<String> libraryKeys = [
+  static const schemaVersion = 2;
+  static const libraryKeys = [
     'likedSongs',
     'likedRadioStations',
     'playlists',
@@ -57,457 +45,198 @@ class LibraryMergeService {
     'pinnedPlaylistIds',
     'recentlyPlayedSongs',
     'searchHistory',
+    'wrappedListeningStats',
   ];
+  static const _documentKey = 'localSyncDocumentV2';
+  static const _baselineKey = 'localSyncBaselineV2';
+  static const _journalKey = 'localSyncPendingMergeV2';
+  static Future<void> _tail = Future.value();
+  @visibleForTesting
+  static Future<void> Function(String stage)? fault;
 
-  /// Serialises the local library as a JSON-compatible map.
-  static Map<String, dynamic> exportLibrary() {
-    final box = Hive.box('user');
+  static Future<T> _locked<T>(Future<T> Function() action) {
+    final done = Completer<void>();
+    final previous = _tail;
+    _tail = done.future;
+    return previous.then((_) => action()).whenComplete(done.complete);
+  }
+
+  static Future<void> awaitIdle() => _locked(() async {});
+
+  static Future<void> recoverPendingMerge() async {
+    final store = Hive.box('userNoBackup');
+    final journal = store.get(_journalKey);
+    if (journal is! Map) return;
+    final before = Map<String, dynamic>.from(journal['user']);
+    final absent = (journal['absent'] as List).cast<String>();
+    final after = journal['after'] as Map?;
+    bool unchanged(String key) =>
+        after == null ||
+        canonicalSync(encodeSyncValue(Hive.box('user').get(key))) ==
+            canonicalSync(after[key]);
+    await Hive.box('user').putAll(
+      decodeSyncValue({
+        for (final e in before.entries)
+          if (unchanged(e.key)) e.key: e.value,
+      }) as Map,
+    );
+    await Hive.box('user').deleteAll(absent.where(unchanged));
+    await Hive.box('user').flush();
+    for (final key in [_documentKey, _baselineKey]) {
+      if (journal[key] == null) {
+        await store.delete(key);
+      } else {
+        await store.put(key, journal[key]);
+      }
+    }
+    await store.delete(_journalKey);
+    await store.flush();
+    _refresh();
+  }
+
+  static String _deviceId() {
+    final store = Hive.box('userNoBackup');
+    final existing = store.get('localSyncDeviceId');
+    if (existing is String && existing.isNotEmpty) return existing;
+    final random = Random.secure();
+    final id = List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    unawaited(store.put('localSyncDeviceId', id));
+    return id;
+  }
+
+  static Map<String, dynamic> _snapshot() {
+    final user = Hive.box('user');
     return {
-      'schemaVersion': schemaVersion,
       for (final key in libraryKeys)
-        key: _encodeValue(box.get(key, defaultValue: const [])),
+        if (key != 'wrappedListeningStats' || user.get(key) != null)
+          key: encodeSyncValue(user.get(key, defaultValue: [])),
     };
   }
 
-  /// Merges [remote] into the local library and returns how many items were
-  /// added, keyed by category. Only touches storage keys that actually changed.
+  static SyncDocument _document() {
+    final raw = Hive.box('userNoBackup').get(_documentKey);
+    return raw is Map ? SyncDocument.fromMap(raw) : SyncDocument();
+  }
+
+  static Map<String, dynamic>? _baseline() {
+    final raw = Hive.box('userNoBackup').get(_baselineKey);
+    return raw is Map ? Map<String, dynamic>.from(raw) : null;
+  }
+
+  static Future<void> _save(
+    SyncDocument document,
+    Map<String, dynamic> baseline,
+  ) async {
+    await Hive.box('userNoBackup')
+        .putAll({_documentKey: document.toMap(), _baselineKey: baseline});
+    await Hive.box('userNoBackup').flush();
+  }
+
+  static Future<Map<String, dynamic>> exportLibrary({
+    Set<SyncCategory>? categories,
+  }) => _locked(() async {
+    final selected = categories ?? SyncCategory.values.toSet();
+    await listeningStatsService.prepareForSync();
+    final current = _snapshot();
+    final document = _document()..capture(current, _baseline(), _deviceId());
+    await _save(document, current);
+    return {
+      'schemaVersion': schemaVersion,
+      'categories': selected.map((e) => e.name).toList()..sort(),
+      'document': document.select(selected).toMap(),
+    };
+  });
+
   static Future<Map<String, int>> mergeLibrary(
     Map<String, dynamic> remote, {
-    PlaylistConflictStrategy conflictStrategy = PlaylistConflictStrategy.merge,
-  }) async {
-    final box = Hive.box('user');
-    final stats = <String, int>{};
-    var changed = false;
-
-    Future<void> store(String key, dynamic value) async {
-      await box.put(key, value);
-      changed = true;
-    }
-
-    // Liked songs: newest first locally, so remote-only songs go to the end.
-    final likedSongs = _mergeMapListById(
-      _mapList(box.get('likedSongs')),
-      _mapList(_decodeValue(remote['likedSongs'])),
-    );
-    stats['likedSongs'] = likedSongs.added;
-    if (likedSongs.added > 0) await store('likedSongs', likedSongs.result);
-
-    final radioStations = _mergeStringList(
-      _stringList(box.get('likedRadioStations')),
-      _stringList(remote['likedRadioStations']),
-    );
-    stats['likedRadioStations'] = radioStations.added;
-    if (radioStations.added > 0) {
-      await store('likedRadioStations', radioStations.result);
-    }
-
-    final playlists = _mergeStringList(
-      _stringList(box.get('playlists')),
-      _stringList(remote['playlists']),
-    );
-    stats['playlists'] = playlists.added;
-    if (playlists.added > 0) await store('playlists', playlists.result);
-
-    final likedPlaylists = _mergeMapListById(
-      _mapList(box.get('likedPlaylists')),
-      _mapList(_decodeValue(remote['likedPlaylists'])),
-    );
-    stats['likedPlaylists'] = likedPlaylists.added;
-    if (likedPlaylists.added > 0) {
-      await store('likedPlaylists', likedPlaylists.result);
-    }
-
-    final custom = _mergeCustomPlaylists(
-      localTopLevel: _mapList(box.get('customPlaylists')),
-      localFolders: _mapList(box.get('playlistFolders')),
-      remoteTopLevel: _mapList(_decodeValue(remote['customPlaylists'])),
-      remoteFolders: _mapList(_decodeValue(remote['playlistFolders'])),
-      strategy: conflictStrategy,
-    );
-    stats['customPlaylists'] = custom.playlistsAdded;
-    stats['customPlaylistSongs'] = custom.songsAdded;
-    stats['playlistFolders'] = custom.foldersAdded;
-    if (custom.changed) {
-      await store('customPlaylists', custom.topLevel);
-      await store('playlistFolders', custom.folders);
-    }
-
-    final pinned = _mergeStringList(
-      _stringList(box.get('pinnedPlaylistIds')),
-      _stringList(remote['pinnedPlaylistIds']),
-      limit: pinnedPlaylistsLimit,
-    );
-    stats['pinnedPlaylistIds'] = pinned.added;
-    if (pinned.added > 0) await store('pinnedPlaylistIds', pinned.result);
-
-    final recentlyPlayed = _mergeRecentlyPlayed(
-      _mapList(box.get('recentlyPlayedSongs')),
-      _mapList(_decodeValue(remote['recentlyPlayedSongs'])),
-    );
-    stats['recentlyPlayedSongs'] = recentlyPlayed.added;
-    if (recentlyPlayed.changed) {
-      await store('recentlyPlayedSongs', recentlyPlayed.result);
-    }
-
-    final searchHistory = _mergeStringList(
-      _stringList(box.get('searchHistory')),
-      _stringList(remote['searchHistory']),
-    );
-    stats['searchHistory'] = searchHistory.added;
-    if (searchHistory.added > 0) {
-      await store('searchHistory', searchHistory.result);
-    }
-
-    if (changed) {
-      refreshBackedUpStateFromStorage();
-      reloadSearchHistoryFromStorage();
-    }
-
-    return stats;
-  }
-
-  /// Total number of items a merge added, for status messages.
-  static int totalAdded(Map<String, int> stats) =>
-      stats.values.fold(0, (sum, value) => sum + value);
-
-  // ---------------------------------------------------------------------------
-  // Simple lists
-  // ---------------------------------------------------------------------------
-
-  static ({List<String> result, int added}) _mergeStringList(
-    List<String> local,
-    List<String> remote, {
-    int? limit,
-  }) {
-    final result = List<String>.from(local);
-    final seen = local.toSet();
-    var added = 0;
-    for (final value in remote) {
-      if (limit != null && result.length >= limit) break;
-      if (seen.add(value)) {
-        result.add(value);
-        added++;
-      }
-    }
-    return (result: result, added: added);
-  }
-
-  static ({List<Map> result, int added}) _mergeMapListById(
-    List<Map> local,
-    List<Map> remote,
-  ) {
-    final result = List<Map>.from(local);
-    final seen = local.map(_idOf).whereType<String>().toSet();
-    var added = 0;
-    for (final item in remote) {
-      final id = _idOf(item);
-      if (id == null || !seen.add(id)) continue;
-      result.add(Map<String, dynamic>.from(item));
-      added++;
-    }
-    return (result: result, added: added);
-  }
-
-  static ({List<Map> result, int added, bool changed}) _mergeRecentlyPlayed(
-    List<Map> local,
-    List<Map> remote,
-  ) {
-    final byId = <String, Map>{};
-    for (final item in local) {
-      final id = _idOf(item);
-      if (id != null) byId[id] = Map<String, dynamic>.from(item);
-    }
-
-    var added = 0;
-    var changed = false;
-    for (final item in remote) {
-      final id = _idOf(item);
-      if (id == null) continue;
-      final existing = byId[id];
-      if (existing == null) {
-        byId[id] = Map<String, dynamic>.from(item);
-        added++;
-        changed = true;
-        continue;
-      }
-
-      // Both devices played this song: keep the most recent play and the
-      // higher play count rather than summing, since both counts include the
-      // plays that were already synced before.
-      final remotePlayed = _dateOf(item['lastPlayed']);
-      final localPlayed = _dateOf(existing['lastPlayed']);
-      if (remotePlayed != null &&
-          (localPlayed == null || remotePlayed.isAfter(localPlayed))) {
-        existing['lastPlayed'] = remotePlayed;
-        changed = true;
-      }
-      final remoteCount = _intOf(item['listeningCount']);
-      if (remoteCount > _intOf(existing['listeningCount'])) {
-        existing['listeningCount'] = remoteCount;
-        changed = true;
-      }
-    }
-
-    final result = byId.values.toList()
-      ..sort((a, b) {
-        final aDate = _dateOf(a['lastPlayed']);
-        final bDate = _dateOf(b['lastPlayed']);
-        if (aDate == null && bDate == null) return 0;
-        if (aDate == null) return 1;
-        if (bDate == null) return -1;
-        return bDate.compareTo(aDate);
-      });
-
-    if (result.length > recentlyPlayedSongsLimit) {
-      result.removeRange(recentlyPlayedSongsLimit, result.length);
-      changed = true;
-    }
-
-    return (result: result, added: added, changed: changed);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Custom playlists and folders
-  // ---------------------------------------------------------------------------
-
-  /// A custom playlist can live at the top level or inside a folder. Both
-  /// devices may place the same playlist differently, so playlists are
-  /// matched wherever they are and the local placement always wins.
-  static ({
-    List<Map> topLevel,
-    List<Map> folders,
-    int playlistsAdded,
-    int songsAdded,
-    int foldersAdded,
-    bool changed,
-  })
-  _mergeCustomPlaylists({
-    required List<Map> localTopLevel,
-    required List<Map> localFolders,
-    required List<Map> remoteTopLevel,
-    required List<Map> remoteFolders,
-    required PlaylistConflictStrategy strategy,
-  }) {
-    final topLevel = localTopLevel.map(Map<String, dynamic>.from).toList();
-    final folders = localFolders.map((folder) {
-      final copy = Map<String, dynamic>.from(folder);
-      copy['playlists'] = _mapList(folder['playlists'])
-          .map(Map<String, dynamic>.from)
-          .toList();
-      return copy;
-    }).toList();
-
-    final localById = <String, Map>{};
-    final localByTitle = <String, Map>{};
-    void index(Map playlist) {
-      final id = _idOf(playlist);
-      if (id != null) localById[id] = playlist;
-      final title = _titleKey(playlist);
-      if (title != null) localByTitle.putIfAbsent(title, () => playlist);
-    }
-
-    topLevel.forEach(index);
-    for (final folder in folders) {
-      for (final playlist in folder['playlists'] as List<Map>) {
-        index(playlist);
-      }
-    }
-
-    var playlistsAdded = 0;
-    var songsAdded = 0;
-    var foldersAdded = 0;
-    var changed = false;
-
-    void mergeInto(Map local, Map remote) {
-      final localSongs = _mapList(local['list']);
-      final remoteSongs = _mapList(remote['list']);
-
-      if (strategy == PlaylistConflictStrategy.overwrite) {
-        final localIds = localSongs.map(_idOf).whereType<String>().toSet();
-        final remoteIds = remoteSongs.map(_idOf).whereType<String>().toSet();
-        if (localIds.length != remoteIds.length ||
-            !localIds.containsAll(remoteIds) ||
-            !_sameOrder(localSongs, remoteSongs)) {
-          local['list'] = remoteSongs.map(Map<String, dynamic>.from).toList();
-          songsAdded += remoteIds.difference(localIds).length;
-          changed = true;
+    Set<SyncCategory>? categories,
+  }) => _locked(() async {
+    if (remote['schemaVersion'] != schemaVersion || remote['document'] is! Map)
+      throw const FormatException(
+        'Unsupported sync version. Update both devices.',
+      );
+    validateSyncJson(remote);
+    final incomingCategories = parseSyncCategories(remote['categories']);
+    final selected = categories ?? SyncCategory.values.toSet();
+    if (!selected.containsAll(incomingCategories))
+      throw const FormatException('Sync categories changed');
+    final incoming = SyncDocument.fromMap(remote['document']);
+    if (canonicalSync(incoming.select(incomingCategories).records) !=
+        canonicalSync(incoming.records))
+      throw const FormatException('Unselected sync data');
+    await listeningStatsService.prepareForSync();
+    final store = Hive.box('userNoBackup');
+    for (var attempt = 0; attempt < 4; attempt++) {
+      final current = _snapshot();
+      final document = _document()..capture(current, _baseline(), _deviceId());
+      final metadataChanges = document.join(incoming);
+      final merged = document.materialize();
+      final keys = incomingCategories
+          .expand((c) => syncCategoryKeys[c]!)
+          .toSet();
+      final updates = <String, dynamic>{};
+      final stats = <String, int>{if (metadataChanges > 0) '_metadata': 1};
+      for (final key in keys) {
+        if (canonicalSync(current[key]) != canonicalSync(merged[key])) {
+          updates[key] = merged[key];
+          stats[key] = 1;
         }
-        return;
       }
-
-      final merged = _mergeMapListById(localSongs, remoteSongs);
-      if (merged.added > 0) {
-        local['list'] = merged.result;
-        songsAdded += merged.added;
-        changed = true;
+      if (updates.isEmpty) {
+        await _save(document, current);
+        return stats;
       }
-    }
-
-    Map? findMatch(Map remote) {
-      final id = _idOf(remote);
-      if (id != null && localById.containsKey(id)) return localById[id];
-      if (strategy == PlaylistConflictStrategy.keepBoth) return null;
-      final title = _titleKey(remote);
-      return title == null ? null : localByTitle[title];
-    }
-
-    /// Adds a playlist that does not exist locally. [remoteFolder] is the
-    /// folder it lives in on the other device, if any.
-    void addPlaylist(Map remote, Map? remoteFolder) {
-      final copy = Map<String, dynamic>.from(remote);
-      copy['list'] = _mapList(remote['list'])
-          .map(Map<String, dynamic>.from)
-          .toList();
-      index(copy);
-      playlistsAdded++;
-      songsAdded += (copy['list'] as List).length;
-      changed = true;
-
-      if (remoteFolder == null) {
-        topLevel.add(copy);
-        return;
-      }
-
-      final folder = _findFolder(folders, remoteFolder);
-      if (folder != null) {
-        (folder['playlists'] as List<Map>).add(copy);
-        return;
-      }
-
-      final newFolder = Map<String, dynamic>.from(remoteFolder);
-      newFolder['playlists'] = <Map>[copy];
-      folders.add(newFolder);
-      foldersAdded++;
-    }
-
-    void mergeRemote(Map remote, Map? remoteFolder) {
-      if (_idOf(remote) == null) return;
-      final local = findMatch(remote);
-      if (local != null) {
-        mergeInto(local, remote);
-      } else {
-        addPlaylist(remote, remoteFolder);
-      }
-    }
-
-    for (final playlist in remoteTopLevel) {
-      mergeRemote(playlist, null);
-    }
-    for (final remoteFolder in remoteFolders) {
-      final playlists = _mapList(remoteFolder['playlists']);
-      if (playlists.isEmpty && _findFolder(folders, remoteFolder) == null) {
-        // Empty folder the other device created: keep it so the structure
-        // matches on both sides.
-        final newFolder = Map<String, dynamic>.from(remoteFolder);
-        newFolder['playlists'] = <Map>[];
-        folders.add(newFolder);
-        foldersAdded++;
-        changed = true;
+      final journal = {
+        'user': {
+          for (final key in updates.keys)
+            if (Hive.box('user').containsKey(key)) key: current[key],
+        },
+        'after': updates,
+        'absent': updates.keys
+            .where((key) => !Hive.box('user').containsKey(key))
+            .toList(),
+        _documentKey: store.get(_documentKey),
+        _baselineKey: store.get(_baselineKey),
+      };
+      await store.put(_journalKey, journal);
+      await store.flush();
+      if (canonicalSync(current) != canonicalSync(_snapshot())) {
+        await store.delete(_journalKey);
         continue;
       }
-      for (final playlist in playlists) {
-        mergeRemote(playlist, remoteFolder);
+      try {
+        await fault?.call('prepared');
+        if (canonicalSync(current) != canonicalSync(_snapshot())) {
+          await store.delete(_journalKey);
+          continue;
+        }
+        final write = Hive.box('user').putAll(decodeSyncValue(updates) as Map);
+        _refresh();
+        await write;
+        await Hive.box('user').flush();
+        await fault?.call('written');
+        await _save(document, {...current, ...updates});
+        await fault?.call('metadata');
+        await store.delete(_journalKey);
+        await store.flush();
+        return stats;
+      } catch (_) {
+        await recoverPendingMerge();
+        rethrow;
       }
     }
+    throw StateError('Library is changing; try syncing again.');
+  });
 
-    return (
-      topLevel: topLevel,
-      folders: folders,
-      playlistsAdded: playlistsAdded,
-      songsAdded: songsAdded,
-      foldersAdded: foldersAdded,
-      changed: changed,
-    );
-  }
-
-  static Map? _findFolder(List<Map> folders, Map wanted) {
-    final id = wanted['id']?.toString();
-    final name = wanted['name']?.toString().trim().toLowerCase();
-    for (final folder in folders) {
-      if (id != null && folder['id']?.toString() == id) return folder;
-    }
-    for (final folder in folders) {
-      if (name != null &&
-          folder['name']?.toString().trim().toLowerCase() == name) {
-        return folder;
-      }
-    }
-    return null;
-  }
-
-  static bool _sameOrder(List<Map> a, List<Map> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (_idOf(a[i]) != _idOf(b[i])) return false;
-    }
-    return true;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
-  static String? _idOf(Map item) {
-    final id = item['ytid']?.toString().trim();
-    return id == null || id.isEmpty ? null : id;
-  }
-
-  static String? _titleKey(Map playlist) {
-    final title = playlist['title']?.toString().trim().toLowerCase();
-    return title == null || title.isEmpty ? null : title;
-  }
-
-  static int _intOf(dynamic value) => value is num ? value.toInt() : 0;
-
-  static DateTime? _dateOf(dynamic value) {
-    if (value is DateTime) return value;
-    if (value is String) return DateTime.tryParse(value);
-    return null;
-  }
-
-  static List<Map> _mapList(dynamic value) =>
-      value is List ? value.whereType<Map>().toList() : <Map>[];
-
-  static List<String> _stringList(dynamic value) => value is List
-      ? value.map((e) => e.toString()).where((e) => e.isNotEmpty).toList()
-      : <String>[];
-
-  /// Hive stores DateTime natively; JSON does not. Wrap them on the way out
-  /// and unwrap on the way in so `lastPlayed` survives the round trip.
-  static dynamic _encodeValue(dynamic value) {
-    if (value == null || value is num || value is bool || value is String) {
-      return value;
-    }
-    if (value is DateTime) {
-      return {
-        _dateTimeMarker: 'DateTime',
-        'value': value.toUtc().toIso8601String(),
-      };
-    }
-    if (value is List) {
-      return value.map(_encodeValue).toList();
-    }
-    if (value is Map) {
-      return value.map(
-        (key, value) => MapEntry(key.toString(), _encodeValue(value)),
-      );
-    }
-    return value.toString();
-  }
-
-  static dynamic _decodeValue(dynamic value) {
-    if (value is List) {
-      return value.map(_decodeValue).toList();
-    }
-    if (value is Map) {
-      if (value[_dateTimeMarker] == 'DateTime') {
-        return DateTime.tryParse(value['value']?.toString() ?? '')?.toLocal() ??
-            value;
-      }
-      return value.map(
-        (key, value) => MapEntry(key.toString(), _decodeValue(value)),
-      );
-    }
-    return value;
+  static int totalAdded(Map<String, int> stats) => stats.entries
+      .where((entry) => !entry.key.startsWith('_'))
+      .fold(0, (sum, entry) => sum + entry.value);
+  static void _refresh() {
+    refreshBackedUpStateFromStorage();
+    reloadSearchHistoryFromStorage();
+    listeningStatsService.reload();
   }
 }

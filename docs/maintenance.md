@@ -65,7 +65,7 @@ workflows avoid that by:
 - Checking out local branches with explicit `refs/heads/...` refs.
 - Fetching only the upstream release tag needed for the sync instead of all
   upstream tags.
-- Pushing with `HEAD:refs/heads/master` or `HEAD:refs/heads/mobile-cloud-sync`.
+- Pushing with `HEAD:refs/heads/master` .
 - Dispatching downstream workflows with explicit branch refs.
 
 ## Manual Sync
@@ -125,7 +125,7 @@ artwork on track changes. A paused session remains available for resume; idle,
 completed and failed playback release the media controls. The runner unregisters
 the button handler and disables SMTC before destroying the Flutter engine.
 
-`flutter test test/windows_media_controls_test.dart` checks the Dart bridge on
+`flutter test test/windows/media_controls_test.dart` checks the Dart bridge on
 Linux and Windows in the desktop release workflow. Compilation on the Windows
 runner verifies the native SDK integration, but does not verify the actual media
 flyout or physical keyboard. For issue #13, validate those manually with the app
@@ -242,7 +242,7 @@ recommendations are fetched. Keep the package's Unlicense with future updates.
 Run the native regression with a local libmpv installation:
 
 ```bash
-MUSIFY_TEST_LIBMPV=/usr/lib/x86_64-linux-gnu/libmpv.so.2 flutter test test/desktop_audio_native_test.dart
+MUSIFY_TEST_LIBMPV=/usr/lib/x86_64-linux-gnu/libmpv.so.2 flutter test test/desktop/audio_native_test.dart
 ```
 
 The publication-date parser regression covers search and recommendations and can
@@ -253,3 +253,16 @@ System media artwork is center-cropped to a 512px square for both MPRIS and
 SMTC. Only the desktop controls use this generated PNG; mobile and in-app
 artwork keep their original images. Covers load independently of text and
 transport updates, and late results are discarded after a track change.
+
+## Unified Android and desktop sources
+
+`master` now builds all three platforms. The historical `mobile-cloud-sync`
+branch is retained for reference and is not a release source. Both upstream
+sync workflows target `master` and share a concurrency group. Android keeps
+`com.elias001011.musifycloud` for update compatibility; desktop settings remain
+platform guarded. Local Sync needs no server defines or signing secrets.
+Android release signing continues to use the existing GitHub Actions secrets.
+
+For matching test builds, dispatch desktop and mobile releases with the same
+commit SHA as `source_ref`, unused numeric revision tags, and `prerelease=true`.
+The in-app updaters skip prereleases, so install test artifacts manually.

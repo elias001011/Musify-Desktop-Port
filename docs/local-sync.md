@@ -1,132 +1,95 @@
 # Local Sync
 
-Local Sync keeps the Musify library the same on two or more devices by talking
-to each other directly over the local network. There is no account, no server
-and nothing leaves the Wi-Fi: each device with Local Sync turned on runs a tiny
-HTTP server inside the app, and the others find it with a UDP broadcast.
+Local Sync exchanges library data directly between Musify installations on the
+same local network. It is optional, off by default, and needs no account,
+backend or API key. Android, Linux and Windows build from `master`.
 
-The approach follows the peer-to-peer sync of
-[Sonora](https://github.com/gmstyle/sonora) (discovery over UDP, pairing with a
-PIN, a two-way merge over HTTP), adapted to Musify's Hive storage.
+## Pairing and use
 
-## Using it
+1. Update every device to a build using Local Sync protocol 2.
+2. Enable **Settings → Local sync → Sync over local network** on each device.
+3. Open **Devices** on one device and choose the other device.
+4. Check the six-digit code on the receiving device, approve pairing there,
+   and enter that code on the initiating device.
+5. Choose the data categories on each device. Only categories enabled on
+   **both** devices are exchanged.
 
-1. On every device, open **Settings → Local sync** and turn on **Sync over
-   local network**. The device becomes visible to other Musify devices on the
-   same Wi-Fi.
-2. On one device, open **Devices**. The other device shows up under **Other
-   devices**; tap it.
-3. The other device shows a 4-digit PIN. Type it on the first device. From now
-   on the two are **paired** and either can sync with the other without a PIN.
-4. The first sync runs right away. Afterwards, with **Automatic sync** on, each
-   device syncs with every paired device it can see at startup, shortly after
-   you change something, and every 30 minutes. You can also sync by hand from
-   the Devices screen.
+Old protocol-1 pairings need to be paired again; public device IDs alone no
+longer grant access. Long-press a paired device to forget it. Pair each desired
+connection when using three or more devices. Automatic sync contacts all
+reachable paired devices and forwards received changes to other peers.
 
-Both devices need Local Sync turned on: it is what makes them discoverable
-and able to receive a library. Long-press a paired device to forget it.
+With automatic sync enabled, syncing runs at startup, when returning to the
+app, shortly after library changes, and periodically. Manual sync is also
+available. Apps must be running; mobile background suspension can delay sync.
+Offline mode pauses automatic sync. An unreachable peer or another Wi-Fi
+network leaves data and pairings intact, with retries when it becomes reachable.
 
-## What gets synced
+## Data and conflict rules
 
-Everything in Musify's `user` storage that is library data:
-
-| Data | Merge rule |
+| Category | Behavior |
 |---|---|
-| Liked songs | union by song id |
-| Online playlists added by link (`playlists`) and liked playlists (`likedPlaylists`) | union by id |
-| Custom playlists (including those inside folders) | matched by id, then by title; songs merged (see conflicts below) |
-| Playlist folders | matched by id, then by name; new playlists land in the matching folder, folders are created when missing |
-| Pinned playlists | union, up to the pin limit |
-| Recently played | union by song id; the most recent play and the higher play count win |
-| Liked radio stations, search history | union |
+| Favourites | Songs identified by ID; additions and removals propagate. |
+| Playlists | Online, liked and custom playlists, folders, membership, order and pins. Distinct IDs with the same name stay distinct. Pins obey the app limit. |
+| Recently played | Latest play metadata and the higher existing play count per song; recent list obeys the app limit. |
+| Listening recap | Copies complete month snapshots, including stored history. A conflicting month uses the higher total listening time, then play count and a stable tie break. Counts and time are never added across devices. |
+| Search history | Entries and removals propagate. |
+| Radio favourites | Station IDs and removals propagate. |
 
-Not synced: settings (theme, quality, shortcuts, interface scale — desktop and
-phone differ on purpose), offline downloads, the listening recap statistics,
-and offline mode.
+Settings, offline mode, downloaded audio, device paths and credentials stay local.
+This shares the library portion of backup data, rather than importing
+`settings.hive` or copying device-specific storage.
 
-**Deletions do not propagate.** The merge only adds. Remove a song from a
-playlist on one device and the next sync brings it back from the other, unless
-you remove it there too. This is the same trade-off Sonora makes: an additive
-merge can run in any direction, at any time, and never lose anything.
+A recap conflict of 200 and 300 minutes keeps the **entire 300-minute month**,
+not 500 minutes or a union of its songs. This avoids counting a copied recap
+again. Independent listening on two devices is not added together. A missing
+month is copied. The recap UI continues to apply upstream retention and song
+limits. Explicitly clearing the recap starts a new generation so an older peer
+cannot restore the cleared listening data.
 
-### Same-name playlists
+Changes use logical versions and stable device tie breaks, rather than relying
+on wall-clock modification times. Two simultaneous edits to the same item have
+one deterministic winner. Deletion markers prevent offline peers from reviving
+removed items; a later intentional addition can restore an item. These markers
+are retained while the devices may still need them, so sync metadata can grow.
 
-Custom playlists get a random id when they are created, so a playlist created
-on one device and synced keeps that id everywhere and is always recognised as
-the same playlist. The **Same-name playlists** setting decides what happens
-when each device created its *own* playlist with the same title:
+## Failures and privacy
 
-- **Merge songs** (default): they become one playlist with the songs of both.
-- **Keep both playlists**: both stay, one per original device.
-- **Other device wins**: the incoming playlist replaces the songs of the local
-  one with the same name. Note that the merge runs on both ends of a sync, so
-  the device that *starts* the sync effectively wins.
+Payloads are validated before import. Imports keep a durable recovery journal;
+if the app closes during a write, startup restores the interrupted transaction
+before retrying. Edits made after that write are preserved. A backup restore
+pauses sync while its storage files are replaced. Export a backup before testing
+pre-release builds; sync is not a backup or an undo history.
 
-## How a sync works
+Pairing uses committed ephemeral X25519 keys, a six-digit comparison code and
+explicit approval on the receiving device. The derived pair secret remains on
+the devices. Library requests and replies use AES-256-GCM with route/peer binding,
+request IDs and persisted sequence counters to reject replay. A public discovery
+ID is not a credential. Discovery still advertises device name, platform and
+port on the LAN. Trusted paired devices can modify the selected library data;
+forget devices you no longer control. Someone with access to the device's
+private app storage can read its pairing secrets.
 
-```
-Device A (starts the sync)                 Device B
-        |                                     |
-        |-- UDP MUSIFY_DISCOVERY_REQUEST ---->|  (broadcast, port 53531)
-        |<-- MUSIFY_DISCOVERY_RESPONSE;name;port;deviceId
-        |                                     |
-        |-- POST /api/sync/pair-request ----->|  first time only:
-        |<-- pairing_started                  |  B shows a PIN
-        |-- POST /api/sync/pair-verify (PIN)->|
-        |<-- paired + B's device id           |  both remember each other
-        |                                     |
-        |-- POST /api/sync/merge (A library)->|  B merges A into itself
-        |<-- B's merged library + stats       |
-        |   A merges it into itself           |
-```
+Discovery uses UDP port `53531`; the local HTTP server binds an available TCP
+port. The JSON library messages on that transport are encrypted. No router port
+forwarding is required. Guest Wi-Fi, AP isolation, VPN routing, firewalls and
+Android battery restrictions can prevent discovery or delivery. Windows may ask
+for private-network access. There is no remote/cloud fallback or Internet sync.
 
-After one round trip both libraries are identical. Each device has a random
-device id (stored in the `userNoBackup` box, so backups do not carry it) and a
-list of paired device ids. A merge request from an unpaired id is refused with
-`403`; the sending device then drops the pairing and asks for a PIN again.
+## Implementation and checks
 
-The HTTP server binds a random free port on all IPv4 interfaces. Discovery
-listens on UDP port `53531`; the scan sends to `255.255.255.255` and to the
-`/24` broadcast of every interface, so a desktop with several networks still
-reaches the Wi-Fi the phone is on. A device whose discovery port is already
-taken (another Musify instance on the same machine) still accepts syncs but
-cannot be found by a scan.
+- `local_sync_service.dart`: discovery, pairing, authenticated transport and retries.
+- `local_sync/sync_security.dart`: pairing and encryption.
+- `local_sync/sync_merge.dart`: versioned merge and recap rules.
+- `library_merge_service.dart`: Hive export, validation, journal and recovery.
+- `local_sync_page.dart` and settings: devices and category selection.
 
-### Security model
+`flutter test` covers merges, categories, authentication, replay, recovery and
+Android settings isolation. `.github/scripts/test_local_sync_peers.py` launches
+three independent Flutter processes with separate storage and real HTTP servers;
+it checks convergence, deletions, conflicts, reconnects, simultaneous requests
+and recovery after killing a process during a write. Real Wi-Fi discovery and
+mobile background behavior still require testing on physical devices.
 
-- Pairing needs physical access to both devices: the PIN is only shown on the
-  device being paired to, expires after 60 seconds, and a wrong PIN is refused.
-- After pairing, the device id acts as a bearer token on the local network.
-  Anyone on the same network who learns a paired id could push a library. That
-  is acceptable for a home Wi-Fi and not for a hostile one; forget devices you
-  no longer use.
-- Traffic is plain HTTP inside the local network. Nothing is uploaded anywhere.
-
-## Platform notes
-
-- **Android** needs the multicast lock (`CHANGE_WIFI_MULTICAST_STATE`) to
-  receive broadcasts; the app acquires it while Local Sync is on. Some phones
-  drop UDP broadcasts on battery-saver Wi-Fi; scan again or move closer to the
-  router. The sync server only runs while the app is alive.
-- **Windows** asks once, on the first start with Local Sync on, whether Musify
-  may accept connections on private networks. Say yes, or discovery will fail.
-- **Linux** firewalls (ufw, firewalld) may need UDP `53531` and the app's TCP
-  port allowed on the LAN zone.
-- Guest Wi-Fi networks and "AP isolation" block device-to-device traffic
-  entirely; both devices must be on the same regular network.
-
-## Code map
-
-- `lib/services/local_sync_service.dart` — server, discovery, pairing, the
-  client side of a sync and the automatic triggers. `LocalSyncService.instance`
-  is started from `main.dart`, which also shows the incoming-PIN dialog.
-- `lib/services/library_merge_service.dart` — `exportLibrary()` and
-  `mergeLibrary()`, the payload format and every merge rule above.
-- `lib/screens/local_sync_page.dart` — the Devices screen.
-- `lib/screens/settings_page.dart` — the **Local sync** section.
-- `test/library_merge_service_test.dart`, `test/local_sync_service_test.dart`
-  — merge rules and the pairing handshake over loopback.
-
-Wire format (`schemaVersion: 1`): a JSON object with one key per storage key
-above. `DateTime` values are wrapped as `{"__musifyType": "DateTime", "value":
-"<ISO-8601 UTC>"}` because JSON has no date type.
+The original local-network approach was inspired by
+[Sonora](https://github.com/gmstyle/sonora).

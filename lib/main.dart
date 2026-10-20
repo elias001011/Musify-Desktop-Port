@@ -220,6 +220,8 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed)
+      unawaited(LocalSyncService.instance.triggerSilentSync());
     super.didChangeAppLifecycleState(state);
     // Persist listening stats when the app leaves the foreground. This is the
     // reliable moment to snapshot and flush: unlike widget dispose, these
@@ -282,13 +284,12 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
               color: colorScheme.primary,
               size: 32,
             ),
-            title: const Text('Pair with this device?'),
+            title: Text(dialogContext.l10n!.syncPairTitle),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  '${request.clientName} wants to sync its library with this '
-                  'device. Type this PIN there to confirm:',
+                  '${request.clientName}\n${dialogContext.l10n!.syncPairDescription}',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
@@ -310,7 +311,11 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
                   LocalSyncService.instance.rejectIncomingPairing();
                   Navigator.pop(dialogContext);
                 },
-                child: const Text('Reject'),
+                child: Text(dialogContext.l10n!.cancel),
+              ),
+              FilledButton(
+                onPressed: LocalSyncService.instance.approveIncomingPairing,
+                child: Text(dialogContext.l10n!.syncAllow),
               ),
             ],
           );
@@ -560,7 +565,10 @@ Future<void> initialisation() async {
 }
 
 void handleIncomingLink(Uri? uri) async {
-  if (uri == null || !const {'musify', 'musifycloud'}.contains(uri.scheme) || uri.host != 'playlist') return;
+  if (uri == null ||
+      !const {'musify', 'musifycloud'}.contains(uri.scheme) ||
+      uri.host != 'playlist')
+    return;
 
   if (uri.pathSegments.length < 2 || uri.pathSegments[0] != 'custom') return;
 

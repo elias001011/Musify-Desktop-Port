@@ -330,5 +330,20 @@
   "userPlaylists": "User playlists",
   "volume": "Volume",
   "yes": "Yes",
-  "youtubePlaylistLinkOrId": "YouTube playlist link or ID"
+  "youtubePlaylistLinkOrId": "YouTube playlist link or ID",
+  "syncTitle": "Local sync",
+  "syncData": "Choose what to sync",
+  "syncSelections": "Only categories enabled on both devices are exchanged. Settings and downloaded audio files stay on this device.",
+  "syncFavourites": "Liked songs",
+  "syncPlaylists": "Playlists, folders and pins",
+  "syncRecent": "Recently played",
+  "syncRecap": "Listening recap",
+  "syncSearches": "Search history",
+  "syncRadio": "Liked radio stations",
+  "syncPairTitle": "Pair with this device?",
+  "syncAllow": "Allow pairing",
+  "syncPinInstructions": "Enter the six-digit code shown on the other device, and allow pairing there.",
+  "syncPinInvalid": "Enter the six-digit code",
+  "syncPairDescription": "Type this code on the device requesting access, then allow pairing. Only approve requests you started.",
+  "syncUnchanged": "No selected data changed."
 }

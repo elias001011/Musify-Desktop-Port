@@ -67,7 +67,7 @@ class _LocalSyncPageState extends State<LocalSyncPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Local sync'),
+        title: Text(context.l10n!.syncTitle),
         actions: [
           ValueListenableBuilder<LocalSyncState>(
             valueListenable: _service.state,
@@ -248,11 +248,7 @@ class _LocalSyncPageState extends State<LocalSyncPage> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
-          const Text(
-            'A 4-digit PIN is now shown on the other device. Type it here to '
-            'confirm that both devices belong to you.',
-            textAlign: TextAlign.center,
-          ),
+          Text(context.l10n!.syncPinInstructions, textAlign: TextAlign.center),
           const SizedBox(height: 24),
           SizedBox(
             width: 200,
@@ -261,7 +257,7 @@ class _LocalSyncPageState extends State<LocalSyncPage> {
               autofocus: true,
               keyboardType: TextInputType.number,
               textAlign: TextAlign.center,
-              maxLength: 4,
+              maxLength: 6,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               style: theme.textTheme.headlineSmall?.copyWith(letterSpacing: 8),
               decoration: const InputDecoration(
@@ -293,10 +289,10 @@ class _LocalSyncPageState extends State<LocalSyncPage> {
 
   void _submitPin() {
     final pin = _pinController.text.trim();
-    if (pin.length != 4) {
+    if (pin.length != 6) {
       showToast(
         context,
-        'Enter the 4-digit PIN',
+        context.l10n!.syncPinInvalid,
         icon: FluentIcons.error_circle_24_regular,
       );
       return;
@@ -317,6 +313,7 @@ class _LocalSyncPageState extends State<LocalSyncPage> {
       ('Recently played', stats['recentlyPlayedSongs'] ?? 0),
       ('Radio stations', stats['likedRadioStations'] ?? 0),
       ('Search history', stats['searchHistory'] ?? 0),
+      (context.l10n!.syncRecap, stats['wrappedListeningStats'] ?? 0),
     ].where((row) => row.$2 > 0).toList();
 
     return Padding(
@@ -336,10 +333,7 @@ class _LocalSyncPageState extends State<LocalSyncPage> {
           ),
           const SizedBox(height: 16),
           if (rows.isEmpty)
-            const Text(
-              'Both devices already had the same library.',
-              textAlign: TextAlign.center,
-            )
+            Text(context.l10n!.syncUnchanged, textAlign: TextAlign.center)
           else
             Card(
               child: Padding(
@@ -353,12 +347,9 @@ class _LocalSyncPageState extends State<LocalSyncPage> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(row.$1),
-                            Text(
-                              '+${row.$2}',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: theme.colorScheme.primary,
-                              ),
+                            Icon(
+                              FluentIcons.checkmark_20_regular,
+                              color: theme.colorScheme.primary,
                             ),
                           ],
                         ),

@@ -12,8 +12,8 @@ Valeri Gokadze and contributors.
 <!-- download-counts:end -->
 
 This repository exists to ship **Musify for Windows and Linux**. The Android
-companion **Musify Cloud** also lives here because the desktop port's optional
-Local Sync needs a phone end — see [Musify Cloud](#musify-cloud) below.
+companion builds from the same `master` branch, with optional Local Sync.
+Desktop-only settings and controls stay off Android.
 
 None of these are official Musify releases. Nothing here tries to turn Musify
 into a different app — upstream code is kept as close to original as it can be.
@@ -21,7 +21,7 @@ into a different app — upstream code is kept as close to original as it can be
 | | | |
 |---|---|---|
 | **Musify Desktop Port** | Windows, Linux | the actual port. `desktop-v*` releases, `master` branch |
-| **Musify Cloud** | Android | original Musify + the other end of Local Sync. `mobile-v*`, `mobile-cloud-sync` |
+| **Musify Android** | Android | upstream mobile UI + Local Sync. `mobile-v*`, `master` |
 
 ---
 
@@ -45,10 +45,9 @@ the ones allowed to be GitHub **Latest**.
 
 ## What changes from original Musify
 
-Upstream Musify is an Android app. Everything below exists because of that — it
-is porting work and desktop plumbing, not a redesign. Two kinds of change: what
-is *required* to make Musify run on a PC at all, and what is *added* on top as
-an optional desktop convenience.
+Upstream now includes initial desktop support. This repository maintains its
+desktop integrations, packaging and optional features while keeping the mobile
+interface close to upstream.
 
 ### Required: making it run on a PC
 
@@ -149,72 +148,32 @@ conflicts with it, and the sync workflow can stay automatic.
 
 ## Local Sync
 
-Optional and off by default. It exists so one person's library can follow them
-between a desktop and a phone, and it is the reason Musify Cloud exists at all.
+Optional and off by default. Pair Android, Linux and Windows devices on the
+same local network with a six-digit code and explicit approval. Choose which
+categories to share: favourites, playlists/folders/pins, recently played,
+listening recap, searches and radio favourites. Settings and downloads stay local.
 
-It replaces an earlier cloud-based sync that stored a backup on a server. The
-current design follows [Sonora](https://github.com/gmstyle/sonora)'s
-peer-to-peer sync instead: the devices talk to each other **directly over
-Wi-Fi**. No account, no passphrase, no server, nothing leaves your network.
+Sync propagates additions, edits and deletions. Playlists match by ID; separate
+same-name playlists remain separate. Recap copies whole months, including history;
+when a month conflicts, higher listening time wins without summing the devices.
+Multiple paired devices are supported. Unreachable devices retain data and trust
+and can catch up after reconnecting. Messages are authenticated and encrypted.
 
-### How it works
+Both ends need protocol 2; old pairings must be paired again. Apps must be
+running and reachable on the LAN. Physical-device testing remains important for
+firewalls, Wi-Fi discovery and Android background limits.
 
-**Devices find each other.** With Local Sync on, each device runs a small HTTP
-server inside the app and answers a UDP broadcast on the local network. The
-Devices screen scans and lists what it finds.
-
-**Pair once with a PIN.** The first time two devices meet, the device being
-paired to shows a 4-digit PIN and the other one asks for it. After that they
-remember each other and sync without asking again. Long-press a device to
-forget it.
-
-**Both sides merge.** A sync sends this device's library to the other one,
-which merges it and answers with its own merged library, which is then merged
-back here. One round trip and both devices have the same liked songs, playlists
-(custom ones included, folders too), pinned playlists, recently played, liked
-radio stations and search history.
-
-**The merge only adds.** Nothing is ever removed by a sync, so it is safe to
-run in any direction at any time. The flip side is that deletions do not
-propagate: remove a song on one device and the next sync brings it back from
-the other, unless you remove it there too. Two custom playlists created
-separately with the same name follow the **Same-name playlists** setting: merge
-their songs (default), keep both, or let the other device win.
-
-**When it syncs.** With **Automatic sync** on, a device syncs with every paired
-device it can see at startup, about 30 seconds after you change something, and
-every 30 minutes. You can also sync by hand from the Devices screen.
-
-**What stays local.** Settings (theme, quality, keyboard shortcuts, interface
-scale), offline downloads, the listening recap and offline mode are not
-synced; a phone and a desktop are meant to differ there.
-
-### Limits worth knowing
-
-- Both devices must be on the same regular Wi-Fi, with Local Sync on. Guest
-  networks and "AP isolation" block device-to-device traffic.
-- Additive merge, as above: no deletions, no history, no rollback.
-- After pairing, a device id is what identifies a trusted device on the
-  network. Fine for a home network; forget devices you no longer use.
-- Windows asks once whether Musify may accept private-network connections;
-  Linux firewalls may need UDP `53531` open.
-
-Full details, the merge rules and the wire protocol are in
-[docs/local-sync.md](docs/local-sync.md).
+See [docs/local-sync.md](docs/local-sync.md) for rules, failure handling and tests.
 
 ---
 
-# Musify Cloud
+# Musify Android
 
-The Android companion to the desktop port. Original mobile Musify with the same
-optional Local Sync described above, and nothing else. It exists because sync
-needs two ends: this is the phone the desktop port can find on the Wi-Fi and
-merge libraries with. The name is historical, from when the sync went through
-a cloud backend; it now works entirely on the local network.
-
-It uses its own application id (`com.elias001011.musifycloud`), name and icon, so
-it installs beside original Musify rather than replacing it. Downloads are
-`MusifyCloud.apk` on `mobile-v*` releases.
+The Android companion uses upstream mobile UI plus optional Local Sync. Both
+platform families build from `master`; Android does not expose desktop settings.
+Its application ID remains `com.elias001011.musifycloud` so existing companion
+installations retain their data and can update normally. It installs beside
+original Musify. The historical APK filename remains `MusifyCloud.apk`.
 
 ## How to get both
 
@@ -223,7 +182,7 @@ it installs beside original Musify rather than replacing it. Downloads are
 | Desktop app for Windows/Linux | [desktop-v* releases](https://github.com/elias001011/Musify-Desktop-Port/releases) — `Musify-linux-x64.deb`, `Musify-linux-x64.tar.gz`, `Musify-windows-x64-setup.exe`, `Musify-windows-x64-portable.zip` |
 | Phone app that syncs with it | [mobile-v* releases](https://github.com/elias001011/Musify-Desktop-Port/releases) — `MusifyCloud.apk` |
 
-Install the desktop build, install Musify Cloud on your phone, turn on Local
+Install the desktop build, install the Android companion on your phone, turn on Local
 sync on both while they are on the same Wi-Fi, pair them once with the PIN, and
 your playlists, liked songs and history follow you between the two.
 
@@ -237,7 +196,7 @@ Two families in one release list:
 
 - `desktop-v*` — Windows/Linux. Allowed to be GitHub **Latest**, because the
   desktop updater follows the repository's latest release.
-- `mobile-v*` — Musify Cloud Android.
+- `mobile-v*` — Musify Android companion.
 
 The Android channel is deliberately **never** marked Latest, and the release
 workflow re-pins the newest `desktop-v*` release afterwards. Without that, GitHub
@@ -252,7 +211,7 @@ gokadzev/Musify publishes a release
         |
         +---> Sync Desktop Upstream Release ---> master ------------> desktop-v*
         |
-        +---> Sync Mobile Upstream Release ----> mobile-cloud-sync --> mobile-v*
+        +---> Sync Mobile Upstream Release ----> master ------------> mobile-v*
 ```
 
 Every sync merges plainly and **stops on conflict**. Earlier versions retried
@@ -269,7 +228,7 @@ See [docs/maintenance.md](docs/maintenance.md) for the full release flow.
 
 Maintenance details rather than features:
 
-- GitHub Actions workflows for desktop packaging, Musify Cloud packaging, and
+- GitHub Actions workflows for desktop packaging, Android packaging, and
   the upstream syncs.
 - Workflow refs are written as `refs/heads/...` where possible, and upstream sync
   fetches only the selected release tag. Upstream has a historical tag named

@@ -30,6 +30,8 @@ import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
 import 'package:musify/main.dart';
 import 'package:musify/services/library_merge_service.dart';
+import 'package:musify/services/local_sync/sync_data.dart';
+import 'package:musify/services/local_sync/sync_security.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as shelf_io;
@@ -69,6 +71,7 @@ class PairedSyncDevice {
     required this.name,
     required this.ip,
     required this.port,
+    this.secret = '',
   });
 
   factory PairedSyncDevice.fromMap(Map map) => PairedSyncDevice(
@@ -76,18 +79,21 @@ class PairedSyncDevice {
     name: map['name']?.toString() ?? 'Unknown device',
     ip: map['ip']?.toString() ?? '',
     port: map['port'] is num ? (map['port'] as num).toInt() : 0,
+    secret: map['secret']?.toString() ?? '',
   );
 
   final String deviceId;
   final String name;
   final String ip;
   final int port;
+  final String secret;
 
   Map<String, dynamic> toMap() => {
     'deviceId': deviceId,
     'name': name,
     'ip': ip,
     'port': port,
+    'secret': secret,
   };
 }
 
@@ -170,22 +176,24 @@ class LocalSyncState {
 /// library to the other, which merges it and answers with its own merged
 /// library, so one round trip leaves both devices with the same content.
 class LocalSyncService {
-  LocalSyncService._();
+  LocalSyncService._() : _testDiscovery = null;
 
   /// A throwaway instance for tests that talk to each other over loopback.
   @visibleForTesting
-  LocalSyncService.forTesting();
+  LocalSyncService.forTesting({
+    Future<List<DiscoveredSyncDevice>> Function()? discovery,
+  }) : _testDiscovery = discovery;
 
   static final LocalSyncService instance = LocalSyncService._();
 
   static const int discoveryPort = 53531;
-  static const int apiVersion = 1;
+  static const int apiVersion = 2;
   static const Duration autoSyncInterval = Duration(minutes: 30);
   static const Duration _startupSyncDelay = Duration(seconds: 6);
   static const Duration _localChangeDebounce = Duration(seconds: 30);
   static const Duration _pairingTimeout = Duration(seconds: 60);
-  static const Duration _shortTimeout = Duration(seconds: 15);
-  static const Duration _mergeTimeout = Duration(seconds: 90);
+  static const Duration _shortTimeout = Duration(seconds: 12);
+  static const Duration _mergeTimeout = Duration(seconds: 45);
 
   static const String _discoveryRequest = 'MUSIFY_DISCOVERY_REQUEST';
   static const String _discoveryResponse = 'MUSIFY_DISCOVERY_RESPONSE';
@@ -194,7 +202,6 @@ class LocalSyncService {
   static const String _pairedDevicesKey = 'localSyncPairedDevices';
   static const String _enabledKey = 'localSyncEnabled';
   static const String _automaticKey = 'localSyncAutomatic';
-  static const String _conflictStrategyKey = 'localSyncConflictStrategy';
   static const String _lastSyncedAtKey = 'localSyncLastSyncedAt';
 
   final ValueNotifier<LocalSyncState> state = ValueNotifier(
@@ -207,6 +214,7 @@ class LocalSyncService {
       ValueNotifier(null);
   final ValueNotifier<bool> serverRunning = ValueNotifier(false);
 
+  final Future<List<DiscoveredSyncDevice>> Function()? _testDiscovery;
   final http.Client _client = http.Client();
   final FlutterMulticastLock _multicastLock = FlutterMulticastLock();
 
@@ -231,6 +239,16 @@ class LocalSyncService {
   String? _pendingClientName;
   int? _pendingClientPort;
   String? _pendingPin;
+  PairingKeys? _pendingKeys;
+  String? _pendingCommitment;
+  String? _pendingSession;
+  String? _pendingSecret;
+  Completer<bool>? _approval;
+  DateTime? _lastPairingRequest;
+  int _pairingFailures = 0;
+  final Map<String, DateTime> _retryAfter = {};
+  final Map<String, int> _retryCount = {};
+  final Map<String, String> _receipts = {};
   Completer<bool>? _pendingCompleter;
   Timer? _pendingTimer;
 
@@ -272,6 +290,7 @@ class LocalSyncService {
     if (_initialised || !isSupportedPlatform) return;
     _initialised = true;
 
+    await LibraryMergeService.recoverPendingMerge();
     _loadPairedDevices();
     await _ensureDeviceId();
 
@@ -300,6 +319,20 @@ class LocalSyncService {
   Future<void> rebindStorageListeners() async {
     await _userBoxSubscription?.cancel();
     _userBoxSubscription = Hive.box('user').watch().listen(_onLocalChange);
+  }
+
+  Future<void> pauseForStorageRestore() async {
+    _localChangeTimer?.cancel();
+    await stopServer();
+    await Future.wait(_outbound.values.toList());
+    await _mergeLock;
+    await LibraryMergeService.awaitIdle();
+  }
+
+  Future<void> resumeAfterStorageRestore() async {
+    reloadSettingsFromStorage();
+    await rebindStorageListeners();
+    if (localSyncEnabled.value) await startServer();
   }
 
   Future<void> dispose() async {
@@ -358,26 +391,15 @@ class LocalSyncService {
     }
   }
 
-  Future<void> setConflictStrategy(PlaylistConflictStrategy strategy) async {
-    await Hive.box('settings').put(_conflictStrategyKey, strategy.name);
-    reloadSettingsFromStorage();
-  }
-
-  PlaylistConflictStrategy get conflictStrategy {
-    final stored = localSyncConflictStrategy.value;
-    return PlaylistConflictStrategy.values.firstWhere(
-      (value) => value.name == stored,
-      orElse: () => PlaylistConflictStrategy.merge,
-    );
-  }
-
   // ---------------------------------------------------------------------------
   // Paired devices
   // ---------------------------------------------------------------------------
 
   bool isDevicePaired(String deviceId) =>
       deviceId.isNotEmpty &&
-      pairedDevices.value.any((device) => device.deviceId == deviceId);
+      pairedDevices.value.any(
+        (device) => device.deviceId == deviceId && device.secret.isNotEmpty,
+      );
 
   Future<void> savePairedDevice(PairedSyncDevice device) async {
     final updated = List<PairedSyncDevice>.from(pairedDevices.value)
@@ -438,7 +460,10 @@ class LocalSyncService {
       final router = Router()
         ..get('/api/sync/info', _handleInfo)
         ..post('/api/sync/pair-request', _handlePairRequest)
+        ..post('/api/sync/pair-exchange', _handlePairExchange)
         ..post('/api/sync/pair-verify', _handlePairVerify)
+        ..post('/api/sync/capabilities', _handleCapabilities)
+        ..post('/api/sync/confirm', _handleConfirm)
         ..post('/api/sync/merge', _handleMerge);
 
       _httpServer = await shelf_io.serve(
@@ -481,6 +506,8 @@ class LocalSyncService {
   }
 
   Future<void> stopServer() async {
+    _cancelPendingPairing();
+    cancelPinInput();
     _udpSocket?.close();
     _udpSocket = null;
 
@@ -529,122 +556,271 @@ class LocalSyncService {
     });
   }
 
+  Set<SyncCategory> get selectedCategories {
+    final raw = Hive.box('settings').get('localSyncCategories');
+    if (raw == null) return SyncCategory.values.toSet();
+    if (raw is! List) return {};
+    return SyncCategory.values
+        .where((value) => raw.contains(value.name))
+        .toSet();
+  }
+
+  Future<void> setCategories(Set<SyncCategory> categories) async {
+    await Hive.box('settings')
+        .put('localSyncCategories', categories.map((e) => e.name).toList());
+    if (categories.isNotEmpty) unawaited(triggerSilentSync());
+  }
+
   Future<shelf.Response> _handlePairRequest(shelf.Request request) async {
     try {
       final data = await _readJson(request);
-      final clientId = data['clientId']?.toString() ?? '';
-      final clientName = data['clientName']?.toString() ?? 'Unknown device';
-      if (clientId.isEmpty) {
-        return _json({'error': 'clientId missing'}, status: 400);
-      }
-
-      // A paired device asking again lost its side of the pairing; start over
-      // so the user confirms it once more instead of trusting it silently.
-      if (isDevicePaired(clientId)) {
-        await forgetDevice(clientId);
-      }
-
-      _cancelPendingPairing();
-
-      final pin = (1000 + Random.secure().nextInt(9000)).toString();
-      final completer = Completer<bool>();
-      _pendingClientId = clientId;
-      _pendingClientName = clientName;
-      _pendingClientPort = data['clientPort'] is num
-          ? (data['clientPort'] as num).toInt()
-          : null;
-      _pendingPin = pin;
-      _pendingCompleter = completer;
+      if (data['apiVersion'] != apiVersion)
+        return _json({'error': 'upgrade_required'}, status: 426);
+      final id = data['clientId'];
+      final commitment = data['commitment'];
+      if (id is! String ||
+          id.isEmpty ||
+          id.length > 128 ||
+          commitment is! String ||
+          commitment.length != 64)
+        return _json({'error': 'invalid_pairing'}, status: 400);
+      final now = DateTime.now();
+      if (_pendingSession != null ||
+          (_lastPairingRequest != null &&
+              now.difference(_lastPairingRequest!) <
+                  const Duration(seconds: 3)))
+        return _json({'error': 'pairing_busy'}, status: 429);
+      _lastPairingRequest = now;
+      _pendingClientId = id;
+      _pendingClientName =
+          data['clientName']?.toString().substring(
+            0,
+            min(100, data['clientName'].toString().length),
+          ) ??
+          'Musify';
+      _pendingClientPort = data['clientPort'] is int
+          ? data['clientPort'] as int
+          : 0;
+      _pendingCommitment = commitment;
+      _pendingKeys = await SyncSecurity.pairingKeys();
+      _pendingSession = SyncSecurity.randomToken(16);
+      _pendingCompleter = Completer<bool>();
+      _approval = Completer<bool>();
+      _pairingFailures = 0;
       _pendingTimer = Timer(_pairingTimeout, _cancelPendingPairing);
-
-      incomingPairingRequest.value = IncomingPairingRequest(
-        clientName: clientName,
-        pin: pin,
-        completed: completer.future,
-      );
-
-      return _json({'status': 'pairing_started'});
-    } catch (e) {
-      return _json({'error': e.toString()}, status: 500);
+      return _json({
+        'status': 'pairing_started',
+        'session': _pendingSession,
+        'commitment': await _pendingKeys!.commitment(),
+        'deviceId': await _ensureDeviceId(),
+      });
+    } catch (_) {
+      return _json({'error': 'invalid_pairing'}, status: 400);
     }
+  }
+
+  Future<shelf.Response> _handlePairExchange(shelf.Request request) async {
+    try {
+      final data = await _readJson(request);
+      if (data['session'] != _pendingSession ||
+          _pendingKeys == null ||
+          data['reveal'] is! Map ||
+          _pendingSecret != null)
+        return _json({'error': 'pairing_expired'}, status: 403);
+      final context =
+          '$_pendingClientId|${await _ensureDeviceId()}|$_pendingSession';
+      final agreement = await _pendingKeys!.agree(
+        data['reveal'],
+        _pendingCommitment!,
+        context,
+      );
+      _pendingSecret = agreement.secret;
+      _pendingPin = agreement.pin;
+      incomingPairingRequest.value = IncomingPairingRequest(
+        clientName: _pendingClientName!,
+        pin: agreement.pin,
+        completed: _pendingCompleter!.future,
+      );
+      return _json({'reveal': await _pendingKeys!.reveal()});
+    } catch (_) {
+      _cancelPendingPairing();
+      return _json({'error': 'invalid_pairing'}, status: 403);
+    }
+  }
+
+  void approveIncomingPairing() {
+    final approval = _approval;
+    if (approval != null && !approval.isCompleted) approval.complete(true);
   }
 
   Future<shelf.Response> _handlePairVerify(shelf.Request request) async {
     try {
       final data = await _readJson(request);
-      final clientId = data['clientId']?.toString();
-      final pin = data['pin']?.toString();
-      if (clientId == null || pin == null) {
-        return _json({'error': 'clientId or pin missing'}, status: 400);
-      }
-
-      if (clientId != _pendingClientId || pin != _pendingPin) {
-        return _json({'error': 'incorrect_pin'}, status: 403);
-      }
-
+      final session = _pendingSession;
+      final secret = _pendingSecret;
+      if (session == null ||
+          secret == null ||
+          data['session'] != session ||
+          data['proof'] is! Map)
+        return _json({'error': 'pairing_expired'}, status: 403);
+      final proof = await SyncSecurity.open(
+        secret,
+        data['proof'],
+        'pair:$session',
+      );
+      if (proof['pin'] != _pendingPin || proof['clientId'] != _pendingClientId)
+        throw const FormatException('incorrect_pin');
+      final approval = _approval!;
+      final allowed = await approval.future;
+      if (!allowed || session != _pendingSession)
+        return _json({'error': 'pairing_cancelled'}, status: 403);
       final connection =
           request.context['shelf.io.connection_info'] as HttpConnectionInfo?;
+      final id = _pendingClientId!;
       await savePairedDevice(
         PairedSyncDevice(
-          deviceId: clientId,
-          name: _pendingClientName ?? 'Unknown device',
+          deviceId: id,
+          name: _pendingClientName!,
           ip: connection?.remoteAddress.address ?? '',
           port: _pendingClientPort ?? 0,
+          secret: secret,
         ),
       );
-
-      final completer = _pendingCompleter;
-      _clearPendingPairing();
-      if (completer != null && !completer.isCompleted) {
-        completer.complete(true);
-      }
-
-      return _json({
+      final response = await SyncSecurity.seal(secret, {
         'status': 'paired',
         'deviceId': await _ensureDeviceId(),
         'deviceName': deviceName,
+      }, 'pair:$session:reply');
+      final completer = _pendingCompleter;
+      _clearPendingPairing();
+      if (completer != null && !completer.isCompleted) completer.complete(true);
+      return _json({'proof': response});
+    } catch (_) {
+      if (++_pairingFailures >= 3) _cancelPendingPairing();
+      return _json({'error': 'incorrect_pin'}, status: 403);
+    }
+  }
+
+  Future<({Map<String, dynamic> body, String secret, String id, String nonce})>
+  _authenticated(shelf.Request request) async {
+    final data = await _readJson(request);
+    if (data['apiVersion'] != apiVersion)
+      throw const FormatException('upgrade_required');
+    final id = data['clientId']?.toString() ?? '';
+    final peer = pairedDevices.value
+        .where((e) => e.deviceId == id && e.secret.isNotEmpty)
+        .firstOrNull;
+    if (peer == null || data['encrypted'] is! Map)
+      throw const FormatException('not_paired');
+    final context = '${request.url.path}|$id|${await _ensureDeviceId()}';
+    final body = await SyncSecurity.open(
+      peer.secret,
+      data['encrypted'],
+      context,
+    );
+    final nonce = body['requestId'];
+    if (nonce is! String || nonce.length < 20 || nonce.length > 128)
+      throw const FormatException('invalid_request');
+    final store = Hive.box('userNoBackup');
+    final counterKey = 'localSyncReceived:$id:${syncDigest(peer.secret)}';
+    final sequence = body['sequence'];
+    if (sequence is! int ||
+        sequence <= (store.get(counterKey, defaultValue: 0) as int))
+      throw const FormatException('replayed_request');
+    await store.put(counterKey, sequence);
+    await store.flush();
+    return (body: body, secret: peer.secret, id: id, nonce: nonce);
+  }
+
+  Future<shelf.Response> _encryptedReply(
+    shelf.Request request,
+    String secret,
+    String id,
+    String nonce,
+    Map<String, dynamic> body,
+  ) async {
+    final context = '${request.url.path}|${await _ensureDeviceId()}|$id';
+    return _json({
+      'encrypted': await SyncSecurity.seal(secret, {
+        ...body,
+        'requestId': nonce,
+      }, context),
+    });
+  }
+
+  Future<shelf.Response> _handleCapabilities(shelf.Request request) async {
+    try {
+      final auth = await _authenticated(request);
+      return await _encryptedReply(request, auth.secret, auth.id, auth.nonce, {
+        'categories': selectedCategories.map((e) => e.name).toList(),
       });
-    } catch (e) {
-      return _json({'error': e.toString()}, status: 500);
+    } catch (_) {
+      return _json({'error': 'pair_or_update_both_devices'}, status: 403);
     }
   }
 
   Future<shelf.Response> _handleMerge(shelf.Request request) async {
+    late ({Map<String, dynamic> body, String secret, String id, String nonce})
+    auth;
     try {
-      final data = await _readJson(request);
-      final clientId = data['clientId']?.toString() ?? '';
-      if (!isDevicePaired(clientId)) {
-        return _json({'error': 'not_paired'}, status: 403);
-      }
-
-      final library = data['library'];
-      if (library is! Map) {
-        return _json({'error': 'library missing'}, status: 400);
-      }
-
-      final (stats, merged) = await _withMergeLock(() async {
+      auth = await _authenticated(request);
+    } catch (_) {
+      return _json({'error': 'pair_or_update_both_devices'}, status: 403);
+    }
+    try {
+      final categories = parseSyncCategories(auth.body['categories']);
+      if (!selectedCategories.containsAll(categories) || categories.isEmpty)
+        return _json({'error': 'categories_changed'}, status: 409);
+      if (auth.body['library'] is! Map)
+        return _json({'error': 'library_missing'}, status: 400);
+      final result = await _withMergeLock(() async {
+        if (_httpServer == null) throw StateError('Local sync is off');
         _mergingRemote = true;
         try {
           final stats = await LibraryMergeService.mergeLibrary(
-            Map<String, dynamic>.from(library),
-            conflictStrategy: conflictStrategy,
+            Map<String, dynamic>.from(auth.body['library']),
+            categories: categories,
           );
-          return (stats, LibraryMergeService.exportLibrary());
+          final library = await LibraryMergeService.exportLibrary(
+            categories: categories,
+          );
+          return (stats: stats, library: library);
         } finally {
           _mergingRemote = false;
         }
       });
-      final clientName = data['clientName']?.toString();
-      await _recordSync(clientName ?? 'a paired device', stats);
+      final receipt = SyncSecurity.randomToken(16);
+      _receipts['${auth.id}:$receipt'] = syncDigest(result.library);
+      if (_receipts.length > 128) _receipts.remove(_receipts.keys.first);
+      if (result.stats.isNotEmpty) _scheduleLocalSync();
+      return await _encryptedReply(request, auth.secret, auth.id, auth.nonce, {
+        'library': result.library,
+        'stats': result.stats,
+        'receipt': receipt,
+      });
+    } catch (e, stack) {
+      logger.log('Local sync request rejected', error: e, stackTrace: stack);
+      return _json({'error': 'invalid_or_unauthenticated_sync'}, status: 400);
+    }
+  }
 
-      return _json({'library': merged, 'stats': stats});
-    } catch (e, stackTrace) {
-      logger.log(
-        'Local sync merge request failed',
-        error: e,
-        stackTrace: stackTrace,
+  Future<shelf.Response> _handleConfirm(shelf.Request request) async {
+    try {
+      final auth = await _authenticated(request);
+      final key = '${auth.id}:${auth.body['receipt']}';
+      final expected = _receipts[key];
+      if (expected == null || auth.body['digest'] != expected)
+        return _json({'error': 'unknown_receipt'}, status: 409);
+      _receipts.remove(key);
+      await _recordSync(
+        pairedDevices.value.firstWhere((e) => e.deviceId == auth.id).name,
+        {},
       );
-      return _json({'error': e.toString()}, status: 500);
+      return await _encryptedReply(request, auth.secret, auth.id, auth.nonce, {
+        'confirmed': true,
+      });
+    } catch (_) {
+      return _json({'error': 'invalid_confirmation'}, status: 403);
     }
   }
 
@@ -666,6 +842,13 @@ class LocalSyncService {
     _pendingClientName = null;
     _pendingClientPort = null;
     _pendingPin = null;
+    _pendingKeys = null;
+    _pendingCommitment = null;
+    _pendingSession = null;
+    _pendingSecret = null;
+    if (_approval != null && !_approval!.isCompleted)
+      _approval!.complete(false);
+    _approval = null;
     _pendingCompleter = null;
     incomingPairingRequest.value = null;
   }
@@ -678,6 +861,7 @@ class LocalSyncService {
   Future<List<DiscoveredSyncDevice>> discoverDevices({
     Duration duration = const Duration(seconds: 4),
   }) async {
+    if (_testDiscovery != null) return _testDiscovery();
     final discovered = <DiscoveredSyncDevice>[];
     state.value = state.value.copyWith(discoveredDevices: const []);
 
@@ -806,7 +990,10 @@ class LocalSyncService {
             status: LocalSyncStatus.waitingForPin,
           );
           _pinInputCompleter = Completer<String?>();
-          final pin = await _pinInputCompleter!.future;
+          final pin = await _pinInputCompleter!.future.timeout(
+            _pairingTimeout,
+            onTimeout: () => null,
+          );
           _pinInputCompleter = null;
 
           if (pin == null || pin.trim().isEmpty) {
@@ -841,6 +1028,9 @@ class LocalSyncService {
           name: device.name,
           ip: device.ip,
           port: device.port,
+          secret: pairedDevices.value
+              .firstWhere((e) => e.deviceId == device.deviceId)
+              .secret,
         ),
       );
       await _recordSync(device.name, stats);
@@ -916,25 +1106,36 @@ class LocalSyncService {
       final discovered = await discoverDevices(
         duration: const Duration(seconds: 2),
       );
-      for (final device in discovered) {
-        if (!isDevicePaired(device.deviceId)) continue;
-        try {
-          final stats = await _performSync(device);
-          await savePairedDevice(
-            PairedSyncDevice(
-              deviceId: device.deviceId,
-              name: device.name,
-              ip: device.ip,
-              port: device.port,
-            ),
-          );
-          await _recordSync(device.name, stats);
-        } catch (e) {
-          logger.log('Automatic local sync with ${device.name} failed: $e');
-          if (_isForbidden(e)) {
-            await forgetDevice(device.deviceId);
+      if (discovered.where((d) => isDevicePaired(d.deviceId)).isEmpty)
+        localSyncStatus.value = 'Waiting for paired devices on this network';
+      for (var pass = 0; pass < 2; pass++) {
+        for (final device in discovered) {
+          if (!isDevicePaired(device.deviceId) ||
+              (_retryAfter[device.deviceId]?.isAfter(DateTime.now()) ?? false))
+            continue;
+          try {
+            final stats = await _performSync(device);
+            await savePairedDevice(
+              PairedSyncDevice(
+                deviceId: device.deviceId,
+                name: device.name,
+                ip: device.ip,
+                port: device.port,
+                secret: pairedDevices.value
+                    .firstWhere((e) => e.deviceId == device.deviceId)
+                    .secret,
+              ),
+            );
+            await _recordSync(device.name, stats);
+          } catch (e) {
+            logger.log('Automatic local sync with ${device.name} failed: $e');
+            final count = (_retryCount[device.deviceId] ?? 0) + 1;
+            _retryCount[device.deviceId] = count;
+            _retryAfter[device.deviceId] = DateTime.now().add(
+              Duration(seconds: min(1800, 30 * pow(2, min(count, 6)).toInt())),
+            );
             localSyncStatus.value =
-                '${device.name} no longer trusts this device. Pair again.';
+                'Waiting for ${device.name}; pairing and local data are preserved';
           }
         }
       }
@@ -943,93 +1144,202 @@ class LocalSyncService {
     }
   }
 
+  String? _outgoingSecret;
+  String? _outgoingSession;
+  String? _outgoingPin;
+  String? _outgoingTarget;
+  DateTime? _outgoingExpires;
+
   Future<String> _requestPairing(DiscoveredSyncDevice target) async {
+    if (_outgoingTarget == target.deviceId &&
+        _outgoingSecret != null &&
+        (_outgoingExpires?.isAfter(DateTime.now()) ?? false))
+      return 'pairing_started';
+    final keys = await SyncSecurity.pairingKeys();
+    final ownId = await _ensureDeviceId();
     final response = await _post(target, '/api/sync/pair-request', {
-      'clientId': await _ensureDeviceId(),
+      'apiVersion': apiVersion,
+      'clientId': ownId,
       'clientName': deviceName,
       'clientPort': serverPort,
+      'commitment': await keys.commitment(),
     }, timeout: _shortTimeout);
-    return response['status']?.toString() ?? 'error';
+    if (response['deviceId'] != target.deviceId ||
+        response['session'] is! String ||
+        response['commitment'] is! String)
+      throw const _LocalSyncException('Update both devices before pairing.');
+    _outgoingSession = response['session'];
+    _outgoingTarget = target.deviceId;
+    _outgoingExpires = DateTime.now().add(_pairingTimeout);
+    final reveal = await _post(target, '/api/sync/pair-exchange', {
+      'session': _outgoingSession,
+      'reveal': await keys.reveal(),
+    }, timeout: _shortTimeout);
+    final agreement = await keys.agree(
+      reveal['reveal'],
+      response['commitment'],
+      '$ownId|${target.deviceId}|$_outgoingSession',
+    );
+    _outgoingSecret = agreement.secret;
+    _outgoingPin = agreement.pin;
+    return 'pairing_started';
   }
 
   Future<bool> _verifyPairing(DiscoveredSyncDevice target, String pin) async {
+    if (pin != _outgoingPin) throw const _LocalSyncException('incorrect_pin');
+    final secret = _outgoingSecret!;
+    final session = _outgoingSession!;
     final response = await _post(target, '/api/sync/pair-verify', {
-      'clientId': await _ensureDeviceId(),
-      'pin': pin,
-    }, timeout: _shortTimeout);
-
-    if (response['status'] != 'paired') return false;
-
+      'session': session,
+      'proof': await SyncSecurity.seal(secret, {
+        'pin': pin,
+        'clientId': await _ensureDeviceId(),
+      }, 'pair:$session'),
+    }, timeout: _pairingTimeout);
+    final proof = await SyncSecurity.open(
+      secret,
+      response['proof'],
+      'pair:$session:reply',
+    );
+    if (proof['deviceId'] != target.deviceId || proof['status'] != 'paired')
+      return false;
     await savePairedDevice(
       PairedSyncDevice(
-        deviceId: response['deviceId']?.toString() ?? target.deviceId,
-        name: response['deviceName']?.toString() ?? target.name,
+        deviceId: target.deviceId,
+        name: proof['deviceName']?.toString() ?? target.name,
         ip: target.ip,
         port: target.port,
+        secret: secret,
       ),
     );
+    _outgoingSecret = null;
+    _outgoingPin = null;
+    _outgoingSession = null;
+    _outgoingTarget = null;
+    _outgoingExpires = null;
     return true;
   }
 
+  Future<Map<String, dynamic>> _securePost(
+    DiscoveredSyncDevice target,
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final peer = pairedDevices.value.firstWhere(
+      (e) => e.deviceId == target.deviceId && e.secret.isNotEmpty,
+    );
+    if (_httpServer == null)
+      throw const _LocalSyncException('Local sync is off.');
+    final ownId = await _ensureDeviceId();
+    final nonce = SyncSecurity.randomToken(24);
+    final counterKey =
+        'localSyncSent:${target.deviceId}:${syncDigest(peer.secret)}';
+    final store = Hive.box('userNoBackup');
+    final sequence = (store.get(counterKey, defaultValue: 0) as int) + 1;
+    await store.put(counterKey, sequence);
+    await store.flush();
+    final encrypted = await SyncSecurity.seal(peer.secret, {
+      ...body,
+      'requestId': nonce,
+      'sequence': sequence,
+    }, '${path.substring(1)}|$ownId|${target.deviceId}');
+    final response = await _post(target, path, {
+      'apiVersion': apiVersion,
+      'clientId': ownId,
+      'encrypted': encrypted,
+    }, timeout: _mergeTimeout);
+    if (response['encrypted'] is! Map)
+      throw const _LocalSyncException('Update and pair both devices again.');
+    final result = await SyncSecurity.open(
+      peer.secret,
+      response['encrypted'],
+      '${path.substring(1)}|${target.deviceId}|$ownId',
+    );
+    if (result['requestId'] != nonce)
+      throw const _LocalSyncException('Invalid sync response.');
+    return result;
+  }
+
+  final Map<String, Future<void>> _outbound = {};
   Future<Map<String, int>> _performSync(
+    DiscoveredSyncDevice target, {
+    void Function(LocalSyncStage)? onStage,
+  }) {
+    final previous = _outbound[target.deviceId] ?? Future.value();
+    final done = Completer<void>();
+    _outbound[target.deviceId] = done.future;
+    return previous
+        .then((_) => _performSyncUnlocked(target, onStage: onStage))
+        .whenComplete(() {
+          done.complete();
+          if (identical(_outbound[target.deviceId], done.future))
+            _outbound.remove(target.deviceId);
+        });
+  }
+
+  Future<Map<String, int>> _performSyncUnlocked(
     DiscoveredSyncDevice target, {
     void Function(LocalSyncStage stage)? onStage,
   }) async {
-    onStage?.call(LocalSyncStage.exporting);
-    final payload = {
-      'clientId': await _ensureDeviceId(),
-      'clientName': deviceName,
-      'library': await _withMergeLock(
-        () async => LibraryMergeService.exportLibrary(),
-      ),
-    };
-
-    onStage?.call(LocalSyncStage.exchanging);
-    final response = await _post(
+    final capabilities = await _securePost(
       target,
-      '/api/sync/merge',
-      payload,
-      timeout: _mergeTimeout,
+      '/api/sync/capabilities',
+      {},
     );
-
+    final categories = selectedCategories.intersection(
+      parseSyncCategories(capabilities['categories']),
+    );
+    if (categories.isEmpty)
+      throw const _LocalSyncException(
+        'Select at least one matching category on both devices.',
+      );
+    onStage?.call(LocalSyncStage.exporting);
+    final library = await _withMergeLock(
+      () => LibraryMergeService.exportLibrary(categories: categories),
+    );
+    onStage?.call(LocalSyncStage.exchanging);
+    final response = await _securePost(target, '/api/sync/merge', {
+      'categories': categories.map((e) => e.name).toList(),
+      'library': library,
+    });
+    if (response['library'] is! Map || response['receipt'] is! String)
+      throw const _LocalSyncException('The other device sent no library.');
     onStage?.call(LocalSyncStage.merging);
-    final remoteLibrary = response['library'];
-    if (remoteLibrary is! Map) {
-      throw const _LocalSyncException('The other device sent no library');
-    }
-    final localStats = await _mergeGuarded(
-      Map<String, dynamic>.from(remoteLibrary),
-      conflictStrategy,
-    );
-
-    // Both directions count: what this device added plus what the other one
-    // added from us.
-    final remoteStats = response['stats'];
-    final combined = <String, int>{...localStats};
-    if (remoteStats is Map) {
-      for (final entry in remoteStats.entries) {
-        final value = entry.value;
-        if (value is num) {
-          combined[entry.key.toString()] =
-              (combined[entry.key.toString()] ?? 0) + value.toInt();
-        }
+    final remote = Map<String, dynamic>.from(response['library']);
+    if (_httpServer == null)
+      throw const _LocalSyncException('Local sync was turned off.');
+    final localStats = await _mergeGuarded(remote, categories: categories);
+    if (localStats.isNotEmpty) _scheduleLocalSync();
+    onStage?.call(LocalSyncStage.finalizing);
+    final confirmation = await _securePost(target, '/api/sync/confirm', {
+      'receipt': response['receipt'],
+      'digest': syncDigest(remote),
+    });
+    if (confirmation['confirmed'] != true)
+      throw const _LocalSyncException('Sync confirmation failed. Try again.');
+    final stats = <String, int>{...localStats};
+    if (response['stats'] is Map) {
+      for (final e in (response['stats'] as Map).entries) {
+        if (e.value is int)
+          stats[e.key.toString()] =
+              (stats[e.key.toString()] ?? 0) + e.value as int;
       }
     }
-
-    onStage?.call(LocalSyncStage.finalizing);
-    return combined;
+    _retryAfter.remove(target.deviceId);
+    _retryCount.remove(target.deviceId);
+    return stats;
   }
 
   Future<Map<String, int>> _mergeGuarded(
-    Map<String, dynamic> library,
-    PlaylistConflictStrategy strategy,
-  ) {
+    Map<String, dynamic> library, {
+    Set<SyncCategory>? categories,
+  }) {
     return _withMergeLock(() async {
       _mergingRemote = true;
       try {
         return await LibraryMergeService.mergeLibrary(
           library,
-          conflictStrategy: strategy,
+          categories: categories,
         );
       } finally {
         _mergingRemote = false;
@@ -1053,8 +1363,8 @@ class LocalSyncService {
     reloadSettingsFromStorage();
     final added = LibraryMergeService.totalAdded(stats);
     localSyncStatus.value = added == 0
-        ? 'Synced with $deviceName, nothing new'
-        : 'Synced with $deviceName, $added items added';
+        ? 'Synced with $deviceName; no selected data changed'
+        : 'Synced with $deviceName; selected data updated';
   }
 
   Future<Map<String, dynamic>> _post(
@@ -1113,7 +1423,6 @@ class LocalSyncService {
         return 'Incorrect PIN. Check the code shown on ${device.name}.';
       }
       if (error.statusCode == 403) {
-        await forgetDevice(device.deviceId);
         return pairing
             ? '${device.name} rejected the pairing.'
             : '${device.name} no longer trusts this device. Sync again to pair.';
@@ -1124,7 +1433,7 @@ class LocalSyncService {
       return error.message;
     }
     if (error is TimeoutException) {
-      return 'No answer from ${device.name}. Make sure both devices are on the same network.';
+      return 'Could not reach ${device.name}. Your data is safe; sync will resume when both devices are on the same network.';
     }
     if (error is SocketException) {
       return 'Could not reach ${device.name}. Make sure both devices are on the same network.';
@@ -1132,21 +1441,25 @@ class LocalSyncService {
     return 'Sync failed: $error';
   }
 
-  bool _isForbidden(Object error) =>
-      error is _LocalSyncHttpException && error.statusCode == 403;
-
   // ---------------------------------------------------------------------------
   // Automatic sync triggers
   // ---------------------------------------------------------------------------
 
   void _onLocalChange(BoxEvent event) {
     if (_mergingRemote ||
-        !LibraryMergeService.libraryKeys.contains(event.key.toString()) ||
+        !selectedCategories
+            .expand((c) => syncCategoryKeys[c]!)
+            .contains(event.key.toString()) ||
         !localSyncEnabled.value ||
         !localSyncAutomatic.value ||
         pairedDevices.value.isEmpty) {
       return;
     }
+    _scheduleLocalSync();
+  }
+
+  void _scheduleLocalSync() {
+    if (!localSyncEnabled.value || !localSyncAutomatic.value) return;
     _localChangeTimer?.cancel();
     _localChangeTimer = Timer(
       _localChangeDebounce,
@@ -1196,7 +1509,13 @@ class LocalSyncService {
   }
 
   Future<Map<String, dynamic>> _readJson(shelf.Request request) async {
-    final decoded = json.decode(await request.readAsString());
+    final bytes = <int>[];
+    await for (final chunk in request.read()) {
+      bytes.addAll(chunk);
+      if (bytes.length > 16 * 1024 * 1024)
+        throw const FormatException('Sync request too large');
+    }
+    final decoded = json.decode(utf8.decode(bytes));
     if (decoded is! Map) {
       throw const FormatException('Request body is not a JSON object');
     }

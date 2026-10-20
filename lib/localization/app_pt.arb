@@ -329,5 +329,20 @@
   "useProxyDescription": "Ative isso apenas se a reprodução falhar para contornar restrições regionais. Usá-lo sem necessidade pode causar falhas na reprodução.",
   "userPlaylists": "Playlists do usuário",
   "yes": "Sim",
-  "youtubePlaylistLinkOrId": "Link ou ID da playlist do YouTube"
+  "youtubePlaylistLinkOrId": "Link ou ID da playlist do YouTube",
+  "syncTitle": "Sincronização local",
+  "syncData": "Escolher o que sincronizar",
+  "syncSelections": "Só as categorias ativadas nos dois aparelhos são transferidas. Configurações e arquivos de áudio baixados ficam neste aparelho.",
+  "syncFavourites": "Músicas curtidas",
+  "syncPlaylists": "Playlists, pastas e fixados",
+  "syncRecent": "Reproduzidas recentemente",
+  "syncRecap": "Retrospectiva de escuta",
+  "syncSearches": "Histórico de busca",
+  "syncRadio": "Rádios favoritas",
+  "syncPairTitle": "Parear com este aparelho?",
+  "syncAllow": "Permitir pareamento",
+  "syncPinInstructions": "Digite o código de seis dígitos exibido no outro aparelho e permita o pareamento nele.",
+  "syncPinInvalid": "Digite o código de seis dígitos",
+  "syncPairDescription": "Digite este código no aparelho que solicitou acesso e permita o pareamento. Só aprove solicitações que você iniciou.",
+  "syncUnchanged": "Nenhum dado selecionado foi alterado."
 }

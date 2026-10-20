@@ -27,6 +27,7 @@ import 'package:musify/services/common_services.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/io_service.dart';
 import 'package:musify/services/playlist_download_service.dart';
+import 'package:musify/utilities/platform_utils.dart';
 
 /// Outcome of moving the downloads to another folder.
 enum DownloadsMoveStatus {
@@ -71,6 +72,7 @@ class DownloadsLocation {
   /// Resolves [downloadsDirPath]. Must run after [applicationDirPath] is set.
   static Future<void> initialise() async {
     downloadsDirPath = defaultPath;
+    if (!isDesktopPlatform) return;
 
     final custom = customPath;
     if (custom == null) return;
@@ -89,6 +91,8 @@ class DownloadsLocation {
   /// Makes [newRoot] the downloads folder (null restores the default) and
   /// moves the existing downloads there.
   static Future<DownloadsMoveStatus> change(String? newRoot) async {
+    if (!isDesktopPlatform)
+      throw UnsupportedError('Custom download folders are desktop only');
     final target = _trimSeparator(newRoot ?? defaultPath);
 
     if (!await _prepare(target)) return DownloadsMoveStatus.notWritable;

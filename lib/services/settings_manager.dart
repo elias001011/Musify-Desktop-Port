@@ -26,6 +26,7 @@ import 'package:musify/screens/playlist_page.dart';
 import 'package:musify/screens/user_songs_page.dart';
 import 'package:musify/services/keyboard_shortcuts_manager.dart';
 import 'package:musify/utilities/language_utils.dart';
+import 'package:musify/utilities/platform_utils.dart';
 
 // Preferences
 
@@ -148,12 +149,6 @@ final localSyncAutomatic = ValueNotifier<bool>(
   Hive.box('settings').get('localSyncAutomatic', defaultValue: true),
 );
 
-final localSyncConflictStrategy = ValueNotifier<String>(
-  Hive.box('settings')
-      .get('localSyncConflictStrategy', defaultValue: 'merge')
-      .toString(),
-);
-
 final localSyncLastSyncedAt = ValueNotifier<DateTime?>(
   _readDateTimeSetting('localSyncLastSyncedAt'),
 );
@@ -219,7 +214,7 @@ void reloadSettingsFromStorage() {
   interfaceScale.value = _readInterfaceScale();
   startMaximized.value = settings.get('startMaximized', defaultValue: false);
   customTitleBar.value = settings.get('customTitleBar', defaultValue: true);
-  KeyboardShortcutsManager.reload();
+  if (isDesktopPlatform) KeyboardShortcutsManager.reload();
   equalizerEnabled.value = settings.get(
     'equalizerEnabled',
     defaultValue: false,
@@ -274,8 +269,6 @@ void reloadSettingsFromStorage() {
     'localSyncAutomatic',
     defaultValue: true,
   );
-  localSyncConflictStrategy.value = settings
-      .get('localSyncConflictStrategy', defaultValue: 'merge')
-      .toString();
+
   localSyncLastSyncedAt.value = _readDateTimeSetting('localSyncLastSyncedAt');
 }

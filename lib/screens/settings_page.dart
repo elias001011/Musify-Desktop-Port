@@ -312,7 +312,7 @@ class SettingsPage extends StatelessWidget {
               FluentIcons.wifi_1_24_regular,
               description: enabled
                   ? 'This device is visible to other Musify devices on the same Wi-Fi. Pair them once with a PIN, then libraries merge both ways.'
-                  : 'Keep playlists, liked songs and history the same on your phone and desktop, directly over Wi-Fi. No account, no server.',
+                  : 'Sync selected library data and listening recap between your devices over Wi-Fi. No account or cloud server.',
               borderRadius: enabled
                   ? commonCustomBarRadiusFirst
                   : commonCustomBarRadius,
@@ -360,19 +360,12 @@ class SettingsPage extends StatelessWidget {
                     );
                   },
                 ),
-                ValueListenableBuilder<String>(
-                  valueListenable: localSyncConflictStrategy,
-                  builder: (_, strategy, __) {
-                    return CustomBar(
-                      'Same-name playlists',
-                      FluentIcons.list_24_regular,
-                      description: _conflictStrategyDescription(
-                        service.conflictStrategy,
-                      ),
-                      borderRadius: commonCustomBarRadiusLast,
-                      onTap: () => _showConflictStrategyPicker(context),
-                    );
-                  },
+                CustomBar(
+                  context.l10n!.syncData,
+                  FluentIcons.list_24_regular,
+                  description: context.l10n!.syncSelections,
+                  borderRadius: commonCustomBarRadiusLast,
+                  onTap: () => _showSyncCategories(context),
                 ),
               ],
             );
@@ -482,6 +475,8 @@ class SettingsPage extends StatelessWidget {
           FluentIcons.cloud_add_24_regular,
           onTap: () async {
             try {
+              await LocalSyncService.instance.pauseForStorageRestore();
+              if (!context.mounted) return;
               final result = await restoreData(context);
               if (result.success) {
                 reloadSettingsFromStorage();
@@ -527,6 +522,8 @@ class SettingsPage extends StatelessWidget {
                   icon: FluentIcons.error_circle_24_regular,
                 );
               }
+            } finally {
+              await LocalSyncService.instance.resumeAfterStorageRestore();
             }
           },
         ),
@@ -1070,44 +1067,44 @@ class SettingsPage extends StatelessWidget {
     return '$status. Last sync: $when';
   }
 
-  String _conflictStrategyLabel(PlaylistConflictStrategy strategy) {
-    return switch (strategy) {
-      PlaylistConflictStrategy.merge => 'Merge songs',
-      PlaylistConflictStrategy.keepBoth => 'Keep both playlists',
-      PlaylistConflictStrategy.overwrite => 'Other device wins',
-    };
-  }
-
-  String _conflictStrategyDescription(PlaylistConflictStrategy strategy) {
-    final label = _conflictStrategyLabel(strategy);
-    return switch (strategy) {
-      PlaylistConflictStrategy.merge =>
-        '$label. Two playlists with the same name become one with the songs of both.',
-      PlaylistConflictStrategy.keepBoth =>
-        '$label. Playlists created separately on each device stay separate.',
-      PlaylistConflictStrategy.overwrite =>
-        '$label. The incoming playlist replaces the songs of the one with the same name here.',
-    };
-  }
-
-  void _showConflictStrategyPicker(BuildContext context) {
+  void _showSyncCategories(BuildContext context) {
     final service = LocalSyncService.instance;
-    final current = service.conflictStrategy;
-
+    final selected = service.selectedCategories;
+    final labels = {
+      SyncCategory.favourites: context.l10n!.syncFavourites,
+      SyncCategory.playlists: context.l10n!.syncPlaylists,
+      SyncCategory.recent: context.l10n!.syncRecent,
+      SyncCategory.recap: context.l10n!.syncRecap,
+      SyncCategory.searches: context.l10n!.syncSearches,
+      SyncCategory.radio: context.l10n!.syncRadio,
+    };
     showCustomBottomSheet(
       context,
-      ListView.builder(
-        shrinkWrap: true,
-        physics: const BouncingScrollPhysics(),
-        padding: commonListViewBottomPadding,
-        itemCount: PlaylistConflictStrategy.values.length,
-        itemBuilder: (context, index) {
-          final strategy = PlaylistConflictStrategy.values[index];
-          return BottomSheetBar(_conflictStrategyLabel(strategy), () {
-            service.setConflictStrategy(strategy);
-            Navigator.pop(context);
-          }, current == strategy);
-        },
+      StatefulBuilder(
+        builder: (context, update) => ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(context.l10n!.syncSelections),
+            ),
+            for (final category in SyncCategory.values)
+              CheckboxListTile(
+                title: Text(labels[category]!),
+                value: selected.contains(category),
+                onChanged: (value) async {
+                  update(() {
+                    if (value == true) {
+                      selected.add(category);
+                    } else {
+                      selected.remove(category);
+                    }
+                  });
+                  await service.setCategories(selected);
+                },
+              ),
+          ],
+        ),
       ),
     );
   }

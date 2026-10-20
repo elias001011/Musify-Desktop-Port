@@ -132,13 +132,15 @@ jobs:
             --release \
             --split-per-abi \
             --target-platform=android-arm64 \
-            --flavor github
+            --flavor github \
+            --dart-define=MUSIFY_MOBILE_RELEASE_TAG=${{ steps.release.outputs.tag }}
 
       - name: Build universal APK
         run: |
           flutter build apk \
             --release \
-            --flavor github
+            --flavor github \
+            --dart-define=MUSIFY_MOBILE_RELEASE_TAG=${{ steps.release.outputs.tag }}
 
       - name: Stage artifacts
         shell: bash
@@ -154,11 +156,11 @@ jobs:
           cat > release_notes.md <<EOF
           Musify Android ${{ steps.release.outputs.version }}
 
-          Based on upstream Musify ${{ steps.release.outputs.version }} from gokadzev/Musify and packaged as the separate Musify Android build.
+          Built from the unified master sources with the upstream mobile UI and optional Local Sync.
 
           What is different from original Musify:
-          - Optional Local Sync: playlists, liked songs and history merge directly with the desktop port over Wi-Fi, with no account or server.
-          - Separate Android package id com.elias001011.musifycloud, app name, icon color, and update channel, so it can be installed beside original Musify.
+          - Optional encrypted Local Sync: choose favourites, playlists, history, listening recap, searches and radio across Android, Linux and Windows. Pair again after upgrading to protocol 2.
+          - Existing Android package id com.elias001011.musifycloud and signing are preserved, so companion installations keep their data. Desktop settings remain desktop-only.
           - Mobile updater checks this repository's mobile-v* release channel instead of upstream Android releases.
 
           Assets:
@@ -170,7 +172,7 @@ jobs:
           - This mobile release is intentionally not marked as GitHub Latest. Latest is reserved for desktop-v* releases so the desktop updater does not see Android builds.
           - If you previously installed a debug APK, uninstall it before installing this release APK because the signing key is different.
 
-          Upstream Musify: https://github.com/gokadzev/Musify/releases/tag/${{ steps.release.outputs.version }}
+          Upstream Musify: https://github.com/gokadzev/Musify
 
           Local Sync docs:
           https://github.com/elias001011/Musify-Desktop-Port/blob/master/docs/local-sync.md
