@@ -159,7 +159,7 @@ jobs:
           Built from the unified master sources with the upstream mobile UI and optional Local Sync.
 
           What is different from original Musify:
-          - Optional encrypted Local Sync: choose favourites, playlists, history, listening recap, searches and radio across Android, Linux and Windows. Pair again after upgrading to protocol 2.
+          - Optional encrypted Local Sync: choose favourites, playlists, history, listening recap, searches and radio across Android, Linux and Windows. PIN-only pairing, embedded artwork and multi-device sync; existing pairings keep working.
           - Existing Android package id com.elias001011.musifycloud and signing are preserved, so companion installations keep their data. Desktop settings remain desktop-only.
           - Mobile updater checks this repository's mobile-v* release channel instead of upstream Android releases.
 

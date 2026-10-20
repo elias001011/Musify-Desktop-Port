@@ -159,9 +159,9 @@ when a month conflicts, higher listening time wins without summing the devices.
 Multiple paired devices are supported. Unreachable devices retain data and trust
 and can catch up after reconnecting. Messages are authenticated and encrypted.
 
-Both ends need protocol 2; old pairings must be paired again. Apps must be
-running and reachable on the LAN. Physical-device testing remains important for
-firewalls, Wi-Fi discovery and Android background limits.
+Both ends need the current PIN pairing; pairings already established keep
+working. Apps must be running and reachable on the LAN. Physical-device testing
+remains important for firewalls, Wi-Fi discovery and Android background limits.
 
 See [docs/local-sync.md](docs/local-sync.md) for rules, failure handling and tests.
 

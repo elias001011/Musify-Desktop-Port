@@ -6,7 +6,8 @@ backend or API key. Android, Linux and Windows build from `master`.
 
 ## Pairing and use
 
-1. Update every device to a build using Local Sync protocol 2.
+1. Update every device to a build with the current PIN pairing (Local Sync
+   protocol 3).
 2. Enable **Settings → Local sync → Sync over local network** on each device.
 3. Open **Devices** on one device and choose the other device.
 4. Enter the six-digit PIN shown on the receiving device into the initiating
@@ -69,7 +70,8 @@ authenticates it without sending the PIN over the network. The derived pair
 secret remains on the devices. A challenge expires after 60 seconds, is consumed
 after one proof attempt, and new requests are rate limited. Existing authenticated
 pairings from the previous protocol-2 release remain usable; new pairings need
-the updated PIN implementation on both devices. Library requests and replies use AES-256-GCM with route/peer binding,
+the updated PIN implementation on both devices. Library requests and replies use
+AES-256-GCM with route/peer binding,
 request IDs and persisted sequence counters to reject replay. A public discovery
 ID is not a credential. Discovery still advertises device name, platform and
 port on the LAN. Trusted paired devices can modify the selected library data;

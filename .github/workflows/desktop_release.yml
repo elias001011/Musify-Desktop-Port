@@ -280,7 +280,7 @@ jobs:
           - Interface scale slider and remappable keyboard shortcuts.
           - Title bar that follows the app's light/dark theme, and an option to start maximized.
           - Choose the folder where downloaded songs are saved.
-          - Local Sync protocol 2: encrypted pairing, selectable data, multi-device convergence and listening recap with complete-month conflict handling. Pair devices again after upgrading. Android and desktop now build from master.
+          - Local Sync protocol 3: PIN-only pairing with SRP, encrypted transport, selectable data, multi-device convergence, embedded playlist artwork and listening recap with complete-month conflict handling. Existing pairings keep working. Android and desktop now build from master.
 
           Assets:
           - Musify-linux-x64.deb: Debian/Ubuntu package.
