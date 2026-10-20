@@ -54,7 +54,6 @@ void main() {
         final request = service.incomingPairingRequest.value;
         if (request != null) {
           File('$root/$role.pin').writeAsStringSync(request.pin);
-          service.approveIncomingPairing();
         }
       });
       Future<void> ready() async {

@@ -313,10 +313,6 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
                 },
                 child: Text(dialogContext.l10n!.cancel),
               ),
-              FilledButton(
-                onPressed: LocalSyncService.instance.approveIncomingPairing,
-                child: Text(dialogContext.l10n!.syncAllow),
-              ),
             ],
           );
         },

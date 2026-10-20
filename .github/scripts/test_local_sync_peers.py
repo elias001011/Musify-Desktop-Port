@@ -132,7 +132,7 @@ try:
     values = [snapshot(role) for role in ['a', 'b', 'c']]
     assert all(identities(value['data']) == {'a', 'b', 'c'} for value in values)
     assert all(len(value['paired']) == 2 for value in values)
-    record('three peers pair with confirmation and automatic fanout converges')
+    record('three peers pair by PIN without approval and automatic fanout converges')
 
     command('a', 'edit', data={'likedSongs': [song('b'), song('c')]})
     command('a', 'automatic')
@@ -145,6 +145,15 @@ try:
     assert identities(a['data'], 'customPlaylists') == identities(b['data'], 'customPlaylists') == {'pA', 'pB'}
     assert set(a['data']['pinnedPlaylistIds']) == set(b['data']['pinnedPlaylistIds']) == {'pA', 'pB'}
     record('same-name playlists retain valid identities and pins')
+
+    cover = 'data:image/png;base64,' + 'A' * 3700000
+    reset({'customPlaylists': [{**playlist('large-cover', ['a']), 'image': cover}]})
+    sync('a', 'b')
+    sync('b', 'c')
+    sync('c', 'a')
+    assert all(snapshot(role)['data']['customPlaylists'][0]['image'] == cover for role in ['a', 'b', 'c'])
+    record('multi-megabyte embedded cover survives three-process sync and repeats')
+
 
     reset({'wrappedListeningStats': recap(200, {'2025-01': month(20)})}, {'wrappedListeningStats': recap(300, {'2025-02': month(30)})})
     sync('a', 'b')

@@ -130,6 +130,7 @@ class LibraryMergeService {
     SyncDocument document,
     Map<String, dynamic> baseline,
   ) async {
+    SyncDocument.fromMap(document.toMap());
     await Hive.box('userNoBackup')
         .putAll({_documentKey: document.toMap(), _baselineKey: baseline});
     await Hive.box('userNoBackup').flush();

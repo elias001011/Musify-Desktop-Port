@@ -196,4 +196,31 @@ void main() {
       'newer-user-edit',
     );
   });
+  test(
+    'persisted multi-megabyte playlist artwork exports repeatedly without loss',
+    () async {
+      final image =
+          'data:image/jpeg;base64,${List.filled(3700000, 'A').join()}';
+      await Hive.box('user').put('customPlaylists', [
+        {
+          ...playlist('large-cover', ['a']),
+          'image': image,
+        },
+      ]);
+      final first = await LibraryMergeService.exportLibrary();
+      final second = await LibraryMergeService.exportLibrary();
+      expect(canonicalSync(second), canonicalSync(first));
+      expect(Hive.box('user').get('customPlaylists')[0]['image'], image);
+      expect(
+        () => validateSyncJson('x' * (1024 * 1024 + 1)),
+        throwsFormatException,
+      );
+      expect(
+        () => validateSyncJson(
+          'data:image/png;base64,${'A' * maxSyncImageCharacters}',
+        ),
+        throwsFormatException,
+      );
+    },
+  );
 }

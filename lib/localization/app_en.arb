@@ -341,9 +341,8 @@
   "syncSearches": "Search history",
   "syncRadio": "Liked radio stations",
   "syncPairTitle": "Pair with this device?",
-  "syncAllow": "Allow pairing",
-  "syncPinInstructions": "Enter the six-digit code shown on the other device, and allow pairing there.",
+  "syncPinInstructions": "Enter the six-digit PIN shown on the other device.",
   "syncPinInvalid": "Enter the six-digit code",
-  "syncPairDescription": "Type this code on the device requesting access, then allow pairing. Only approve requests you started.",
+  "syncPairDescription": "Type this PIN on the device requesting access. Pairing finishes automatically. Cancel requests you did not start.",
   "syncUnchanged": "No selected data changed."
 }

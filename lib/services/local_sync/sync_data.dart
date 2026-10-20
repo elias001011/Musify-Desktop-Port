@@ -2,6 +2,9 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+const maxSyncImageCharacters = 16 * 1024 * 1024;
+const maxSyncMessageBytes = 64 * 1024 * 1024;
+
 enum SyncCategory { favourites, playlists, recent, recap, searches, radio }
 
 const syncCategoryKeys = <SyncCategory, List<String>>{
@@ -83,7 +86,10 @@ String syncDigest(Object? value) =>
 void validateSyncJson(Object? value, [int depth = 0]) {
   if (depth > 24) throw const FormatException('Sync data is too deeply nested');
   if (value is String) {
-    if (value.length > 1024 * 1024)
+    final limit = value.startsWith('data:image/')
+        ? maxSyncImageCharacters
+        : 1024 * 1024;
+    if (value.length > limit)
       throw const FormatException('Sync string is too large');
   } else if (value is num) {
     if (!value.isFinite) throw const FormatException('Invalid sync number');

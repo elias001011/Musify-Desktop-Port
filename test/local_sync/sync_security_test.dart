@@ -1,38 +1,50 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:musify/services/local_sync/sync_pairing.dart';
 import 'package:musify/services/local_sync/sync_security.dart';
 
 void main() {
   test(
-    'committed X25519 exchange derives the same key and six-digit code',
+    'typing the receiver PIN authenticates both devices without approval',
     () async {
-      final a = await SyncSecurity.pairingKeys(),
-          b = await SyncSecurity.pairingKeys();
-      final commitmentA = await a.commitment(),
-          commitmentB = await b.commitment();
-      final left = await a.agree(
-        await b.reveal(),
-        commitmentB,
-        'deviceA|deviceB|session',
+      final receiver = await PinPairingReceiver.create('A|B|session');
+      final client = await PinPairingClient.create(
+        receiver.challenge,
+        'A|B|session',
+        receiver.pin,
       );
-      final right = await b.agree(
-        await a.reveal(),
-        commitmentA,
-        'deviceA|deviceB|session',
-      );
-      expect(left.secret, right.secret);
-      expect(left.pin, right.pin);
-      expect(left.pin, matches(RegExp(r'^\d{6}$')));
+      expect(receiver.challenge.toString(), isNot(contains(receiver.pin)));
+      final agreement = await receiver.verify(client.proof());
+      expect(await client.verify(agreement.proof), agreement.secret);
     },
   );
-  test('changing an announced pairing identity is rejected', () async {
-    final a = await SyncSecurity.pairingKeys(),
-        b = await SyncSecurity.pairingKeys(),
-        attacker = await SyncSecurity.pairingKeys();
-    await expectLater(
-      a.agree(await attacker.reveal(), await b.commitment(), 'session'),
-      throwsFormatException,
-    );
+  test('incorrect PIN and changed peer context cannot authenticate', () async {
+    for (final changedContext in [false, true]) {
+      final receiver = await PinPairingReceiver.create('A|B|session');
+      final wrongPin = receiver.pin == '000000' ? '000001' : '000000';
+      final client = await PinPairingClient.create(
+        receiver.challenge,
+        changedContext ? 'A|attacker|session' : 'A|B|session',
+        changedContext ? receiver.pin : wrongPin,
+      );
+      await expectLater(receiver.verify(client.proof()), throwsA(anything));
+    }
   });
+  test(
+    'one-use challenge and invalid public keys cannot establish trust',
+    () async {
+      final receiver = await PinPairingReceiver.create('A|B|session');
+      await expectLater(
+        receiver.verify({'publicKey': 'AA==', 'verifier': 'AA=='}),
+        throwsA(anything),
+      );
+      final client = await PinPairingClient.create(
+        receiver.challenge,
+        'A|B|session',
+        receiver.pin,
+      );
+      await expectLater(receiver.verify(client.proof()), throwsFormatException);
+    },
+  );
   test('encrypted library round-trips and cannot be read with another key or route', () async {
     final key = SyncSecurity.randomToken();
     final box = await SyncSecurity.seal(key, {

@@ -340,9 +340,8 @@
   "syncSearches": "Histórico de busca",
   "syncRadio": "Rádios favoritas",
   "syncPairTitle": "Parear com este aparelho?",
-  "syncAllow": "Permitir pareamento",
-  "syncPinInstructions": "Digite o código de seis dígitos exibido no outro aparelho e permita o pareamento nele.",
+  "syncPinInstructions": "Digite o PIN de seis dígitos exibido no outro aparelho.",
   "syncPinInvalid": "Digite o código de seis dígitos",
-  "syncPairDescription": "Digite este código no aparelho que solicitou acesso e permita o pareamento. Só aprove solicitações que você iniciou.",
+  "syncPairDescription": "Digite este PIN no aparelho que solicitou acesso. O pareamento termina automaticamente. Cancele solicitações que você não iniciou.",
   "syncUnchanged": "Nenhum dado selecionado foi alterado."
 }

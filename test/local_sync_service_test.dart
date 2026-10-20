@@ -6,6 +6,7 @@ import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
 import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/local_sync/sync_data.dart';
+import 'package:musify/services/local_sync/sync_pairing.dart';
 import 'package:musify/services/local_sync/sync_security.dart';
 import 'package:musify/services/local_sync_service.dart';
 
@@ -94,36 +95,27 @@ void main() {
     return (status: response.statusCode, body: clear);
   }
 
-  Future<({String session, String shared, Map<String, dynamic> proof})>
-  pair() async {
-    final keys = await SyncSecurity.pairingKeys();
+  Future<
+    ({String session, PinPairingClient client, Map<String, dynamic> proof})
+  >
+  pair({bool wrongPin = false}) async {
     final response = jsonDecode(
       (await post('pair-request', {
         'apiVersion': 2,
+        'pairingVersion': 3,
         'clientId': peerId,
         'clientName': 'New fixture',
         'clientPort': 1,
-        'commitment': await keys.commitment(),
       })).body,
     );
     final session = response['session'] as String;
-    final exchange = jsonDecode(
-      (await post('pair-exchange', {
-        'session': session,
-        'reveal': await keys.reveal(),
-      })).body,
-    );
-    final agreement = await keys.agree(
-      exchange['reveal'],
-      response['commitment'],
+    final pin = server.incomingPairingRequest.value!.pin;
+    final client = await PinPairingClient.create(
+      response['challenge'],
       '$peerId|$ownId|$session',
+      wrongPin ? (pin == '000000' ? '000001' : '000000') : pin,
     );
-    expect(agreement.pin, server.incomingPairingRequest.value!.pin);
-    final proof = await SyncSecurity.seal(agreement.secret, {
-      'pin': agreement.pin,
-      'clientId': peerId,
-    }, 'pair:$session');
-    return (session: session, shared: agreement.secret, proof: proof);
+    return (session: session, client: client, proof: client.proof());
   }
 
   test(
@@ -215,20 +207,37 @@ void main() {
   });
 
   test(
-    're-pairing keeps the previous trust until both devices approve',
+    're-pairing replaces old trust only after the correct PIN proof',
     () async {
       final attempt = await pair();
       expect(server.pairedDevices.value.single.secret, secret);
-      final waiting = post('pair-verify', {
+      final response = await post('pair-verify', {
         'session': attempt.session,
         'proof': attempt.proof,
       });
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(server.pairedDevices.value.single.secret, secret);
-      server.approveIncomingPairing();
-      final response = await waiting.timeout(const Duration(seconds: 3));
       expect(response.statusCode, 200);
-      expect(server.pairedDevices.value.single.secret, attempt.shared);
+      final raw = jsonDecode(response.body);
+      expect(
+        server.pairedDevices.value.single.secret,
+        await attempt.client.verify(raw['proof']),
+      );
+    },
+  );
+
+  test(
+    'an incorrect PIN leaves old trust intact and closes the attempt',
+    () async {
+      final attempt = await pair(wrongPin: true);
+      final completed = server.incomingPairingRequest.value!.completed;
+      expect(
+        (await post('pair-verify', {
+          'session': attempt.session,
+          'proof': attempt.proof,
+        })).statusCode,
+        403,
+      );
+      expect(await completed, false);
+      expect(server.pairedDevices.value.single.secret, secret);
     },
   );
 
@@ -258,4 +267,36 @@ void main() {
     expect(server.serverRunning.value, false);
     expect(server.pairedDevices.value.single.secret, secret);
   });
+  test(
+    'embedded playlist covers larger than one MiB survive encrypted HTTP sync',
+    () async {
+      final image = 'data:image/png;base64,${List.filled(3700000, 'A').join()}';
+      final incoming = payload(
+        document({
+          'customPlaylists': [
+            {
+              ...playlist('cover', ['a']),
+              'image': image,
+            },
+          ],
+        }),
+      );
+      final result = await secure('merge', {
+        'categories': incoming['categories'],
+        'library': incoming,
+      });
+      expect(result.status, 200);
+      expect(Hive.box('user').get('customPlaylists')[0]['image'], image);
+      // A second request reads the persisted document, the failing path in the report.
+      final repeated = await secure('merge', {
+        'categories': incoming['categories'],
+        'library': incoming,
+      });
+      expect(repeated.status, 200);
+      expect(
+        repeated.body['library']['document'],
+        result.body['library']['document'],
+      );
+    },
+  );
 }

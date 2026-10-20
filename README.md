@@ -149,7 +149,7 @@ conflicts with it, and the sync workflow can stay automatic.
 ## Local Sync
 
 Optional and off by default. Pair Android, Linux and Windows devices on the
-same local network with a six-digit code and explicit approval. Choose which
+same local network by typing the six-digit PIN shown on the other device. Choose which
 categories to share: favourites, playlists/folders/pins, recently played,
 listening recap, searches and radio favourites. Settings and downloads stay local.
 

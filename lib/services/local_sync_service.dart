@@ -23,6 +23,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_multicast_lock/flutter_multicast_lock.dart';
@@ -31,6 +32,7 @@ import 'package:http/http.dart' as http;
 import 'package:musify/main.dart';
 import 'package:musify/services/library_merge_service.dart';
 import 'package:musify/services/local_sync/sync_data.dart';
+import 'package:musify/services/local_sync/sync_pairing.dart';
 import 'package:musify/services/local_sync/sync_security.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:shelf/shelf.dart' as shelf;
@@ -238,14 +240,9 @@ class LocalSyncService {
   String? _pendingClientId;
   String? _pendingClientName;
   int? _pendingClientPort;
-  String? _pendingPin;
-  PairingKeys? _pendingKeys;
-  String? _pendingCommitment;
+  PinPairingReceiver? _pendingPairing;
   String? _pendingSession;
-  String? _pendingSecret;
-  Completer<bool>? _approval;
   DateTime? _lastPairingRequest;
-  int _pairingFailures = 0;
   final Map<String, DateTime> _retryAfter = {};
   final Map<String, int> _retryCount = {};
   final Map<String, String> _receipts = {};
@@ -460,7 +457,6 @@ class LocalSyncService {
       final router = Router()
         ..get('/api/sync/info', _handleInfo)
         ..post('/api/sync/pair-request', _handlePairRequest)
-        ..post('/api/sync/pair-exchange', _handlePairExchange)
         ..post('/api/sync/pair-verify', _handlePairVerify)
         ..post('/api/sync/capabilities', _handleCapabilities)
         ..post('/api/sync/confirm', _handleConfirm)
@@ -551,6 +547,7 @@ class LocalSyncService {
     return _json({
       'name': deviceName,
       'platform': Platform.operatingSystem,
+      'pairingVersion': 3,
       'apiVersion': apiVersion,
       'deviceId': await _ensureDeviceId(),
     });
@@ -574,15 +571,10 @@ class LocalSyncService {
   Future<shelf.Response> _handlePairRequest(shelf.Request request) async {
     try {
       final data = await _readJson(request);
-      if (data['apiVersion'] != apiVersion)
+      if (data['apiVersion'] != apiVersion || data['pairingVersion'] != 3)
         return _json({'error': 'upgrade_required'}, status: 426);
       final id = data['clientId'];
-      final commitment = data['commitment'];
-      if (id is! String ||
-          id.isEmpty ||
-          id.length > 128 ||
-          commitment is! String ||
-          commitment.length != 64)
+      if (id is! String || id.isEmpty || id.length > 128)
         return _json({'error': 'invalid_pairing'}, status: 400);
       final now = DateTime.now();
       if (_pendingSession != null ||
@@ -592,101 +584,59 @@ class LocalSyncService {
         return _json({'error': 'pairing_busy'}, status: 429);
       _lastPairingRequest = now;
       _pendingClientId = id;
-      _pendingClientName =
-          data['clientName']?.toString().substring(
-            0,
-            min(100, data['clientName'].toString().length),
-          ) ??
-          'Musify';
-      _pendingClientPort = data['clientPort'] is int
-          ? data['clientPort'] as int
-          : 0;
-      _pendingCommitment = commitment;
-      _pendingKeys = await SyncSecurity.pairingKeys();
-      _pendingSession = SyncSecurity.randomToken(16);
+      final name = data['clientName']?.toString() ?? 'Musify';
+      _pendingClientName = name.substring(0, min(100, name.length));
+      _pendingClientPort = data['clientPort'] is int ? data['clientPort'] : 0;
+      final session = SyncSecurity.randomToken(16);
+      _pendingSession = session;
       _pendingCompleter = Completer<bool>();
-      _approval = Completer<bool>();
-      _pairingFailures = 0;
       _pendingTimer = Timer(_pairingTimeout, _cancelPendingPairing);
+      final ownId = await _ensureDeviceId();
+      final pairing = await PinPairingReceiver.create('$id|$ownId|$session');
+      if (_pendingSession != session)
+        return _json({'error': 'pairing_expired'}, status: 403);
+      _pendingPairing = pairing;
+      incomingPairingRequest.value = IncomingPairingRequest(
+        clientName: _pendingClientName!,
+        pin: pairing.pin,
+        completed: _pendingCompleter!.future,
+      );
       return _json({
         'status': 'pairing_started',
-        'session': _pendingSession,
-        'commitment': await _pendingKeys!.commitment(),
-        'deviceId': await _ensureDeviceId(),
+        'session': session,
+        'challenge': pairing.challenge,
+        'deviceId': ownId,
       });
     } catch (_) {
       return _json({'error': 'invalid_pairing'}, status: 400);
     }
   }
 
-  Future<shelf.Response> _handlePairExchange(shelf.Request request) async {
-    try {
-      final data = await _readJson(request);
-      if (data['session'] != _pendingSession ||
-          _pendingKeys == null ||
-          data['reveal'] is! Map ||
-          _pendingSecret != null)
-        return _json({'error': 'pairing_expired'}, status: 403);
-      final context =
-          '$_pendingClientId|${await _ensureDeviceId()}|$_pendingSession';
-      final agreement = await _pendingKeys!.agree(
-        data['reveal'],
-        _pendingCommitment!,
-        context,
-      );
-      _pendingSecret = agreement.secret;
-      _pendingPin = agreement.pin;
-      incomingPairingRequest.value = IncomingPairingRequest(
-        clientName: _pendingClientName!,
-        pin: agreement.pin,
-        completed: _pendingCompleter!.future,
-      );
-      return _json({'reveal': await _pendingKeys!.reveal()});
-    } catch (_) {
-      _cancelPendingPairing();
-      return _json({'error': 'invalid_pairing'}, status: 403);
-    }
-  }
-
-  void approveIncomingPairing() {
-    final approval = _approval;
-    if (approval != null && !approval.isCompleted) approval.complete(true);
-  }
-
   Future<shelf.Response> _handlePairVerify(shelf.Request request) async {
     try {
       final data = await _readJson(request);
       final session = _pendingSession;
-      final secret = _pendingSecret;
+      final pairing = _pendingPairing;
       if (session == null ||
-          secret == null ||
+          pairing == null ||
           data['session'] != session ||
           data['proof'] is! Map)
         return _json({'error': 'pairing_expired'}, status: 403);
-      final proof = await SyncSecurity.open(
-        secret,
-        data['proof'],
-        'pair:$session',
-      );
-      if (proof['pin'] != _pendingPin || proof['clientId'] != _pendingClientId)
-        throw const FormatException('incorrect_pin');
-      final approval = _approval!;
-      final allowed = await approval.future;
-      if (!allowed || session != _pendingSession)
+      final agreement = await pairing.verify(data['proof']);
+      if (_pendingSession != session)
         return _json({'error': 'pairing_cancelled'}, status: 403);
       final connection =
           request.context['shelf.io.connection_info'] as HttpConnectionInfo?;
-      final id = _pendingClientId!;
       await savePairedDevice(
         PairedSyncDevice(
-          deviceId: id,
+          deviceId: _pendingClientId!,
           name: _pendingClientName!,
           ip: connection?.remoteAddress.address ?? '',
           port: _pendingClientPort ?? 0,
-          secret: secret,
+          secret: agreement.secret,
         ),
       );
-      final response = await SyncSecurity.seal(secret, {
+      final confirmation = await SyncSecurity.seal(agreement.secret, {
         'status': 'paired',
         'deviceId': await _ensureDeviceId(),
         'deviceName': deviceName,
@@ -694,9 +644,9 @@ class LocalSyncService {
       final completer = _pendingCompleter;
       _clearPendingPairing();
       if (completer != null && !completer.isCompleted) completer.complete(true);
-      return _json({'proof': response});
+      return _json({'proof': agreement.proof, 'confirmation': confirmation});
     } catch (_) {
-      if (++_pairingFailures >= 3) _cancelPendingPairing();
+      _cancelPendingPairing();
       return _json({'error': 'incorrect_pin'}, status: 403);
     }
   }
@@ -841,14 +791,8 @@ class LocalSyncService {
     _pendingClientId = null;
     _pendingClientName = null;
     _pendingClientPort = null;
-    _pendingPin = null;
-    _pendingKeys = null;
-    _pendingCommitment = null;
+    _pendingPairing = null;
     _pendingSession = null;
-    _pendingSecret = null;
-    if (_approval != null && !_approval!.isCompleted)
-      _approval!.complete(false);
-    _approval = null;
     _pendingCompleter = null;
     incomingPairingRequest.value = null;
   }
@@ -1144,61 +1088,50 @@ class LocalSyncService {
     }
   }
 
-  String? _outgoingSecret;
   String? _outgoingSession;
-  String? _outgoingPin;
+  Map<String, dynamic>? _outgoingChallenge;
   String? _outgoingTarget;
   DateTime? _outgoingExpires;
 
   Future<String> _requestPairing(DiscoveredSyncDevice target) async {
     if (_outgoingTarget == target.deviceId &&
-        _outgoingSecret != null &&
+        _outgoingChallenge != null &&
         (_outgoingExpires?.isAfter(DateTime.now()) ?? false))
       return 'pairing_started';
-    final keys = await SyncSecurity.pairingKeys();
-    final ownId = await _ensureDeviceId();
     final response = await _post(target, '/api/sync/pair-request', {
       'apiVersion': apiVersion,
-      'clientId': ownId,
+      'pairingVersion': 3,
+      'clientId': await _ensureDeviceId(),
       'clientName': deviceName,
       'clientPort': serverPort,
-      'commitment': await keys.commitment(),
     }, timeout: _shortTimeout);
     if (response['deviceId'] != target.deviceId ||
         response['session'] is! String ||
-        response['commitment'] is! String)
+        response['challenge'] is! Map)
       throw const _LocalSyncException('Update both devices before pairing.');
     _outgoingSession = response['session'];
     _outgoingTarget = target.deviceId;
     _outgoingExpires = DateTime.now().add(_pairingTimeout);
-    final reveal = await _post(target, '/api/sync/pair-exchange', {
-      'session': _outgoingSession,
-      'reveal': await keys.reveal(),
-    }, timeout: _shortTimeout);
-    final agreement = await keys.agree(
-      reveal['reveal'],
-      response['commitment'],
-      '$ownId|${target.deviceId}|$_outgoingSession',
-    );
-    _outgoingSecret = agreement.secret;
-    _outgoingPin = agreement.pin;
+    _outgoingChallenge = Map<String, dynamic>.from(response['challenge']);
     return 'pairing_started';
   }
 
   Future<bool> _verifyPairing(DiscoveredSyncDevice target, String pin) async {
-    if (pin != _outgoingPin) throw const _LocalSyncException('incorrect_pin');
-    final secret = _outgoingSecret!;
     final session = _outgoingSession!;
+    final pairing = await PinPairingClient.create(
+      _outgoingChallenge!,
+      '${await _ensureDeviceId()}|${target.deviceId}|$session',
+      pin,
+    );
+    _outgoingChallenge = null;
     final response = await _post(target, '/api/sync/pair-verify', {
       'session': session,
-      'proof': await SyncSecurity.seal(secret, {
-        'pin': pin,
-        'clientId': await _ensureDeviceId(),
-      }, 'pair:$session'),
+      'proof': pairing.proof(),
     }, timeout: _pairingTimeout);
+    final secret = await pairing.verify(response['proof']);
     final proof = await SyncSecurity.open(
       secret,
-      response['proof'],
+      response['confirmation'],
       'pair:$session:reply',
     );
     if (proof['deviceId'] != target.deviceId || proof['status'] != 'paired')
@@ -1212,8 +1145,6 @@ class LocalSyncService {
         secret: secret,
       ),
     );
-    _outgoingSecret = null;
-    _outgoingPin = null;
     _outgoingSession = null;
     _outgoingTarget = null;
     _outgoingExpires = null;
@@ -1379,20 +1310,22 @@ class LocalSyncService {
       port: target.port,
       path: path,
     );
-    final response = await _client
-        .post(
-          uri,
-          headers: const {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: json.encode(body),
-        )
-        .timeout(timeout);
-
+    final encoded = json.encode(body);
+    if (utf8.encode(encoded).length > maxSyncMessageBytes)
+      throw const _LocalSyncException(
+        'Selected sync data is too large. Choose fewer categories.',
+      );
+    final outgoing = http.Request('POST', uri)
+      ..headers.addAll(const {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      })
+      ..body = encoded;
+    final response = await _client.send(outgoing).timeout(timeout);
+    final responseBytes = await _readMessage(response.stream).timeout(timeout);
     dynamic decoded;
     try {
-      decoded = json.decode(utf8.decode(response.bodyBytes));
+      decoded = json.decode(utf8.decode(responseBytes));
     } catch (_) {
       decoded = null;
     }
@@ -1419,6 +1352,7 @@ class LocalSyncService {
       return 'Incorrect PIN. Check the code shown on ${device.name}.';
     }
     if (error is _LocalSyncHttpException) {
+      if (error.statusCode == 426) return 'Update both devices before pairing.';
       if (error.message == 'incorrect_pin') {
         return 'Incorrect PIN. Check the code shown on ${device.name}.';
       }
@@ -1508,13 +1442,18 @@ class LocalSyncService {
     } catch (_) {}
   }
 
-  Future<Map<String, dynamic>> _readJson(shelf.Request request) async {
-    final bytes = <int>[];
-    await for (final chunk in request.read()) {
-      bytes.addAll(chunk);
-      if (bytes.length > 16 * 1024 * 1024)
-        throw const FormatException('Sync request too large');
+  Future<Uint8List> _readMessage(Stream<List<int>> stream) async {
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in stream) {
+      if (bytes.length + chunk.length > maxSyncMessageBytes)
+        throw const FormatException('Sync message too large');
+      bytes.add(chunk);
     }
+    return bytes.takeBytes();
+  }
+
+  Future<Map<String, dynamic>> _readJson(shelf.Request request) async {
+    final bytes = await _readMessage(request.read());
     final decoded = json.decode(utf8.decode(bytes));
     if (decoded is! Map) {
       throw const FormatException('Request body is not a JSON object');

@@ -9,8 +9,8 @@ backend or API key. Android, Linux and Windows build from `master`.
 1. Update every device to a build using Local Sync protocol 2.
 2. Enable **Settings → Local sync → Sync over local network** on each device.
 3. Open **Devices** on one device and choose the other device.
-4. Check the six-digit code on the receiving device, approve pairing there,
-   and enter that code on the initiating device.
+4. Enter the six-digit PIN shown on the receiving device into the initiating
+   device. Pairing finishes automatically, with no extra approval button.
 5. Choose the data categories on each device. Only categories enabled on
    **both** devices are exchanged.
 
@@ -55,15 +55,21 @@ are retained while the devices may still need them, so sync metadata can grow.
 
 ## Failures and privacy
 
-Payloads are validated before import. Imports keep a durable recovery journal;
+Payloads are validated before import. Embedded playlist artwork is preserved
+(up to 16 MiB per data URI), with a 64 MiB limit on each encrypted wire message.
+Ordinary text fields retain their smaller limit. Imports keep a durable recovery journal;
 if the app closes during a write, startup restores the interrupted transaction
 before retrying. Edits made after that write are preserved. A backup restore
 pauses sync while its storage files are replaced. Export a backup before testing
 pre-release builds; sync is not a backup or an undo history.
 
-Pairing uses committed ephemeral X25519 keys, a six-digit comparison code and
-explicit approval on the receiving device. The derived pair secret remains on
-the devices. Library requests and replies use AES-256-GCM with route/peer binding,
+Pairing uses SRP-6a with a random six-digit PIN and the fixed RFC 5054
+2048-bit group. Only the receiving device displays the PIN; a password proof
+authenticates it without sending the PIN over the network. The derived pair
+secret remains on the devices. A challenge expires after 60 seconds, is consumed
+after one proof attempt, and new requests are rate limited. Existing authenticated
+pairings from the previous protocol-2 release remain usable; new pairings need
+the updated PIN implementation on both devices. Library requests and replies use AES-256-GCM with route/peer binding,
 request IDs and persisted sequence counters to reject replay. A public discovery
 ID is not a credential. Discovery still advertises device name, platform and
 port on the LAN. Trusted paired devices can modify the selected library data;
