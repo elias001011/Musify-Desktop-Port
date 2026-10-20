@@ -34,7 +34,7 @@ export 'local_sync/sync_data.dart' show SyncCategory, syncCategoryKeys;
 
 class LibraryMergeService {
   LibraryMergeService._();
-  static const schemaVersion = 2;
+  static const schemaVersion = syncSchemaVersion;
   static const libraryKeys = [
     'likedSongs',
     'likedRadioStations',
@@ -155,7 +155,9 @@ class LibraryMergeService {
     Map<String, dynamic> remote, {
     Set<SyncCategory>? categories,
   }) => _locked(() async {
-    if (remote['schemaVersion'] != schemaVersion || remote['document'] is! Map)
+    if (remote['schemaVersion'] != schemaVersion ||
+        remote['document'] is! Map ||
+        remote['document']['version'] != schemaVersion)
       throw const FormatException(
         'Unsupported sync version. Update both devices.',
       );
