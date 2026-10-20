@@ -42,6 +42,7 @@ import 'package:musify/screens/time_machine_page.dart';
 import 'package:musify/screens/user_songs_page.dart';
 import 'package:musify/services/playlist_download_service.dart';
 import 'package:musify/services/settings_manager.dart';
+import 'package:musify/utilities/platform_utils.dart';
 import 'package:musify/widgets/offline_search_placeholder.dart';
 
 class NavigationManager {
@@ -289,6 +290,7 @@ class NavigationManager {
               ),
               GoRoute(
                 path: 'keyboard-shortcuts',
+                redirect: (_, _) => isDesktopPlatform ? null : '/settings',
                 pageBuilder: (context, state) => _pushPage(
                   child: const KeyboardShortcutsPage(),
                   state: state,

@@ -17,7 +17,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: sync-mobile-upstream-release
+  group: sync-upstream-master
   cancel-in-progress: false
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
       - name: Checkout mobile branch
         uses: actions/checkout@v5
         with:
-          ref: refs/heads/mobile-cloud-sync
+          ref: refs/heads/master
           fetch-depth: 0
           fetch-tags: true
 
@@ -102,9 +102,9 @@ jobs:
           fi
 
           {
-            echo "### Conflicts merging upstream \`${upstream_tag}\` into \`mobile-cloud-sync\`"
+            echo "### Conflicts merging upstream \`${upstream_tag}\` into \`master\`"
             echo
-            echo "Resolve these files by hand and push to \`mobile-cloud-sync\`:"
+            echo "Resolve these files by hand and push to \`master\`:"
             echo
             git diff --name-only --diff-filter=U | sed 's/^/- `/;s/$/`/'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -169,7 +169,7 @@ jobs:
         if: steps.existing.outputs.exists != 'true'
         shell: bash
         run: |
-          git push origin HEAD:refs/heads/mobile-cloud-sync
+          git push origin HEAD:refs/heads/master
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch mobile release build
@@ -185,7 +185,7 @@ jobs:
 
           gh workflow run mobile_release.yml \
             --repo "${GITHUB_REPOSITORY}" \
-            --ref refs/heads/mobile-cloud-sync \
+            --ref refs/heads/master \
             -f version="${{ steps.upstream.outputs.version }}" \
             -f source_ref="${{ steps.push.outputs.sha }}" \
             -f repair_existing_release="$repair"
@@ -217,7 +217,7 @@ jobs:
           cat > /tmp/sync-failure.md <<NOTE
           Automatic mobile sync from gokadzev/Musify ${UPSTREAM_TAG:-unknown upstream tag} failed because ${reason}.
 
-          Resolve it on \`mobile-cloud-sync\` locally, make sure \`flutter analyze\` is clean, push, then dispatch \`mobile_release.yml\`.
+          Resolve it on \`master\` locally, make sure \`flutter analyze\` is clean, push, then dispatch \`mobile_release.yml\`.
 
           Run: ${RUN_URL}
           NOTE

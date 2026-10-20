@@ -12,7 +12,7 @@ on:
         type: string
 
 concurrency:
-  group: sync-desktop
+  group: sync-upstream-master
   cancel-in-progress: false
 
 permissions:

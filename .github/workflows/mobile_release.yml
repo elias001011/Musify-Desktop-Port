@@ -1,4 +1,4 @@
-name: Build Musify Cloud Android Release
+name: Build Musify Android Release
 
 on:
   workflow_dispatch:
@@ -10,10 +10,15 @@ on:
       source_ref:
         description: Branch, tag, or SHA to build
         required: false
-        default: refs/heads/mobile-cloud-sync
+        default: refs/heads/master
         type: string
       repair_existing_release:
         description: Replace assets on an existing mobile release
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: Mark the GitHub release as a prerelease (the in-app updater skips it)
         required: false
         default: false
         type: boolean
@@ -41,11 +46,13 @@ jobs:
             version="${{ inputs.version }}"
             source_ref="${{ inputs.source_ref }}"
             repair="${{ inputs.repair_existing_release }}"
+            prerelease="${{ inputs.prerelease }}"
           else
             tag="${GITHUB_REF_NAME}"
             version="${tag#mobile-v}"
             source_ref="${GITHUB_SHA}"
             repair="false"
+            prerelease="false"
           fi
 
           version="${version#v}"
@@ -54,8 +61,9 @@ jobs:
 
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "source_ref=${source_ref:-refs/heads/mobile-cloud-sync}" >> "$GITHUB_OUTPUT"
+          echo "source_ref=${source_ref:-refs/heads/master}" >> "$GITHUB_OUTPUT"
           echo "repair=${repair}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease:-false}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout code
         uses: actions/checkout@v5
@@ -119,24 +127,18 @@ jobs:
         run: flutter analyze .
 
       - name: Build arm64 APK
-        env:
-          MUSIFY_CLOUD_SYNC_URL: ${{ vars.MUSIFY_CLOUD_SYNC_URL }}
         run: |
           flutter build apk \
             --release \
             --split-per-abi \
             --target-platform=android-arm64 \
-            --flavor github \
-            --dart-define=MUSIFY_CLOUD_SYNC_URL="${MUSIFY_CLOUD_SYNC_URL}"
+            --flavor github
 
       - name: Build universal APK
-        env:
-          MUSIFY_CLOUD_SYNC_URL: ${{ vars.MUSIFY_CLOUD_SYNC_URL }}
         run: |
           flutter build apk \
             --release \
-            --flavor github \
-            --dart-define=MUSIFY_CLOUD_SYNC_URL="${MUSIFY_CLOUD_SYNC_URL}"
+            --flavor github
 
       - name: Stage artifacts
         shell: bash
@@ -150,15 +152,14 @@ jobs:
         shell: bash
         run: |
           cat > release_notes.md <<EOF
-          Musify Cloud ${{ steps.release.outputs.version }}
+          Musify Android ${{ steps.release.outputs.version }}
 
-          Based on upstream Musify ${{ steps.release.outputs.version }} from gokadzev/Musify and packaged as the separate Musify Cloud Android build.
+          Based on upstream Musify ${{ steps.release.outputs.version }} from gokadzev/Musify and packaged as the separate Musify Android build.
 
           What is different from original Musify:
-          - Optional Cloud Sync for settings, playlists, liked songs, recently played songs, and most-played metadata.
+          - Optional Local Sync: playlists, liked songs and history merge directly with the desktop port over Wi-Fi, with no account or server.
           - Separate Android package id com.elias001011.musifycloud, app name, icon color, and update channel, so it can be installed beside original Musify.
           - Mobile updater checks this repository's mobile-v* release channel instead of upstream Android releases.
-          - Large cloud backups may be gzip-compressed inside a JSON envelope before upload.
 
           Assets:
           - MusifyCloud.apk: universal Android APK.
@@ -171,8 +172,8 @@ jobs:
 
           Upstream Musify: https://github.com/gokadzev/Musify/releases/tag/${{ steps.release.outputs.version }}
 
-          Cloud Sync setup docs:
-          https://github.com/elias001011/Musify-Desktop-Port/blob/mobile-cloud-sync/docs/cloud-sync.md
+          Local Sync docs:
+          https://github.com/elias001011/Musify-Desktop-Port/blob/master/docs/local-sync.md
           EOF
 
       - name: Publish GitHub release
@@ -183,6 +184,10 @@ jobs:
           tag="${{ steps.release.outputs.tag }}"
           repair="${{ steps.release.outputs.repair }}"
           target_commit="$(git rev-parse HEAD)"
+          prerelease_flag="--prerelease=false"
+          if [[ "${{ steps.release.outputs.prerelease }}" == "true" ]]; then
+            prerelease_flag="--prerelease"
+          fi
 
           if gh release view "$tag" >/dev/null 2>&1; then
             if [[ "$repair" != "true" ]]; then
@@ -194,14 +199,16 @@ jobs:
             gh release delete-asset "$tag" MusifyCloud.apk -y || true
             gh release delete-asset "$tag" SHA256SUMS.txt -y || true
             gh release edit "$tag" \
-              --title "Musify Cloud ${{ steps.release.outputs.version }}" \
+              --title "Musify Android ${{ steps.release.outputs.version }}" \
               --notes-file release_notes.md \
-              --target "$target_commit"
+              --target "$target_commit" \
+              "$prerelease_flag"
           else
             gh release create "$tag" \
-              --title "Musify Cloud ${{ steps.release.outputs.version }}" \
+              --title "Musify Android ${{ steps.release.outputs.version }}" \
               --notes-file release_notes.md \
-              --target "$target_commit"
+              --target "$target_commit" \
+              "$prerelease_flag"
           fi
 
           gh release upload "$tag" dist/MusifyCloud-arm64-v8a.apk dist/MusifyCloud.apk dist/SHA256SUMS.txt --clobber
@@ -237,7 +244,3 @@ jobs:
             -f make_latest=true >/dev/null
 
           echo "Latest is now $(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)."
-
-      # Musify AI was archived to a private repository (elias001011/musify-ai)
-      # and its branch was removed from this repository, so there is nothing
-      # to sync from a Musify Cloud release anymore.

@@ -65,39 +65,31 @@ Future<void> checkAppUpdates() async {
 }
 
 Future<void> _checkAndroidAppUpdates() async {
-  final response = await http.get(Uri.parse(checkUrl));
-
-  if (response.statusCode != 200) {
-    logger.log(
-      'Fetch update API (checkUrl) call returned status code ${response.statusCode}',
-    );
-    return;
-  }
-
-  final map = json.decode(response.body) as Map<String, dynamic>;
-  announcementURL.value = map['announcementurl'];
-  final latestVersion = map['version'].toString();
-
-  if (!isLatestVersionHigher(appVersion, latestVersion)) {
-    return;
-  }
-
-  final releasesRequest = await http.get(Uri.parse(releasesUrl));
-
-  if (releasesRequest.statusCode != 200) {
-    logger.log(
-      'Fetch update API (releasesUrl) call returned status code ${releasesRequest.statusCode}',
-    );
-    return;
-  }
-
-  final releasesResponse =
-      json.decode(releasesRequest.body) as Map<String, dynamic>;
-
+  final response = await http.get(Uri.parse(desktopReleasesUrl));
+  if (response.statusCode != 200) return;
+  final decoded = json.decode(response.body);
+  if (decoded is! List) return;
+  final release = decoded.whereType<Map>().where((item) =>
+    item['draft'] != true && item['prerelease'] != true &&
+    item['tag_name'].toString().startsWith('mobile-v')).firstOrNull;
+  if (release == null) return;
+  final version = release['tag_name'].toString().replaceFirst('mobile-v', '');
+  if (!isLatestVersionHigher(appVersion, version)) return;
   await _showUpdateDialog(
-    latestVersion: latestVersion,
-    releaseBody: releasesResponse['body']?.toString() ?? '',
-    resolveDownloadUrl: () => getDownloadUrl(map),
+    latestVersion: version,
+    releaseBody: release['body']?.toString() ?? '',
+    resolveDownloadUrl: () async {
+      final assets = (release['assets'] as List? ?? []).whereType<Map>();
+      final names = Platform.version.contains('arm64')
+          ? ['MusifyCloud-arm64-v8a.apk', 'MusifyCloud.apk']
+          : ['MusifyCloud.apk', 'MusifyCloud-arm64-v8a.apk'];
+      for (final name in names) {
+        for (final asset in assets) {
+          if (asset['name'] == name) return asset['browser_download_url'].toString();
+        }
+      }
+      return release['html_url'].toString();
+    },
   );
 }
 
