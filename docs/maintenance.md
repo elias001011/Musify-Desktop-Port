@@ -256,9 +256,9 @@ transport updates, and late results are discarded after a track change.
 
 ## Unified Android and desktop sources
 
-`master` now builds all three platforms. The historical `mobile-cloud-sync`
-branch is retained for reference and is not a release source. Both upstream
-sync workflows target `master` and share a concurrency group. Android keeps
+`master` builds all three platforms and is the only long-lived branch; the
+old `mobile-cloud-sync` and `validation/*` branches were merged and removed.
+Both upstream sync workflows target `master` and share a concurrency group. Android keeps
 `com.elias001011.musifycloud` for update compatibility; desktop settings remain
 platform guarded. Local Sync needs no server defines or signing secrets.
 Android release signing continues to use the existing GitHub Actions secrets.

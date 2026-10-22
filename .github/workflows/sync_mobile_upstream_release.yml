@@ -203,7 +203,7 @@ jobs:
           if [[ "${MERGE_OUTCOME}" == "failure" ]]; then
             reason="the merge hit conflicts"
           elif [[ "${PUSHED}" == "success" ]]; then
-            reason="mobile-cloud-sync was pushed but the release dispatch failed"
+            reason="master was pushed but the release dispatch failed"
           else
             reason="the merged tree did not pass flutter analyze, so nothing was pushed"
           fi

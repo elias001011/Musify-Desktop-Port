@@ -4,7 +4,13 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - validation/local-sync-v2
+      - master
+    paths:
+      - 'lib/services/local_sync*'
+      - 'lib/services/local_sync/**'
+      - 'lib/services/library_merge_service.dart'
+      - 'test/local_sync/**'
+      - '.github/scripts/test_local_sync_peers.py'
 
 permissions:
   contents: read

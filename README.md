@@ -87,9 +87,12 @@ it cannot match one.
 ### Added: optional desktop conveniences
 
 **Volume control.** A phone has hardware volume buttons; a desktop app is
-expected to have its own. The miniplayer and the expanded player show a speaker
-button that expands into an inline slider, wired to the audio handler's volume
-stream. It renders only on Windows, Linux and macOS.
+expected to have its own. The miniplayer and the expanded player show a
+speaker button in the theme's primary colour. Clicking it unfolds an inline
+slider; right-click mutes and restores the previous volume, and the mouse wheel
+over the control adjusts the volume. It renders only on Windows, Linux and
+macOS. (The simpler always-visible slider proposed upstream in PR #1000 is a
+different, deliberately minimal take on the same feature.)
 
 **Desktop layout.** Settings has a **Desktop layout** section, shown only on
 Windows, Linux and macOS, with two things a phone build has no need for:
@@ -145,6 +148,26 @@ Search, playback logic, the library, playlists, offline downloads, lyrics, the
 theme and the general UI are upstream's. The port keeps startup and core changes
 small on purpose: the smaller the diff, the less often an upstream release
 conflicts with it, and the sync workflow can stay automatic.
+
+## Upstream desktop work and this port's role
+
+Upstream ([gokadzev/Musify](https://github.com/gokadzev/Musify)) is adding
+desktop support itself, and this port is where those features are built and
+exercised on real Windows/Linux builds first. The pieces that are small enough
+to live in upstream are contributed there as separate, independent PRs, so the
+port can shrink over time instead of diverging. State of those PRs as of
+2026-10-22 (all open, none reviewed by the maintainer yet):
+
+| PR | What | Relation to this port |
+|---|---|---|
+| [#1000](https://github.com/gokadzev/Musify/pull/1000) | Desktop volume control | Minimal variant: always-visible slider, click to mute. The port keeps its richer unfolding speaker button. |
+| [#1001](https://github.com/gokadzev/Musify/pull/1001) | Fixed desktop shortcuts (Space, Ctrl+arrows, Ctrl+F/P) | Subset of the port's remappable shortcuts. |
+| [#1002](https://github.com/gokadzev/Musify/pull/1002) | Escape / Numpad Enter in search, Escape in bottom sheets | Same behaviour as the port. |
+| [#1003](https://github.com/gokadzev/Musify/pull/1003) | Linux startup recovery (missing `xdg-user-dir` / `libmpv`), by a third-party contributor | Not authored here. Worth adopting: without `libmpv` the port currently logs the media_kit error instead of showing a helpful screen. |
+| [#1005](https://github.com/gokadzev/Musify/pull/1005) | Optional Local Sync over the LAN (draft) | Adapted from this port's Local Sync; still needs physical-device validation. |
+
+Everything else open upstream (library, playback and Android Auto PRs) is
+mobile-focused and unrelated to this port.
 
 ## Local Sync
 
