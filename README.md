@@ -161,7 +161,7 @@ port can shrink over time instead of diverging. State of those PRs as of
 | [#1000](https://github.com/gokadzev/Musify/pull/1000) | Desktop volume control | Same component the port ships. |
 | [#1001](https://github.com/gokadzev/Musify/pull/1001) | Fixed desktop shortcuts (Space, Ctrl+arrows, Ctrl+F/P) | Subset of the port's remappable shortcuts. |
 | [#1002](https://github.com/gokadzev/Musify/pull/1002) | Escape / Numpad Enter in search, Escape in bottom sheets | Same behaviour as the port. |
-| [#1003](https://github.com/gokadzev/Musify/pull/1003) | Linux startup recovery (missing `xdg-user-dir` / `libmpv`), by a third-party contributor | Not authored here. Worth adopting: without `libmpv` the port currently logs the media_kit error instead of showing a helpful screen. |
+| [#1003](https://github.com/gokadzev/Musify/pull/1003) | Linux startup recovery (missing `xdg-user-dir` / `libmpv`), by a third-party contributor | Not authored here; adopted in the port. Desktop data moves to the application support directory (legacy Hive boxes and downloads are migrated once), and a missing `libmpv` shows a startup screen with install hints instead of crashing. |
 | [#1005](https://github.com/gokadzev/Musify/pull/1005) | Optional Local Sync over the LAN (draft) | Adapted from this port's Local Sync; still needs physical-device validation. |
 
 Everything else open upstream (library, playback and Android Auto PRs) is
