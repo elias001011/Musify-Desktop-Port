@@ -87,12 +87,10 @@ it cannot match one.
 ### Added: optional desktop conveniences
 
 **Volume control.** A phone has hardware volume buttons; a desktop app is
-expected to have its own. The miniplayer and the expanded player show a
-speaker button in the theme's primary colour. Clicking it unfolds an inline
-slider; right-click mutes and restores the previous volume, and the mouse wheel
-over the control adjusts the volume. It renders only on Windows, Linux and
-macOS. (The simpler always-visible slider proposed upstream in PR #1000 is a
-different, deliberately minimal take on the same feature.)
+expected to have its own. The miniplayer and the expanded player show a speaker
+icon with a fixed horizontal slider; clicking the icon mutes and restores the
+previous volume, and the mouse wheel adjusts it. It renders only on Windows,
+Linux and macOS, and is the same component proposed upstream in PR #1000.
 
 **Desktop layout.** Settings has a **Desktop layout** section, shown only on
 Windows, Linux and macOS, with two things a phone build has no need for:
@@ -160,7 +158,7 @@ port can shrink over time instead of diverging. State of those PRs as of
 
 | PR | What | Relation to this port |
 |---|---|---|
-| [#1000](https://github.com/gokadzev/Musify/pull/1000) | Desktop volume control | Minimal variant: always-visible slider, click to mute. The port keeps its richer unfolding speaker button. |
+| [#1000](https://github.com/gokadzev/Musify/pull/1000) | Desktop volume control | Same component the port ships. |
 | [#1001](https://github.com/gokadzev/Musify/pull/1001) | Fixed desktop shortcuts (Space, Ctrl+arrows, Ctrl+F/P) | Subset of the port's remappable shortcuts. |
 | [#1002](https://github.com/gokadzev/Musify/pull/1002) | Escape / Numpad Enter in search, Escape in bottom sheets | Same behaviour as the port. |
 | [#1003](https://github.com/gokadzev/Musify/pull/1003) | Linux startup recovery (missing `xdg-user-dir` / `libmpv`), by a third-party contributor | Not authored here. Worth adopting: without `libmpv` the port currently logs the media_kit error instead of showing a helpful screen. |
