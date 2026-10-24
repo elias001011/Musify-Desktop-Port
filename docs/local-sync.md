@@ -16,7 +16,8 @@ backend or API key. Android, Linux and Windows build from `master`.
    **both** devices are exchanged.
 
 Old protocol-1 pairings need to be paired again; public device IDs alone no
-longer grant access. Long-press a paired device to forget it. Pair each desired
+longer grant access. Long-press a paired device to forget it. Forgetting is per device: if only one side forgets, the other still
+shows an error until it also forgets the device and pairs again. Pair each desired
 connection when using three or more devices. Automatic sync contacts all
 reachable paired devices and forwards received changes to other peers.
 
@@ -100,7 +101,8 @@ for private-network access. There is no remote/cloud fallback or Internet sync.
 - `library_merge_service.dart`: Hive export, validation, journal and recovery.
 - `local_sync_page.dart` and settings: devices and category selection.
 
-`flutter test` covers merges, categories, authentication, replay, recovery and
+`flutter test` covers merges (including a randomized four-device convergence
+test), categories, authentication, replay, recovery and
 Android settings isolation. `.github/scripts/test_local_sync_peers.py` launches
 three independent Flutter processes with separate storage and real HTTP servers;
 it checks convergence, deletions, conflicts, reconnects, simultaneous requests
