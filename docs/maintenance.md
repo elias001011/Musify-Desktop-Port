@@ -213,6 +213,17 @@ is back. Only files named like downloads (`<youtube id>.m4a` / `.jpg`) are ever
 moved or deleted, since the chosen folder may hold the user's own files. Hive
 data itself stays in the default location.
 
+## Installer Data Locations
+
+The Windows installer asks where to keep application data and downloads and
+writes `install-config.txt` (`dataDir=`, `downloadsDir=`) beside `musify.exe`;
+silent installs take `/DATADIR=` and `/DOWNLOADSDIR=`. An empty value is the
+default. At startup `lib/services/install_config_service.dart` copies the Hive
+boxes to a new data folder (the originals stay, and existing boxes there are
+never overwritten) and falls back to the default if the folder is unusable.
+The downloads folder is applied once, unless one was chosen in the app, and
+existing downloads keep playing from where they are.
+
 ## Remotes
 
 Recommended local remotes:

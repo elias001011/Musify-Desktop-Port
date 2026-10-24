@@ -1,0 +1,197 @@
+/*
+ *     Copyright (C) 2026 Valeri Gokadze
+ *
+ *     Musify is free software: you can redistribute it and/or modify
+ *     it under the terms of the GNU General Public License as published by
+ *     the Free Software Foundation, either version 3 of the License, or
+ *     (at your option) any later version.
+ *
+ *     Musify is distributed in the hope that it will be useful,
+ *     but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *     GNU General Public License for more details.
+ *
+ *     You should have received a copy of the GNU General Public License
+ *     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ *
+ *     For more information about Musify, including how to contribute,
+ *     please visit: https://github.com/gokadzev/Musify
+ */
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:hive/hive.dart';
+import 'package:musify/utilities/startup_support.dart';
+
+/// Locations chosen in the Windows installer, read from `install-config.txt`
+/// beside the executable. A missing file or empty value means the default.
+class InstallConfig {
+  const InstallConfig({this.dataDir, this.downloadsDir});
+
+  static const fileName = 'install-config.txt';
+  static const _appliedDownloadsKey = 'installDownloadsDirectory';
+
+  final String? dataDir;
+  final String? downloadsDir;
+
+  static InstallConfig parse(String text) {
+    String? read(String key) {
+      final body = text.startsWith('\uFEFF') ? text.substring(1) : text;
+      for (final line in const LineSplitter().convert(body)) {
+        if (!line.startsWith('$key=')) continue;
+        final value = line.substring(key.length + 1).trim();
+        return _isAbsolute(value) ? value : null;
+      }
+      return null;
+    }
+
+    return InstallConfig(
+      dataDir: read('dataDir'),
+      downloadsDir: read('downloadsDir'),
+    );
+  }
+
+  static Future<InstallConfig> load({File? file}) async {
+    try {
+      final source =
+          file ??
+          File(
+            '${File(Platform.resolvedExecutable).parent.path}'
+            '${Platform.pathSeparator}$fileName',
+          );
+      if (!await source.exists()) return const InstallConfig();
+      return parse(utf8.decode(await source.readAsBytes()));
+    } catch (_) {
+      return const InstallConfig();
+    }
+  }
+
+  static bool _isAbsolute(String value) =>
+      !value.contains('\u0000') &&
+      (value.startsWith('/') ||
+          RegExp(r'^[A-Za-z]:[\\/]').hasMatch(value) ||
+          value.startsWith(r'\\'));
+
+  /// The folder for Hive boxes: [dataDir] once it is writable and holds a
+  /// copy of the data in [defaultDir], otherwise [defaultDir] itself.
+  Future<String> resolveDataDir(
+    String defaultDir, {
+    void Function(String message)? log,
+  }) async {
+    final target = dataDir;
+    if (target == null || _same(target, defaultDir)) return defaultDir;
+
+    try {
+      final directory = Directory(target);
+      await directory.create(recursive: true);
+      final probe = File(
+        '${directory.path}${Platform.pathSeparator}.write-test',
+      );
+      await probe.writeAsString('ok', flush: true);
+      await probe.delete();
+
+      final report = await copyHiveBoxes(
+        from: Directory(defaultDir),
+        to: directory,
+      );
+      if (report.failed.isNotEmpty) {
+        log?.call('Could not copy ${report.failed.join(', ')} to $target');
+        return defaultDir;
+      }
+      if (report.copied.isNotEmpty) {
+        log?.call('Copied ${report.copied.join(', ')} to $target');
+      }
+      return target;
+    } catch (e) {
+      log?.call('Data folder $target is unusable, using the default: $e');
+      return defaultDir;
+    }
+  }
+
+  /// Makes the installer's downloads folder the one in use, once per chosen
+  /// value and only if the user has not picked a folder in the app.
+  Future<void> applyDownloadsDir({void Function(String message)? log}) async {
+    final target = downloadsDir;
+    if (target == null) return;
+
+    final store = Hive.box('userNoBackup');
+    if (store.get(_appliedDownloadsKey) == target) return;
+
+    try {
+      final existing = store.get('downloadsDirectory');
+      if (existing is! String || existing.isEmpty) {
+        await Directory(target).create(recursive: true);
+        await store.put('downloadsDirectory', target);
+      }
+      await store.put(_appliedDownloadsKey, target);
+    } catch (e) {
+      log?.call('Downloads folder $target is unusable, using the default: $e');
+    }
+  }
+
+  static bool _same(String a, String b) {
+    String normal(String value) {
+      final slashed = value.replaceAll(r'\', '/');
+      final trimmed = slashed.length > 1 && slashed.endsWith('/')
+          ? slashed.substring(0, slashed.length - 1)
+          : slashed;
+      return Platform.isWindows ? trimmed.toLowerCase() : trimmed;
+    }
+
+    return normal(a) == normal(b);
+  }
+}
+
+/// Result of [copyHiveBoxes].
+class HiveCopyReport {
+  const HiveCopyReport({this.copied = const [], this.failed = const []});
+
+  final List<String> copied;
+  final List<String> failed;
+}
+
+/// Copies the Hive boxes from [from] to [to] and leaves the originals in
+/// place. Nothing is copied when [to] already has boxes, so newer data there
+/// is never replaced, and every copy is checked by size before it counts.
+Future<HiveCopyReport> copyHiveBoxes({
+  required Directory from,
+  required Directory to,
+}) async {
+  final separator = Platform.pathSeparator;
+  if (!await from.exists()) return const HiveCopyReport();
+  if (await hasLegacyDesktopHiveBoxes(to)) return const HiveCopyReport();
+
+  final copied = <String>[];
+  final failed = <String>[];
+  for (final box in legacyDesktopBoxNames) {
+    final name = '$box.hive';
+    final source = File('${from.path}$separator$name');
+    if (!await source.exists()) continue;
+
+    final target = File('${to.path}$separator$name');
+    final partial = File('${target.path}.partial');
+    try {
+      await source.copy(partial.path);
+      if (await partial.length() != await source.length()) {
+        throw const FileSystemException('Copy is incomplete');
+      }
+      await partial.rename(target.path);
+      copied.add(name);
+    } catch (_) {
+      failed.add(name);
+      if (await partial.exists()) await partial.delete();
+    }
+  }
+
+  // A half-copied set would mix old and new data, so undo it.
+  if (failed.isNotEmpty) {
+    for (final name in copied) {
+      final file = File('${to.path}$separator$name');
+      if (await file.exists()) await file.delete();
+    }
+    return HiveCopyReport(failed: failed);
+  }
+  return HiveCopyReport(copied: copied);
+}

@@ -39,6 +39,7 @@ import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/desktop_media_artwork.dart';
 import 'package:musify/services/desktop_window_service.dart';
 import 'package:musify/services/downloads_location_service.dart';
+import 'package:musify/services/install_config_service.dart';
 import 'package:musify/services/io_service.dart';
 import 'package:musify/services/keyboard_shortcuts_manager.dart';
 import 'package:musify/services/linux_media_controls.dart';
@@ -446,6 +447,13 @@ Future<String?> initialisation() async {
       } else {
         await _migrateLegacyDesktopDataIfNeeded(applicationDirPath);
       }
+      final installConfig = await InstallConfig.load();
+      if (!resolvedDirectory.isFallback) {
+        applicationDirPath = await installConfig.resolveDataDir(
+          applicationDirPath,
+          log: logger.log,
+        );
+      }
       Hive.init(applicationDirPath);
     } else {
       await Hive.initFlutter();
@@ -601,6 +609,9 @@ Future<String?> initialisation() async {
   }
 
   try {
+    if (isDesktopPlatform) {
+      await (await InstallConfig.load()).applyDownloadsDir(log: logger.log);
+    }
     await DownloadsLocation.initialise();
     await FilePaths.ensureDirectoriesExist();
   } catch (e, stackTrace) {
