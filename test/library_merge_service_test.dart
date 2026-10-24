@@ -6,6 +6,7 @@ import 'package:musify/services/common_services.dart';
 import 'package:musify/services/library_merge_service.dart';
 import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/local_sync/sync_data.dart';
+import 'package:musify/services/local_sync/sync_merge.dart';
 import 'package:musify/services/settings_manager.dart';
 
 import 'local_sync/fixtures.dart';
@@ -52,6 +53,31 @@ void main() {
     },
   );
 
+  test('writes made by a merge are told apart from later user edits', () async {
+    final box = Hive.box('user');
+    await box.put('likedSongs', [song('local')]);
+    await LibraryMergeService.exportLibrary();
+    final remote = SyncDocument()
+      ..capture(
+        {
+          'likedSongs': [song('remote')],
+        },
+        null,
+        'other',
+      );
+    await LibraryMergeService.mergeLibrary(payload(remote));
+    expect(box.get('likedSongs'), hasLength(2));
+    expect(
+      LibraryMergeService.isMergeWrite('likedSongs', box.get('likedSongs')),
+      isTrue,
+    );
+    // Returning to the merged value later is a user edit.
+    expect(
+      LibraryMergeService.isMergeWrite('likedSongs', box.get('likedSongs')),
+      isFalse,
+    );
+  });
+
   test(
     'merge persists favourites, playlists, radio, history and recap',
     () async {
@@ -65,8 +91,9 @@ void main() {
           'wrappedListeningStats': recap(300),
         }),
       );
-      final stats = await LibraryMergeService.mergeLibrary(incoming);
-      expect(stats, isNotEmpty);
+      final changed = (await LibraryMergeService.mergeLibrary(incoming))
+          .changed;
+      expect(changed, isNotEmpty);
       expect(
         (Hive.box('user').get('likedSongs') as List)
             .map((e) => e['ytid'])
@@ -81,7 +108,10 @@ void main() {
             .get('wrappedListeningStats')['currentMonth']['totalSeconds'],
         18000,
       );
-      expect(await LibraryMergeService.mergeLibrary(incoming), isEmpty);
+      expect(
+        (await LibraryMergeService.mergeLibrary(incoming)).changed,
+        isEmpty,
+      );
     },
   );
 

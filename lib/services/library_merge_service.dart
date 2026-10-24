@@ -34,23 +34,11 @@ export 'local_sync/sync_data.dart' show SyncCategory, syncCategoryKeys;
 
 class LibraryMergeService {
   LibraryMergeService._();
-  static const schemaVersion = syncSchemaVersion;
-  static const libraryKeys = [
-    'likedSongs',
-    'likedRadioStations',
-    'playlists',
-    'likedPlaylists',
-    'customPlaylists',
-    'playlistFolders',
-    'pinnedPlaylistIds',
-    'recentlyPlayedSongs',
-    'searchHistory',
-    'wrappedListeningStats',
-  ];
   static const _documentKey = 'localSyncDocumentV2';
   static const _baselineKey = 'localSyncBaselineV2';
   static const _journalKey = 'localSyncPendingMergeV2';
   static Future<void> _tail = Future.value();
+  static final Map<String, String> _written = {};
   @visibleForTesting
   static Future<void> Function(String stage)? fault;
 
@@ -99,7 +87,8 @@ class LibraryMergeService {
     _refresh();
   }
 
-  static String _deviceId() {
+  /// This installation's sync identity, created on first use.
+  static String get deviceId {
     final store = Hive.box('userNoBackup');
     final existing = store.get('localSyncDeviceId');
     if (existing is String && existing.isNotEmpty) return existing;
@@ -112,10 +101,16 @@ class LibraryMergeService {
     return id;
   }
 
+  /// Whether this `user` box event is the merge's own write; each write is matched once.
+  static bool isMergeWrite(String key, Object? value) {
+    final written = _written.remove(key);
+    return written != null && written == syncDigest(value);
+  }
+
   static Map<String, dynamic> _snapshot() {
     final user = Hive.box('user');
     return {
-      for (final key in libraryKeys)
+      for (final key in syncCategoryKeys.values.expand((keys) => keys))
         if (key != 'wrappedListeningStats' || user.get(key) != null)
           key: encodeSyncValue(user.get(key, defaultValue: [])),
     };
@@ -141,110 +136,123 @@ class LibraryMergeService {
     await Hive.box('userNoBackup').flush();
   }
 
+  static Map<String, dynamic> _payload(
+    SyncDocument document,
+    Set<SyncCategory> categories,
+  ) => {
+    'schemaVersion': syncSchemaVersion,
+    'categories': categories.map((e) => e.name).toList()..sort(),
+    'document': document.select(categories).toMap(),
+  };
+
   static Future<Map<String, dynamic>> exportLibrary({
     Set<SyncCategory>? categories,
   }) => _locked(() async {
-    final selected = categories ?? SyncCategory.values.toSet();
     await listeningStatsService.prepareForSync();
     final current = _snapshot();
-    final document = _document()..capture(current, _baseline(), _deviceId());
-    await _save(document, current);
-    return {
-      'schemaVersion': schemaVersion,
-      'categories': selected.map((e) => e.name).toList()..sort(),
-      'document': document.select(selected).toMap(),
-    };
+    final document = _document();
+    if (document.capture(current, _baseline(), deviceId)) {
+      await _save(document, current);
+    }
+    return _payload(document, categories ?? SyncCategory.values.toSet());
   });
 
-  static Future<Map<String, int>> mergeLibrary(
-    Map<String, dynamic> remote, {
-    Set<SyncCategory>? categories,
-  }) => _locked(() async {
-    if (remote['schemaVersion'] != schemaVersion ||
-        remote['document'] is! Map ||
-        remote['document']['version'] != schemaVersion) {
-      throw const FormatException(
-        'Unsupported sync version. Update both devices.',
-      );
-    }
-    validateSyncJson(remote);
-    final incomingCategories = parseSyncCategories(remote['categories']);
-    final selected = categories ?? SyncCategory.values.toSet();
-    if (!selected.containsAll(incomingCategories)) {
-      throw const FormatException('Sync categories changed');
-    }
-    final incoming = SyncDocument.fromMap(remote['document']);
-    if (canonicalSync(incoming.select(incomingCategories).records) !=
-        canonicalSync(incoming.records)) {
-      throw const FormatException('Unselected sync data');
-    }
-    await listeningStatsService.prepareForSync();
-    final store = Hive.box('userNoBackup');
-    for (var attempt = 0; attempt < 4; attempt++) {
-      final current = _snapshot();
-      final document = _document()..capture(current, _baseline(), _deviceId());
-      final metadataChanges = document.join(incoming);
-      final merged = document.materialize();
-      final keys = incomingCategories
-          .expand((c) => syncCategoryKeys[c]!)
-          .toSet();
-      final updates = <String, dynamic>{};
-      final stats = <String, int>{if (metadataChanges > 0) '_metadata': 1};
-      for (final key in keys) {
-        if (canonicalSync(current[key]) != canonicalSync(merged[key])) {
-          updates[key] = merged[key];
-          stats[key] = 1;
+  /// Merges [remote] and returns what changed plus this side's merged payload.
+  static Future<({Set<String> changed, Map<String, dynamic> library})>
+  mergeLibrary(Map<String, dynamic> remote, {Set<SyncCategory>? categories}) =>
+      _locked(() async {
+        if (remote['schemaVersion'] != syncSchemaVersion ||
+            remote['document'] is! Map ||
+            remote['document']['version'] != syncSchemaVersion) {
+          throw const FormatException(
+            'Unsupported sync version. Update both devices.',
+          );
         }
-      }
-      if (updates.isEmpty) {
-        await _save(document, current);
-        return stats;
-      }
-      final journal = {
-        'user': {
-          for (final key in updates.keys)
-            if (Hive.box('user').containsKey(key)) key: current[key],
-        },
-        'after': updates,
-        'absent': updates.keys
-            .where((key) => !Hive.box('user').containsKey(key))
-            .toList(),
-        _documentKey: store.get(_documentKey),
-        _baselineKey: store.get(_baselineKey),
-      };
-      await store.put(_journalKey, journal);
-      await store.flush();
-      if (canonicalSync(current) != canonicalSync(_snapshot())) {
-        await store.delete(_journalKey);
-        continue;
-      }
-      try {
-        await fault?.call('prepared');
-        if (canonicalSync(current) != canonicalSync(_snapshot())) {
-          await store.delete(_journalKey);
-          continue;
+        final incomingCategories = parseSyncCategories(remote['categories']);
+        final selected = categories ?? SyncCategory.values.toSet();
+        if (!selected.containsAll(incomingCategories)) {
+          throw const FormatException('Sync categories changed');
         }
-        final write = Hive.box('user').putAll(decodeSyncValue(updates) as Map);
-        _refresh();
-        await write;
-        await Hive.box('user').flush();
-        await fault?.call('written');
-        await _save(document, {...current, ...updates});
-        await fault?.call('metadata');
-        await store.delete(_journalKey);
-        await store.flush();
-        return stats;
-      } catch (_) {
-        await recoverPendingMerge();
-        rethrow;
-      }
-    }
-    throw StateError('Library is changing; try syncing again.');
-  });
+        final incoming = SyncDocument.fromMap(remote['document']);
+        if (incoming.select(incomingCategories).records.length !=
+            incoming.records.length) {
+          throw const FormatException('Unselected sync data');
+        }
+        await listeningStatsService.prepareForSync();
+        final store = Hive.box('userNoBackup');
+        for (var attempt = 0; attempt < 4; attempt++) {
+          final current = _snapshot();
+          final document = _document();
+          final captured = document.capture(current, _baseline(), deviceId);
+          final metadataChanges = document.join(incoming);
+          final reply = _payload(document, incomingCategories);
+          if (!captured && metadataChanges == 0) {
+            return (changed: <String>{}, library: reply);
+          }
+          final merged = document.materialize();
+          final keys = incomingCategories
+              .expand((c) => syncCategoryKeys[c]!)
+              .toSet();
+          final updates = <String, dynamic>{};
+          for (final key in keys) {
+            if (canonicalSync(current[key]) != canonicalSync(merged[key])) {
+              updates[key] = merged[key];
+            }
+          }
+          final changed = {
+            ...updates.keys,
+            if (metadataChanges > 0) '_metadata',
+          };
+          if (updates.isEmpty) {
+            await _save(document, current);
+            return (changed: changed, library: reply);
+          }
+          final journal = {
+            'user': {
+              for (final key in updates.keys)
+                if (Hive.box('user').containsKey(key)) key: current[key],
+            },
+            'after': updates,
+            'absent': updates.keys
+                .where((key) => !Hive.box('user').containsKey(key))
+                .toList(),
+            _documentKey: store.get(_documentKey),
+            _baselineKey: store.get(_baselineKey),
+          };
+          await store.put(_journalKey, journal);
+          await store.flush();
+          if (canonicalSync(current) != canonicalSync(_snapshot())) {
+            await store.delete(_journalKey);
+            continue;
+          }
+          try {
+            await fault?.call('prepared');
+            if (canonicalSync(current) != canonicalSync(_snapshot())) {
+              await store.delete(_journalKey);
+              continue;
+            }
+            for (final e in updates.entries) {
+              _written[e.key] = syncDigest(e.value);
+            }
+            final write = Hive.box('user')
+                .putAll(decodeSyncValue(updates) as Map);
+            _refresh();
+            await write;
+            await Hive.box('user').flush();
+            await fault?.call('written');
+            await _save(document, {...current, ...updates});
+            await fault?.call('metadata');
+            await store.delete(_journalKey);
+            await store.flush();
+            return (changed: changed, library: reply);
+          } catch (_) {
+            await recoverPendingMerge();
+            rethrow;
+          }
+        }
+        throw StateError('Library is changing; try syncing again.');
+      });
 
-  static int totalAdded(Map<String, int> stats) => stats.entries
-      .where((entry) => !entry.key.startsWith('_'))
-      .fold(0, (sum, entry) => sum + entry.value);
   static void _refresh() {
     refreshBackedUpStateFromStorage();
     reloadSearchHistoryFromStorage();

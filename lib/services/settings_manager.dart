@@ -153,8 +153,6 @@ final localSyncLastSyncedAt = ValueNotifier<DateTime?>(
   _readDateTimeSetting('localSyncLastSyncedAt'),
 );
 
-final localSyncStatus = ValueNotifier<String>('Local sync is off');
-
 final appStateReloadSignal = ValueNotifier<int>(0);
 
 // Non-storage notifiers
@@ -165,16 +163,8 @@ var sleepTimerNotifier = ValueNotifier<Duration?>(null);
 
 final announcementURL = ValueNotifier<String?>(null);
 
-DateTime? _readDateTimeSetting(String key) {
-  final value = Hive.box('settings').get(key);
-  if (value is DateTime) {
-    return value;
-  }
-  if (value is String) {
-    return DateTime.tryParse(value);
-  }
-  return null;
-}
+DateTime? _readDateTimeSetting(String key) =>
+    DateTime.tryParse(Hive.box('settings').get(key)?.toString() ?? '');
 
 void reloadSettingsFromStorage() {
   final settings = Hive.box('settings');

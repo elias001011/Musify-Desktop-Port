@@ -6,8 +6,9 @@ backend or API key. Android, Linux and Windows build from `master`.
 
 ## Pairing and use
 
-1. Update every device to a build with the current PIN pairing (Local Sync
-   protocol 3).
+1. Update every device to the same Local Sync version (transport API 3, library
+   format 3). Older builds are refused with an update message; pairings made by
+   earlier releases keep working once both devices update.
 2. Enable **Settings → Local sync → Sync over local network** on each device.
 3. Open **Devices** on one device and choose the other device.
 4. Enter the six-digit PIN shown on the receiving device into the initiating
@@ -66,7 +67,8 @@ are retained while the devices may still need them, so sync metadata can grow.
 ## Failures and privacy
 
 Payloads are validated before import. Embedded playlist artwork is preserved
-(up to 16 MiB per data URI), with a 64 MiB limit on each encrypted wire message.
+(up to 16 MiB per data URI), with a 64 MiB limit on each message before it is
+compressed and encrypted.
 Ordinary text fields retain their smaller limit. All storage operations use a single serialized queue. Imports keep a durable recovery journal;
 if the app closes during a write, startup restores the interrupted transaction
 before retrying. Edits made after that write are preserved. A backup restore
@@ -77,13 +79,12 @@ Pairing uses SRP-6a with a random six-digit PIN and the fixed RFC 5054
 2048-bit group. Only the receiving device displays the PIN; a password proof
 authenticates it without sending the PIN over the network. The derived pair
 secret remains on the devices. A challenge expires after 60 seconds, is consumed
-after one proof attempt, and new requests are rate limited. Existing authenticated
-pairings from the previous protocol-2 release remain usable; new pairings need
-the updated PIN implementation on both devices. Library requests and replies use
-AES-256-GCM with route/peer binding,
+after one proof attempt, and new requests are rate limited. Library requests and
+replies are gzip-compressed, then sealed with AES-256-GCM with route/peer binding,
 request IDs and persisted sequence counters to reject replay. A public discovery
-ID is not a credential. Discovery still advertises device name, platform and
-port on the LAN. Trusted paired devices can modify the selected library data;
+ID is not a credential; unknown senders are refused before their request body is
+read. Discovery advertises the device name (the host name on desktop), its sync
+ID and port on the LAN. Trusted paired devices can modify the selected library data;
 forget devices you no longer control. Someone with access to the device's
 private app storage can read its pairing secrets.
 
@@ -103,7 +104,7 @@ for private-network access. There is no remote/cloud fallback or Internet sync.
 
 `flutter test` covers merges (including a randomized four-device convergence
 test), categories, authentication, replay, recovery and
-Android settings isolation. `.github/scripts/test_local_sync_peers.py` launches
+Android settings isolation. `test/local_sync/support/run_peers.py` launches
 three independent Flutter processes with separate storage and real HTTP servers;
 it checks convergence, deletions, conflicts, reconnects, simultaneous requests
 and recovery after killing a process during a write. Real Wi-Fi discovery and

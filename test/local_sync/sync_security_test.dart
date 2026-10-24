@@ -1,4 +1,9 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:musify/services/local_sync/sync_data.dart';
 import 'package:musify/services/local_sync/sync_pairing.dart';
 import 'package:musify/services/local_sync/sync_security.dart';
 
@@ -69,4 +74,28 @@ void main() {
       throwsA(anything),
     );
   });
+  test(
+    'oversized messages are refused before sending and after inflating',
+    () async {
+      final key = SyncSecurity.randomToken();
+      final huge = {'padding': List.filled(65 * 1024 * 1024, 'a').join()};
+      await expectLater(
+        SyncSecurity.seal(key, huge, 'merge|A|B'),
+        throwsA(isA<SyncTooLargeException>()),
+      );
+      final box = await AesGcm.with256bits().encrypt(
+        gzip.encode(utf8.encode(jsonEncode(huge))),
+        secretKey: SecretKey(base64Url.decode(key)),
+        aad: utf8.encode('merge|A|B'),
+      );
+      await expectLater(
+        SyncSecurity.open(key, {
+          'nonce': base64Encode(box.nonce),
+          'ciphertext': base64Encode(box.cipherText),
+          'mac': base64Encode(box.mac.bytes),
+        }, 'merge|A|B'),
+        throwsA(isA<SyncTooLargeException>()),
+      );
+    },
+  );
 }

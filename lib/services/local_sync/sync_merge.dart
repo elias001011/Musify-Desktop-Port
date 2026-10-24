@@ -22,6 +22,7 @@
 import 'dart:convert';
 
 import 'package:musify/services/local_sync/sync_data.dart';
+import 'package:musify/utilities/listening_stats_utils.dart';
 
 const _kindKeys = <String, String>{
   'likedSongs': 'likedSongs',
@@ -109,12 +110,15 @@ class SyncDocument {
     );
   }
 
-  // Record observed local edits, including removals, before exchanging snapshots.
-  void capture(
+  // Record observed local edits, including removals; returns whether anything changed.
+  bool capture(
     Map<String, dynamic> current,
     Map<String, dynamic>? baseline,
     String device,
   ) {
+    if (baseline != null && canonicalSync(current) == canonicalSync(baseline)) {
+      return false;
+    }
     final now = flatten(current);
     final before = baseline == null ? <String, dynamic>{} : flatten(baseline);
     final resetKey = _key('recapReset', '', '');
@@ -130,7 +134,7 @@ class SyncDocument {
           if (_aggregated(_parts(e.key)[0])) 'generation': [0, ''],
         };
       }
-      return;
+      return true;
     }
     final resetChanged = now[resetKey] != before[resetKey];
     final edits =
@@ -143,7 +147,7 @@ class SyncDocument {
             )
             .toList()
           ..sort();
-    if (edits.isEmpty) return;
+    if (edits.isEmpty) return false;
     clock++;
     final epoch = resetChanged ? [clock, device] : _epoch(records[resetKey]);
     for (final key in edits) {
@@ -162,6 +166,7 @@ class SyncDocument {
               : _generation(previous),
       };
     }
+    return true;
   }
 
   int join(SyncDocument other) {
@@ -169,13 +174,14 @@ class SyncDocument {
     for (final entry in other.records.entries) {
       final local = records[entry.key] as Map?;
       final incoming = entry.value as Map;
+      // Converged peers send identical cells, so skip them without the full merge.
+      if (local != null && sameSyncValue(local, incoming)) continue;
       final winner = local == null
           ? incoming
           : _mergeCell(_parts(entry.key)[0], local, incoming);
-      if (canonicalSync(local) != canonicalSync(winner)) {
-        records[entry.key] = Map<String, dynamic>.from(winner);
-        changes++;
-      }
+      if (identical(winner, local) || sameSyncValue(local, winner)) continue;
+      records[entry.key] = Map<String, dynamic>.from(winner);
+      changes++;
     }
     clock = _max(clock, other.clock);
     for (final cell in records.values) {
@@ -338,7 +344,7 @@ class SyncDocument {
     final recap = entries('recapMonth');
     return {
       'wrappedListeningStats': {
-        'schemaVersion': 2,
+        'schemaVersion': wrappedListeningStatsSchemaVersion,
         if (live.containsKey(_key('recapReset', '', '')))
           'syncResetId': live[_key('recapReset', '', '')],
         'year': date.year,
@@ -456,7 +462,7 @@ class SyncDocument {
     final recap = library['wrappedListeningStats'];
     if (recap != null) {
       if (recap is! Map ||
-          recap['schemaVersion'] != 2 ||
+          recap['schemaVersion'] != wrappedListeningStatsSchemaVersion ||
           recap['history'] is! Map ||
           recap['currentMonth'] is! Map ||
           recap['currentMonthKey'] is! String) {

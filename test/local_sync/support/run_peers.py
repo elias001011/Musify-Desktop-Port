@@ -1,4 +1,7 @@
-"""Exercise real encrypted HTTP sync with three independent Hive processes."""
+"""Exercise real encrypted HTTP sync with three independent Hive processes.
+
+Run from the repository root: python3 test/local_sync/support/run_peers.py
+"""
 import argparse
 import json
 import os
@@ -11,7 +14,7 @@ import time
 parser = argparse.ArgumentParser()
 parser.add_argument('--output', default='build/local-sync-peer-results')
 args = parser.parse_args()
-repo = Path(__file__).resolve().parents[2]
+repo = Path(__file__).resolve().parents[3]
 output = (repo / args.output).resolve()
 output.mkdir(parents=True, exist_ok=True)
 control = Path(tempfile.mkdtemp(prefix='musify-sync-peers-'))
@@ -138,6 +141,11 @@ try:
     assert all(identities(snapshot(role)['data']) == {'b', 'c'} for role in ['a', 'b', 'c'])
     record('deletion propagates to all three peers without resurrection')
 
+    command('c', 'edit', data={'likedSongs': [song('b'), song('c'), song('from-c')]})
+    command('a', 'automatic')
+    assert all('from-c' in identities(snapshot(role)['data']) for role in ['a', 'b', 'c'])
+    record('a change found late in an automatic round reaches peers synced earlier in it')
+
     reset({'customPlaylists': [playlist('pA', ['a'])], 'pinnedPlaylistIds': ['pA']}, {'customPlaylists': [playlist('pB', ['b'])], 'pinnedPlaylistIds': ['pB']})
     sync('a', 'b')
     a, b = snapshot('a'), snapshot('b')
@@ -251,7 +259,7 @@ try:
         assert failed['status'] == 'error', failed
     # The sender keeps its secret, so the message must say to forget and re-pair.
     assert snapshot('a')['paired'].get(ready_ids['b'])
-    assert 'forget' in failed['message'].lower(), failed['message']
+    assert failed['error'] == 'untrusted', failed
     record('one-sided forget: sync fails and tells the user to forget the device and pair again')
     unpair('a', 'b')
     time.sleep(3.2)

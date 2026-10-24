@@ -10,7 +10,7 @@ on:
       - 'lib/services/local_sync/**'
       - 'lib/services/library_merge_service.dart'
       - 'test/local_sync/**'
-      - '.github/scripts/test_local_sync_peers.py'
+      - 'test/local_sync/support/run_peers.py'
 
 permissions:
   contents: read
@@ -41,7 +41,7 @@ jobs:
           export MUSIFY_TEST_LIBMPV=/usr/lib/x86_64-linux-gnu/libmpv.so.2
           dbus-run-session -- flutter test --concurrency=2
       - name: Test three independent sync peers
-        run: python3 .github/scripts/test_local_sync_peers.py
+        run: python3 test/local_sync/support/run_peers.py
       - name: Save peer test evidence
         if: always()
         uses: actions/upload-artifact@v4
