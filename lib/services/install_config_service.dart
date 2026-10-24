@@ -25,8 +25,7 @@ import 'dart:io';
 import 'package:hive/hive.dart';
 import 'package:musify/utilities/startup_support.dart';
 
-/// Locations chosen in the Windows installer, read from `install-config.txt`
-/// beside the executable. A missing file or empty value means the default.
+/// Folders chosen in the installer, from `install-config.txt` beside the exe.
 class InstallConfig {
   const InstallConfig({this.dataDir, this.downloadsDir});
 
@@ -74,8 +73,7 @@ class InstallConfig {
           RegExp(r'^[A-Za-z]:[\\/]').hasMatch(value) ||
           value.startsWith(r'\\'));
 
-  /// The folder for Hive boxes: [dataDir] once it is writable and holds a
-  /// copy of the data in [defaultDir], otherwise [defaultDir] itself.
+  /// The Hive folder: [dataDir] once usable and populated, else [defaultDir].
   Future<String> resolveDataDir(
     String defaultDir, {
     void Function(String message)? log,
@@ -110,8 +108,7 @@ class InstallConfig {
     }
   }
 
-  /// Makes the installer's downloads folder the one in use, once per chosen
-  /// value and only if the user has not picked a folder in the app.
+  /// Applies the installer's downloads folder once, unless the app set one.
   Future<void> applyDownloadsDir({void Function(String message)? log}) async {
     final target = downloadsDir;
     if (target == null) return;
@@ -152,9 +149,7 @@ class HiveCopyReport {
   final List<String> failed;
 }
 
-/// Copies the Hive boxes from [from] to [to] and leaves the originals in
-/// place. Nothing is copied when [to] already has boxes, so newer data there
-/// is never replaced, and every copy is checked by size before it counts.
+/// Copies the Hive boxes to [to], keeping originals and never replacing boxes there.
 Future<HiveCopyReport> copyHiveBoxes({
   required Directory from,
   required Directory to,
