@@ -213,6 +213,15 @@ your playlists, liked songs and history follow you between the two.
 
 ## Release channels
 
+## Supported platforms
+
+| Platform | Status | Dependencies |
+|----------|--------|--------------|
+| Android  | ✅ Supported | — |
+| Linux    | ✅  Supported (Beta) | Will be added soon... |
+| Windows    | ✅  Supported (Beta) | — |
+| IOS    | ❌ Unsupported | — |
+
 Two families in one release list:
 
 - `desktop-v*` — Windows/Linux. Allowed to be GitHub **Latest**, because the

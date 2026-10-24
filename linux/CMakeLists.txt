@@ -137,3 +137,5 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/musify.desktop"
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"
   DESTINATION "${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/192x192/apps"
   RENAME "musify.png" COMPONENT Runtime)
+install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/install-linux-desktop.sh"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)

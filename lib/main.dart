@@ -62,10 +62,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 late MusifyAudioHandler audioHandler;
+LinuxMediaControls? linuxMediaControls;
+WindowsMediaControls? windowsMediaControls;
 StreamSubscription<String?>? sharingIntentSubscription;
 StreamSubscription<Uri?>? appLinksSubscription;
-WindowsMediaControls? windowsMediaControls;
-LinuxMediaControls? linuxMediaControls;
 
 final logger = Logger();
 final appLinks = AppLinks();
