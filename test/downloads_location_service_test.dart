@@ -132,4 +132,24 @@ void main() {
     expect(File('$defaultRoot/artworks/$songId.jpg').existsSync(), isFalse);
     expect(File('$defaultRoot/tracks/my song.m4a').existsSync(), isTrue);
   });
+
+  test('copies files kept outside our folders and leaves them', () async {
+    const legacyId = 'bbbbbbbbbbb';
+    final legacy = Directory('${tempDir.path}/Documents/tracks')
+      ..createSync(recursive: true);
+    final legacyAudio = File('${legacy.path}/$legacyId.m4a')
+      ..writeAsStringSync('legacy');
+    userOfflineSongs.value = [
+      ...userOfflineSongs.value,
+      {'ytid': legacyId, 'audioPath': legacyAudio.path},
+    ];
+
+    final status = await DownloadsLocation.change(customRoot);
+
+    final copied = '$customRoot/tracks/$legacyId.m4a';
+    expect(status, DownloadsMoveStatus.moved);
+    expect(File(copied).readAsStringSync(), 'legacy');
+    expect(legacyAudio.existsSync(), isTrue);
+    expect(userOfflineSongs.value.last['audioPath'], copied);
+  });
 }

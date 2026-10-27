@@ -27,16 +27,13 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
-// Height and padding of the header bar. It is applied with or without the app
-// colours, so the title bar keeps the same compact size in both modes.
+// Compact header bar, with or without the app colours.
 static const char kHeaderBarSizeCss[] =
     "#musify-header-bar {"
     "  min-height: 38px; padding: 0 6px;"
     "}";
 
-// Paints the header bar with the colours of the app theme (sent from
-// lib/services/desktop_window_service.dart), so it switches with the app's
-// light/dark mode instead of following the system GTK theme.
+// Paints the header bar with the app theme sent by desktop_window_service.dart.
 static void apply_title_bar_theme(MyApplication* self, gboolean dark,
                                   int64_t background, int64_t foreground) {
   g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
@@ -64,11 +61,15 @@ static void apply_title_bar_theme(MyApplication* self, gboolean dark,
   gtk_css_provider_load_from_data(self->title_bar_css, css, -1, nullptr);
 }
 
-// Drops the app colours and restores GTK's own dark preference, so the header
-// bar goes back to the system theme. Its compact size stays.
-static void reset_title_bar_theme(MyApplication* self) {
+// Back to the system colours. GTK 3 does not follow the desktop's dark mode on
+// its own, so the app passes it in [dark] when it knows it.
+static void reset_title_bar_theme(MyApplication* self, FlValue* dark) {
+  const gboolean prefer_dark =
+      dark != nullptr && fl_value_get_type(dark) == FL_VALUE_TYPE_BOOL
+          ? fl_value_get_bool(dark)
+          : self->default_prefer_dark_theme;
   g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
-               self->default_prefer_dark_theme, nullptr);
+               prefer_dark, nullptr);
 
   if (self->title_bar_css != nullptr) {
     gtk_css_provider_load_from_data(self->title_bar_css, kHeaderBarSizeCss, -1,
@@ -113,7 +114,10 @@ static void window_method_call_cb(FlMethodChannel* channel,
       response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
     }
   } else if (strcmp(method, "resetTitleBarTheme") == 0) {
-    reset_title_bar_theme(self);
+    reset_title_bar_theme(
+        self, fl_value_get_type(args) == FL_VALUE_TYPE_MAP
+                  ? fl_value_lookup_string(args, "dark")
+                  : nullptr);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
   } else {
     response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());

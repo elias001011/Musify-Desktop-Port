@@ -42,26 +42,17 @@ enum DownloadsMoveStatus {
   notWritable,
 }
 
-/// The desktop "Downloads folder" setting.
-///
-/// Downloads live in `<root>/tracks` and `<root>/artworks`, and every offline
-/// song stores the absolute path of its files. Changing the root therefore
-/// moves the files and rewrites those paths, so nothing has to be downloaded
-/// again and nothing is left behind twice.
-///
-/// The chosen folder is kept in the `userNoBackup` box: it is a path on this
-/// machine, and restoring a backup on another one must not carry it over.
+/// The desktop downloads folder. Changing it moves the files and rewrites the
+/// stored paths. Kept in `userNoBackup`: it is a path on this machine only.
 class DownloadsLocation {
   DownloadsLocation._();
 
   static const _storageKey = 'downloadsDirectory';
 
-  /// True when the chosen folder was missing at startup (an unplugged drive,
-  /// an unmounted share). Downloads fall back to the default folder until it
-  /// is back or another one is chosen; the setting itself is kept.
+  /// The chosen folder was missing at startup (an unplugged drive); downloads
+  /// use the default folder meanwhile, and the setting is kept.
   static bool unavailable = false;
 
-  /// The folder the user chose, or null for the default location.
   static String? get customPath {
     final value = Hive.box('userNoBackup').get(_storageKey);
     return value is String && value.isNotEmpty ? value : null;
@@ -77,8 +68,7 @@ class DownloadsLocation {
     final custom = customPath;
     if (custom == null) return;
 
-    // An existing folder only: creating a missing one here would quietly
-    // fill the mount point of an unplugged drive with downloads.
+    // Never recreated: it could fill the mount point of an unplugged drive.
     if (await Directory(custom).exists()) {
       downloadsDirPath = custom;
       unavailable = false;
@@ -88,8 +78,7 @@ class DownloadsLocation {
     }
   }
 
-  /// Makes [newRoot] the downloads folder (null restores the default) and
-  /// moves the existing downloads there.
+  /// Moves the downloads to [newRoot], or back to the default when null.
   static Future<DownloadsMoveStatus> change(String? newRoot) async {
     if (!isDesktopPlatform)
       throw UnsupportedError('Custom download folders are desktop only');
@@ -105,12 +94,12 @@ class DownloadsLocation {
       failed += await _moveFolderContents(source, target);
     }
 
-    // Songs kept somewhere else entirely (downloaded while the custom folder
-    // was unavailable, for instance) are brought over one by one.
+    // Copied, not moved: files outside our folders, such as an older
+    // documents directory, may still belong to another Musify install.
     for (final song in userOfflineSongs.value) {
       if (song is! Map) continue;
-      failed += await _moveReferencedFile(song['audioPath'], target, false);
-      failed += await _moveReferencedFile(song['artworkPath'], target, true);
+      failed += await _copyReferencedFile(song['audioPath'], target, false);
+      failed += await _copyReferencedFile(song['artworkPath'], target, true);
     }
 
     _rewriteStoredPaths(target);
@@ -132,7 +121,6 @@ class DownloadsLocation {
         : DownloadsMoveStatus.partiallyMoved;
   }
 
-  /// Creates the download folders under [root] and checks they take writes.
   static Future<bool> _prepare(String root) async {
     try {
       await Directory('$root/${FilePaths.tracksDir}').create(recursive: true);
@@ -152,8 +140,7 @@ class DownloadsLocation {
     }
   }
 
-  /// Moves Musify's own files from [source] to [target]; returns how many
-  /// could not be moved.
+  /// Returns how many files could not be moved.
   static Future<int> _moveFolderContents(String source, String target) async {
     var failed = 0;
     for (final artwork in [false, true]) {
@@ -173,7 +160,7 @@ class DownloadsLocation {
     return failed;
   }
 
-  static Future<int> _moveReferencedFile(
+  static Future<int> _copyReferencedFile(
     Object? path,
     String target,
     bool artwork,
@@ -184,8 +171,18 @@ class DownloadsLocation {
 
     final subDir = artwork ? FilePaths.artworksDir : FilePaths.tracksDir;
     final destination = '$target/$subDir/${file.uri.pathSegments.last}';
-    if (destination == path) return 0;
-    return await _moveFile(file, destination) ? 0 : 1;
+    if (destination == path || await File(destination).exists()) return 0;
+    try {
+      await file.copy(destination);
+      return 0;
+    } catch (e, stackTrace) {
+      logger.log(
+        'Could not copy $path to $destination',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return 1;
+    }
   }
 
   static Future<bool> _moveFile(File file, String destination) async {
@@ -198,8 +195,7 @@ class DownloadsLocation {
       try {
         await file.rename(destination);
       } on FileSystemException {
-        // rename() can't cross drives or partitions: copy, then drop the
-        // original only once the copy is complete.
+        // rename() can't cross drives: copy, then delete the original.
         await file.copy(destination);
         await file.delete();
       }
@@ -214,8 +210,7 @@ class DownloadsLocation {
     }
   }
 
-  /// Points every stored offline song whose file now sits under [root] at its
-  /// new path. Songs whose file didn't make it keep the path that still works.
+  /// Songs whose file did not move keep the path that still works.
   static void _rewriteStoredPaths(String root) {
     Map rewrite(Map song) {
       final updated = Map<String, dynamic>.from(song);

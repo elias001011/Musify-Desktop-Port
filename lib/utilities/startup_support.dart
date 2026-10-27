@@ -138,173 +138,77 @@ const List<String> legacyDesktopBoxNames = [
   'cache',
 ];
 
-/// Download directories written by previous desktop builds.
-const List<String> legacyDesktopDataDirs = ['tracks', 'artworks'];
+/// Outcome of [copyHiveBoxes].
+class HiveCopyReport {
+  const HiveCopyReport({this.copied = const [], this.failed = const []});
 
-/// Whether [directory] contains a Hive box written by an older desktop build.
-///
-/// Downloads are only migrated when this is true, so an unrelated documents
-/// folder is left untouched.
-Future<bool> hasLegacyDesktopHiveBoxes(Directory directory) async {
-  for (final box in legacyDesktopBoxNames) {
-    final file = File('${directory.path}${Platform.pathSeparator}$box.hive');
-    if (await file.exists()) return true;
-  }
-  return false;
-}
-
-/// Outcome of [migrateLegacyDesktopData].
-class DesktopDataMigration {
-  const DesktopDataMigration({
-    this.moved = const [],
-    this.skipped = const [],
-    this.failed = const [],
-  });
-
-  final List<String> moved;
-  final List<String> skipped;
+  final List<String> copied;
   final List<String> failed;
 
-  bool get hasWork =>
-      moved.isNotEmpty || skipped.isNotEmpty || failed.isNotEmpty;
+  bool get hasWork => copied.isNotEmpty || failed.isNotEmpty;
 
-  String describe() {
-    final parts = <String>[];
-    if (moved.isNotEmpty) parts.add('moved ${moved.join(', ')}');
-    if (skipped.isNotEmpty) parts.add('kept existing ${skipped.join(', ')}');
-    if (failed.isNotEmpty) parts.add('failed ${failed.join(', ')}');
-    return parts.isEmpty ? 'nothing to migrate' : parts.join('; ');
-  }
+  String describe() => failed.isEmpty
+      ? 'copied ${copied.join(', ')}'
+      : 'failed ${failed.join(', ')}';
 }
 
-/// Moves Hive boxes and downloaded media from the legacy document directory
-/// into [to]. Existing files in [to] win, so this is safe to run on every
-/// start and never overwrites newer data.
-Future<DesktopDataMigration> migrateLegacyDesktopData({
+/// Copies the Hive boxes in [from] into [to] when [to] has none yet.
+///
+/// Copy, not move: [from] may still belong to another Musify install.
+/// Downloads stay put, since offline songs store absolute paths. A partly
+/// copied set is removed again, so old and new data never mix.
+Future<HiveCopyReport> copyHiveBoxes({
   required Directory from,
   required Directory to,
   void Function(String message, {Object? error, StackTrace? stackTrace})? log,
 }) async {
-  final moved = <String>[];
-  final skipped = <String>[];
-  final failed = <String>[];
-
   if (from.absolute.path == to.absolute.path || !await from.exists()) {
-    return DesktopDataMigration(moved: moved, skipped: skipped, failed: failed);
+    return const HiveCopyReport();
+  }
+  if (await _hasHiveBoxes(to) || !await _hasHiveBoxes(from)) {
+    return const HiveCopyReport();
   }
 
   await to.create(recursive: true);
-  final canMigrateDownloads = await hasLegacyDesktopHiveBoxes(from);
+  final copied = <String>[];
+  final failed = <String>[];
 
   for (final box in legacyDesktopBoxNames) {
-    for (final extension in const ['.hive', '.lock']) {
-      final name = '$box$extension';
-      final source = File('${from.path}${Platform.pathSeparator}$name');
-      if (!await source.exists()) continue;
-
-      final target = File('${to.path}${Platform.pathSeparator}$name');
-      if (await target.exists()) {
-        skipped.add(name);
-        continue;
-      }
-
-      try {
-        await _moveFile(source, target);
-        moved.add(name);
-      } catch (e, stackTrace) {
-        failed.add(name);
-        log?.call('Failed to migrate $name', error: e, stackTrace: stackTrace);
-      }
-    }
-  }
-
-  for (final name in legacyDesktopDataDirs) {
-    final source = Directory('${from.path}${Platform.pathSeparator}$name');
+    // Hive writes box files in lower case.
+    final name = '${box.toLowerCase()}.hive';
+    final source = File('${from.path}${Platform.pathSeparator}$name');
     if (!await source.exists()) continue;
 
-    if (!canMigrateDownloads) {
-      log?.call(
-        'Leaving $name in the documents directory: no legacy Hive box found',
-      );
-      continue;
-    }
-
-    final target = Directory('${to.path}${Platform.pathSeparator}$name');
+    final target = File('${to.path}${Platform.pathSeparator}$name');
+    final partial = File('${target.path}.partial');
     try {
-      final result = await _moveDirectoryContents(
-        source: source,
-        target: target,
-      );
-      if (result.moved > 0) moved.add('$name/ (${result.moved} files)');
-      if (result.skipped > 0) skipped.add('$name/ (${result.skipped} files)');
+      // A temporary name, so an interrupted copy never leaves a truncated box.
+      await source.copy(partial.path);
+      await partial.rename(target.path);
+      copied.add(name);
     } catch (e, stackTrace) {
-      failed.add('$name/');
-      log?.call(
-        'Failed to migrate $name directory',
-        error: e,
-        stackTrace: stackTrace,
-      );
+      failed.add(name);
+      log?.call('Failed to copy $name', error: e, stackTrace: stackTrace);
+      if (await partial.exists()) await partial.delete();
     }
   }
 
-  return DesktopDataMigration(moved: moved, skipped: skipped, failed: failed);
-}
-
-Future<void> _moveFile(File source, File target) async {
-  try {
-    await source.rename(target.path);
-  } on FileSystemException {
-    // Fall back to copy + delete when source and target live on different
-    // filesystems (rename cannot cross device boundaries).
-    await target.parent.create(recursive: true);
-    await source.copy(target.path);
-    await source.delete();
+  if (failed.isNotEmpty) {
+    for (final name in copied) {
+      final file = File('${to.path}${Platform.pathSeparator}$name');
+      if (await file.exists()) await file.delete();
+    }
+    return HiveCopyReport(failed: failed);
   }
+  return HiveCopyReport(copied: copied);
 }
 
-Future<({int moved, int skipped})> _moveDirectoryContents({
-  required Directory source,
-  required Directory target,
-}) async {
-  await target.create(recursive: true);
-  var moved = 0;
-  var skipped = 0;
-
-  await for (final entity in source.list(followLinks: false)) {
-    final name = entity.path.substring(
-      entity.path.lastIndexOf(Platform.pathSeparator) + 1,
+Future<bool> _hasHiveBoxes(Directory directory) async {
+  for (final box in legacyDesktopBoxNames) {
+    final file = File(
+      '${directory.path}${Platform.pathSeparator}${box.toLowerCase()}.hive',
     );
-    final destination = '${target.path}${Platform.pathSeparator}$name';
-
-    if (entity is File) {
-      final targetFile = File(destination);
-      if (await targetFile.exists()) {
-        skipped++;
-        continue;
-      }
-      await _moveFile(entity, targetFile);
-      moved++;
-    } else if (entity is Directory) {
-      final result = await _moveDirectoryContents(
-        source: entity,
-        target: Directory(destination),
-      );
-      moved += result.moved;
-      skipped += result.skipped;
-      await _deleteIfEmpty(entity);
-    }
+    if (await file.exists()) return true;
   }
-
-  await _deleteIfEmpty(source);
-  return (moved: moved, skipped: skipped);
-}
-
-Future<void> _deleteIfEmpty(Directory directory) async {
-  try {
-    if (await directory.list().isEmpty) {
-      await directory.delete();
-    }
-  } on FileSystemException {
-    // Not empty or already gone; leave it in place.
-  }
+  return false;
 }

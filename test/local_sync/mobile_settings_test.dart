@@ -61,8 +61,8 @@ void main() {
   ) async {
     await page(tester, TargetPlatform.android);
     expect(find.text('Local sync'), findsOneWidget);
-    expect(find.text('Choose what to sync'), findsOneWidget);
-    expect(find.text('Desktop layout'), findsNothing);
+    expect(find.text('Sync over local network'), findsOneWidget);
+    expect(find.text('Desktop'), findsNothing);
     expect(find.text('Keyboard shortcuts'), findsNothing);
     expect(find.text('Downloads folder'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -72,7 +72,7 @@ void main() {
   testWidgets('desktop retains its platform options', (tester) async {
     await page(tester, TargetPlatform.linux);
     expect(find.text('Local sync'), findsOneWidget);
-    expect(find.text('Desktop layout'), findsOneWidget);
+    expect(find.text('Desktop'), findsOneWidget);
     expect(find.text('Keyboard shortcuts'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 2));

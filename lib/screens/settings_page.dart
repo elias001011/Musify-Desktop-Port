@@ -22,7 +22,6 @@
 import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -33,9 +32,6 @@ import 'package:musify/screens/local_sync_page.dart';
 import 'package:musify/screens/search_page.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/data_manager.dart';
-import 'package:musify/services/downloads_location_service.dart';
-import 'package:musify/services/io_service.dart';
-import 'package:musify/services/library_merge_service.dart';
 import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/local_sync_service.dart';
 import 'package:musify/services/playlist_download_service.dart';
@@ -53,6 +49,7 @@ import 'package:musify/utilities/url_launcher.dart';
 import 'package:musify/widgets/bottom_sheet_bar.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';
 import 'package:musify/widgets/custom_bar.dart';
+import 'package:musify/widgets/desktop_settings_section.dart';
 import 'package:musify/widgets/mini_player_bottom_space.dart';
 import 'package:musify/widgets/section_header.dart';
 import 'package:musify/widgets/shapes/four_sided_cookie_shape.dart';
@@ -75,7 +72,7 @@ class SettingsPage extends StatelessWidget {
           inactivatedColor,
         ),
         if (!offlineMode.value) _buildOnlineFeaturesSection(context),
-        if (isDesktopPlatform) _buildDesktopLayoutSection(context),
+        if (isDesktopPlatform) const DesktopSettingsSection(),
         _buildOthersSection(context),
         const SizedBox(height: 20),
         const MiniPlayerBottomSpace(),
@@ -324,71 +321,10 @@ class SettingsPage extends StatelessWidget {
           },
         ),
 
-        _buildLocalSyncSection(context),
+        const LocalSyncSettingsSection(),
         _buildToolsSection(context),
         _buildSponsorSection(context),
       ],
-    );
-  }
-
-  Widget _buildLocalSyncSection(BuildContext context) {
-    final service = LocalSyncService.instance;
-    if (!service.isSupportedPlatform) return const SizedBox.shrink();
-
-    return ValueListenableBuilder<bool>(
-      valueListenable: localSyncEnabled,
-      builder: (_, enabled, __) => Column(
-        children: [
-          SectionHeader(
-            title: context.l10n!.syncTitle,
-            icon: FluentIcons.phone_desktop_24_filled,
-          ),
-          CustomBar(
-            context.l10n!.syncOverNetwork,
-            FluentIcons.wifi_1_24_regular,
-            description: enabled
-                ? context.l10n!.syncOnDescription
-                : context.l10n!.syncOffDescription,
-            borderRadius: enabled
-                ? commonCustomBarRadiusFirst
-                : commonCustomBarRadius,
-            trailing: Switch(
-              value: enabled,
-              onChanged: (value) => _toggleLocalSync(context, value),
-            ),
-          ),
-          if (enabled) ...[
-            ValueListenableBuilder<DateTime?>(
-              valueListenable: localSyncLastSyncedAt,
-              builder: (_, lastSyncedAt, __) => CustomBar(
-                context.l10n!.syncDevices,
-                FluentIcons.arrow_sync_24_regular,
-                description: _lastSyncDescription(context, lastSyncedAt),
-                onTap: () => context.push('/settings/local-sync'),
-              ),
-            ),
-            ValueListenableBuilder<bool>(
-              valueListenable: localSyncAutomatic,
-              builder: (_, automatic, __) => CustomBar(
-                context.l10n!.syncAutomatic,
-                FluentIcons.arrow_clockwise_24_regular,
-                description: context.l10n!.syncAutomaticDescription,
-                trailing: Switch(
-                  value: automatic,
-                  onChanged: service.setAutomatic,
-                ),
-              ),
-            ),
-            CustomBar(
-              context.l10n!.syncData,
-              FluentIcons.list_24_regular,
-              description: context.l10n!.syncSelections,
-              borderRadius: commonCustomBarRadiusLast,
-              onTap: () => _showSyncCategories(context),
-            ),
-          ],
-        ],
-      ),
     );
   }
 
@@ -602,134 +538,6 @@ class SettingsPage extends StatelessWidget {
               ),
             ),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDesktopLayoutSection(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Column(
-      children: [
-        SectionHeader(
-          title: context.l10n!.desktopLayout,
-          icon: FluentIcons.desktop_24_filled,
-        ),
-        ValueListenableBuilder<double>(
-          valueListenable: interfaceScale,
-          builder: (context, scale, _) {
-            final percent = (scale * 100).round();
-            return Material(
-              color: colorScheme.surfaceContainerLow,
-              borderRadius: commonCustomBarRadiusFirst,
-              clipBehavior: Clip.antiAlias,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          FluentIcons.text_font_size_24_regular,
-                          size: 22,
-                          color: colorScheme.onSecondaryContainer,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            context.l10n!.interfaceScale,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          '$percent%',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: colorScheme.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      context.l10n!.interfaceScaleDescription,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    Slider(
-                      value: scale,
-                      min: minInterfaceScale,
-                      max: maxInterfaceScale,
-                      divisions:
-                          ((maxInterfaceScale - minInterfaceScale) / 0.05)
-                              .round(),
-                      label: '$percent%',
-                      onChanged: (value) {
-                        interfaceScale.value = double.parse(
-                          value.toStringAsFixed(2),
-                        );
-                      },
-                      onChangeEnd: (value) {
-                        final rounded = double.parse(value.toStringAsFixed(2));
-                        interfaceScale.value = rounded;
-                        addOrUpdateData<double>(
-                          'settings',
-                          'interfaceScale',
-                          rounded,
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-        ValueListenableBuilder<bool>(
-          valueListenable: startMaximized,
-          builder: (context, value, _) {
-            return CustomBar(
-              context.l10n!.startMaximized,
-              FluentIcons.maximize_24_regular,
-              description: context.l10n!.startMaximizedDescription,
-              trailing: Switch(
-                value: value,
-                onChanged: (value) {
-                  startMaximized.value = value;
-                  addOrUpdateData<bool>('settings', 'startMaximized', value);
-                },
-              ),
-            );
-          },
-        ),
-        ValueListenableBuilder<bool>(
-          valueListenable: customTitleBar,
-          builder: (context, value, _) {
-            return CustomBar(
-              context.l10n!.customTitleBar,
-              FluentIcons.color_background_24_regular,
-              description: context.l10n!.customTitleBarDescription,
-              trailing: Switch(
-                value: value,
-                onChanged: (value) {
-                  customTitleBar.value = value;
-                  addOrUpdateData<bool>('settings', 'customTitleBar', value);
-                },
-              ),
-            );
-          },
-        ),
-        const _DownloadsFolderBar(),
-        CustomBar(
-          context.l10n!.keyboardShortcuts,
-          FluentIcons.keyboard_24_regular,
-          description: context.l10n!.keyboardShortcutsDescription,
-          borderRadius: commonCustomBarRadiusLast,
-          onTap: () => context.push('/settings/keyboard-shortcuts'),
         ),
       ],
     );
@@ -1198,205 +1006,5 @@ class SettingsPage extends StatelessWidget {
         );
       }
     }
-  }
-
-  String _lastSyncDescription(BuildContext context, DateTime? lastSyncedAt) {
-    if (lastSyncedAt == null) return context.l10n!.syncFindDevices;
-    final local = lastSyncedAt.toLocal();
-    final material = MaterialLocalizations.of(context);
-    return context.l10n!.syncLastSynced(
-      '${material.formatShortDate(local)} '
-      '${material.formatTimeOfDay(TimeOfDay.fromDateTime(local))}',
-    );
-  }
-
-  void _showSyncCategories(BuildContext context) {
-    final service = LocalSyncService.instance;
-    final selected = service.selectedCategories;
-    final labels = syncCategoryLabels(context.l10n!);
-    showCustomBottomSheet(
-      context,
-      StatefulBuilder(
-        builder: (context, update) => ListView(
-          shrinkWrap: true,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(context.l10n!.syncSelections),
-            ),
-            for (final category in SyncCategory.values)
-              CheckboxListTile(
-                title: Text(labels[category]!),
-                value: selected.contains(category),
-                onChanged: (value) async {
-                  update(() {
-                    if (value == true) {
-                      selected.add(category);
-                    } else {
-                      selected.remove(category);
-                    }
-                  });
-                  await service.setCategories(selected);
-                },
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _toggleLocalSync(BuildContext context, bool value) async {
-    final started = await LocalSyncService.instance.setEnabled(value);
-    if (context.mounted) {
-      showToast(
-        context,
-        started
-            ? context.l10n!.settingChangedMsg
-            : context.l10n!.syncCouldNotStart,
-        icon: started ? null : FluentIcons.error_circle_24_regular,
-      );
-    }
-  }
-}
-
-/// The desktop "Downloads folder" option. Stateful so its description follows
-/// the folder once the downloads have been moved.
-class _DownloadsFolderBar extends StatefulWidget {
-  const _DownloadsFolderBar();
-
-  @override
-  State<_DownloadsFolderBar> createState() => _DownloadsFolderBarState();
-}
-
-class _DownloadsFolderBarState extends State<_DownloadsFolderBar> {
-  @override
-  Widget build(BuildContext context) {
-    final custom = DownloadsLocation.customPath;
-    final description = DownloadsLocation.unavailable
-        ? context.l10n!.downloadsFolderUnavailable(custom ?? '')
-        : custom ??
-              '${context.l10n!.downloadsFolderDefault} '
-                  '(${DownloadsLocation.defaultPath})';
-
-    return CustomBar(
-      context.l10n!.downloadsFolder,
-      FluentIcons.folder_open_24_regular,
-      description: description,
-      onTap: _showDialog,
-    );
-  }
-
-  void _showDialog() {
-    final custom = DownloadsLocation.customPath;
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          icon: Icon(
-            FluentIcons.folder_open_24_regular,
-            color: Theme.of(dialogContext).colorScheme.primary,
-            size: 32,
-          ),
-          title: Text(context.l10n!.downloadsFolder),
-          content: SelectableText(
-            custom ?? DownloadsLocation.defaultPath,
-            textAlign: TextAlign.center,
-          ),
-          actionsAlignment: MainAxisAlignment.center,
-          actions: [
-            if (custom != null)
-              OutlinedButton(
-                onPressed: () {
-                  Navigator.pop(dialogContext);
-                  _confirmChange(null);
-                },
-                child: Text(context.l10n!.downloadsFolderReset),
-              ),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                _pickFolder();
-              },
-              child: Text(context.l10n!.downloadsFolderChoose),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _pickFolder() async {
-    String? picked;
-    try {
-      picked = await FilePicker.getDirectoryPath(
-        dialogTitle: context.l10n!.downloadsFolder,
-        initialDirectory: downloadsDirPath,
-      );
-    } catch (e, stackTrace) {
-      logger.log('Folder picker failed', error: e, stackTrace: stackTrace);
-      if (mounted) {
-        showToast(context, context.l10n!.downloadsFolderPickerUnavailable);
-      }
-      return;
-    }
-    if (picked != null && mounted) _confirmChange(picked);
-  }
-
-  /// Moves the downloads to [folder] (null for the default location) once the
-  /// user confirms, blocking the UI while the files are moved.
-  void _confirmChange(String? folder) {
-    if (offlinePlaylistService.activeDownloads.isNotEmpty) {
-      showToast(context, context.l10n!.downloadsFolderBusy);
-      return;
-    }
-
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => ConfirmationDialog(
-        confirmationMessage: context.l10n!.downloadsFolderMoveConfirm(
-          folder ?? DownloadsLocation.defaultPath,
-        ),
-        submitMessage: context.l10n!.confirm,
-        onCancel: () => Navigator.pop(dialogContext),
-        onSubmit: () {
-          Navigator.pop(dialogContext);
-          _move(folder);
-        },
-      ),
-    );
-  }
-
-  Future<void> _move(String? folder) async {
-    final l10n = context.l10n!;
-    final navigator = Navigator.of(context, rootNavigator: true);
-    unawaited(
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => PopScope(
-          canPop: false,
-          child: AlertDialog(
-            content: Row(
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(width: 20),
-                Expanded(child: Text(l10n.downloadsFolderMoving)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    final status = await DownloadsLocation.change(folder);
-    navigator.pop();
-
-    if (!mounted) return;
-    setState(() {});
-    showToast(context, switch (status) {
-      DownloadsMoveStatus.moved => l10n.downloadsFolderMoved,
-      DownloadsMoveStatus.partiallyMoved => l10n.downloadsFolderPartiallyMoved,
-      DownloadsMoveStatus.notWritable => l10n.downloadsFolderNotWritable,
-    });
   }
 }

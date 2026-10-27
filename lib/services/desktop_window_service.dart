@@ -23,13 +23,12 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:musify/constants/app_constants.dart';
 import 'package:musify/main.dart';
 import 'package:musify/services/settings_manager.dart';
+import 'package:musify/utilities/platform_utils.dart';
 
-/// Talks to the desktop runners (`linux/runner/my_application.cc` and
-/// `windows/runner/flutter_window.cpp`) about the native window around the
-/// Flutter view: the title bar colours and the initial window state.
+/// The native window around the Flutter view, through the `musify/window`
+/// channel of the Linux and Windows runners.
 class DesktopWindow {
   DesktopWindow._();
 
@@ -37,14 +36,11 @@ class DesktopWindow {
 
   static String? _lastTitleBarTheme;
 
-  /// Maximizes the window. Called before the first frame, it makes the window
-  /// appear maximized instead of resizing after it shows up.
+  /// Before the first frame, so the window opens maximized instead of jumping.
   static Future<void> maximize() => _invoke('maximize');
 
   static Future<void> raise() => _invoke('raise');
 
-  /// Paints the native title bar with the app's own colours, so it follows
-  /// the light/dark theme and the accent instead of the system theme.
   static void syncTitleBar(ThemeData theme) {
     final background = theme.scaffoldBackgroundColor.toARGB32();
     final foreground = theme.colorScheme.onSurface.toARGB32();
@@ -63,13 +59,12 @@ class DesktopWindow {
     );
   }
 
-  /// Hands the title bar back to the system theme once the app colours are
-  /// turned off.
-  static void resetTitleBar() {
-    if (_lastTitleBarTheme == null) return;
-    _lastTitleBarTheme = null;
-
-    unawaited(_invoke('resetTitleBarTheme'));
+  /// System colours, still in the system's light or dark mode.
+  static void resetTitleBar({required bool dark}) {
+    final key = 'system:$dark';
+    if (key == _lastTitleBarTheme) return;
+    _lastTitleBarTheme = key;
+    unawaited(_invoke('resetTitleBarTheme', {'dark': dark}));
   }
 
   static Future<void> _invoke(String method, [Object? arguments]) async {
@@ -77,7 +72,7 @@ class DesktopWindow {
     try {
       await _channel.invokeMethod<void>(method, arguments);
     } on MissingPluginException {
-      // A runner without the window channel (macOS, tests): nothing to do.
+      // macOS and tests have no window channel.
     } on PlatformException catch (e, stackTrace) {
       logger.log(
         'Window call $method failed',
@@ -88,10 +83,7 @@ class DesktopWindow {
   }
 }
 
-/// Keeps the native title bar in step with the theme above it. Placed in
-/// `MaterialApp.builder`, so it rebuilds (and repaints the title bar) whenever
-/// the theme mode or accent colour changes. When the "Title bar in app colours"
-/// setting is off, the title bar is left to the system theme instead.
+/// Keeps the title bar in the app colours while [customTitleBar] is on.
 class DesktopTitleBarTheme extends StatelessWidget {
   const DesktopTitleBarTheme({super.key, required this.child});
 
@@ -105,9 +97,48 @@ class DesktopTitleBarTheme extends StatelessWidget {
         if (enabled) {
           DesktopWindow.syncTitleBar(Theme.of(context));
         } else {
-          DesktopWindow.resetTitleBar();
+          DesktopWindow.resetTitleBar(
+            dark: MediaQuery.platformBrightnessOf(context) == Brightness.dark,
+          );
         }
         return child!;
+      },
+      child: child,
+    );
+  }
+}
+
+/// Zooms the whole interface by [interfaceScale], like a browser zoom: the app
+/// is laid out at a smaller or larger logical size and scaled to the window.
+class DesktopInterfaceScale extends StatelessWidget {
+  const DesktopInterfaceScale({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<double>(
+      valueListenable: interfaceScale,
+      builder: (context, scale, child) {
+        if (scale == 1) return child!;
+        final media = MediaQuery.of(context);
+        return FittedBox(
+          fit: BoxFit.fill,
+          alignment: Alignment.topLeft,
+          child: SizedBox.fromSize(
+            size: media.size / scale,
+            child: MediaQuery(
+              data: media.copyWith(
+                size: media.size / scale,
+                devicePixelRatio: media.devicePixelRatio * scale,
+                padding: media.padding / scale,
+                viewPadding: media.viewPadding / scale,
+                viewInsets: media.viewInsets / scale,
+              ),
+              child: child!,
+            ),
+          ),
+        );
       },
       child: child,
     );

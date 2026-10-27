@@ -155,15 +155,6 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   double get volume => audioPlayer.volume;
 
-  /// The full song map backing the current queue entry (same shape as search
-  /// results/playlist entries — `ytid`, `artist`, `image`, ...), or `null`
-  /// when nothing is queued. Used where a caller needs more than what
-  /// [mediaItem] exposes, e.g. to offer the current song to [makeSongOffline].
-  Map? get currentSongMap =>
-      (_currentQueueIndex >= 0 && _currentQueueIndex < _queueList.length)
-      ? _queueList[_currentQueueIndex]
-      : null;
-
   /// Current snapshot, for listeners that subscribe while paused and would
   /// otherwise see nothing until the next position event.
   PositionData get currentPositionData => PositionData(

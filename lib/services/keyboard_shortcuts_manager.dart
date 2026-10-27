@@ -67,15 +67,12 @@ const Set<ShortcutAction> _repeatableActions = {
 /// How much a single "volume up/down" shortcut press moves the volume.
 const double _volumeStep = 0.05;
 
-/// Persists and exposes the desktop keyboard shortcut bindings, and knows how
-/// to run each [ShortcutAction].
+/// Stores the desktop shortcut bindings and runs each [ShortcutAction].
 class KeyboardShortcutsManager {
   KeyboardShortcutsManager._();
 
   static const String _storageKey = 'keyboardShortcuts';
 
-  /// The current key binding for every action. Rebuilds the global handler and
-  /// the settings screen when it changes.
   static final ValueNotifier<Map<ShortcutAction, SingleActivator>> bindings =
       ValueNotifier<Map<ShortcutAction, SingleActivator>>(_load());
 
@@ -166,15 +163,11 @@ class KeyboardShortcutsManager {
     return result;
   }
 
-  /// Re-reads the bindings from storage. Called after a backup restore
-  /// rewrites the `settings` box, so the live shortcuts (and the settings
-  /// screen) match what was just restored instead of a stale map that a later
-  /// edit would persist back over the restore.
+  /// After a backup restore rewrites the `settings` box.
   static void reload() {
     bindings.value = _load();
   }
 
-  /// Assigns [activator] to [action] and persists the change.
   static Future<void> setBinding(
     ShortcutAction action,
     SingleActivator activator,
@@ -185,7 +178,6 @@ class KeyboardShortcutsManager {
     await _persist();
   }
 
-  /// Restores every binding to [defaults].
   static Future<void> resetToDefaults() async {
     bindings.value = Map<ShortcutAction, SingleActivator>.from(defaults);
     await Hive.box('settings').delete(_storageKey);
@@ -246,23 +238,24 @@ class KeyboardShortcutsManager {
       a.alt == b.alt &&
       a.meta == b.meta;
 
-  /// A human readable label for [activator], e.g. `Ctrl + Arrow Right`.
-  static String describe(SingleActivator activator) {
-    final parts = <String>[];
-    if (activator.control) parts.add('Ctrl');
-    if (activator.shift) parts.add('Shift');
-    if (activator.alt) parts.add('Alt');
-    if (activator.meta) parts.add('Meta');
-    parts.add(_keyLabel(activator.trigger));
-    return parts.join(' + ');
-  }
+  /// The keys of [activator] in order, e.g. `['Ctrl', '→']`.
+  static List<String> keyLabels(SingleActivator activator) => [
+    if (activator.control) 'Ctrl',
+    if (activator.shift) 'Shift',
+    if (activator.alt) 'Alt',
+    if (activator.meta) 'Meta',
+    _keyLabel(activator.trigger),
+  ];
+
+  static String describe(SingleActivator activator) =>
+      keyLabels(activator).join(' + ');
 
   static String _keyLabel(LogicalKeyboardKey key) {
     if (key == LogicalKeyboardKey.space) return 'Space';
-    if (key == LogicalKeyboardKey.arrowUp) return 'Arrow Up';
-    if (key == LogicalKeyboardKey.arrowDown) return 'Arrow Down';
-    if (key == LogicalKeyboardKey.arrowLeft) return 'Arrow Left';
-    if (key == LogicalKeyboardKey.arrowRight) return 'Arrow Right';
+    if (key == LogicalKeyboardKey.arrowUp) return '↑';
+    if (key == LogicalKeyboardKey.arrowDown) return '↓';
+    if (key == LogicalKeyboardKey.arrowLeft) return '←';
+    if (key == LogicalKeyboardKey.arrowRight) return '→';
     if (key == LogicalKeyboardKey.enter) return 'Enter';
     if (key == LogicalKeyboardKey.numpadEnter) return 'Numpad Enter';
     if (key == LogicalKeyboardKey.escape) return 'Esc';
@@ -274,7 +267,6 @@ class KeyboardShortcutsManager {
     return key.debugName ?? 'Key ${key.keyId}';
   }
 
-  /// Runs [action] against the audio handler / navigator.
   static void invoke(ShortcutAction action) {
     switch (action) {
       case ShortcutAction.playPause:
@@ -306,9 +298,7 @@ class KeyboardShortcutsManager {
               : AudioServiceShuffleMode.all,
         );
       case ShortcutAction.cycleRepeat:
-        // Same progression as the on-screen repeat button
-        // (now_playing_controls.dart): off -> (queue has one item ? one : all)
-        // -> one -> off, so the shortcut and the button stay in sync.
+        // Same cycle as the repeat button in now_playing_controls.dart.
         final AudioServiceRepeatMode nextRepeat;
         switch (repeatNotifier.value) {
           case AudioServiceRepeatMode.none:
@@ -325,22 +315,13 @@ class KeyboardShortcutsManager {
       case ShortcutAction.toggleNowPlaying:
         final navigator = NavigationManager.parentNavigatorKey.currentState;
         if (navigator == null) break;
-        // Decide from the live navigator stack, not a cached flag, so a fast
-        // double-press can never pop the shell or stack two player routes.
-        // A predicate that always returns true inspects the top route without
-        // popping anything.
-        var topIsPlayer = false;
-        navigator.popUntil((route) {
-          topIsPlayer = route.settings.name == nowPlayingRouteName;
-          return true;
-        });
-        if (topIsPlayer) {
+        if (_isPlayerOnTop(navigator)) {
           navigator.pop();
         } else if (audioHandler.mediaItem.value != null) {
           navigator.push(buildNowPlayingRoute());
         }
       case ShortcutAction.toggleOfflineForCurrentSong:
-        final song = audioHandler.currentSongMap;
+        final song = audioHandler.currentSong;
         final ytid = song == null ? null : song['ytid']?.toString();
         if (song == null || ytid == null || ytid.isEmpty) break;
         unawaited(_toggleCurrentSongOffline(song, ytid));
@@ -350,15 +331,7 @@ class KeyboardShortcutsManager {
       case ShortcutAction.goBack:
         final navigator = NavigationManager.parentNavigatorKey.currentState;
         if (navigator != null) {
-          // Close the full player first if it's what's on top (same
-          // stack-peek trick as toggleNowPlaying), then fall back to popping
-          // whatever sub-page go_router has pushed in the active tab.
-          var topIsPlayer = false;
-          navigator.popUntil((route) {
-            topIsPlayer = route.settings.name == nowPlayingRouteName;
-            return true;
-          });
-          if (topIsPlayer) {
+          if (_isPlayerOnTop(navigator)) {
             navigator.pop();
             break;
           }
@@ -377,10 +350,17 @@ class KeyboardShortcutsManager {
     }
   }
 
-  /// Downloads [song] for offline listening, or removes it if it is already
-  /// offline. Mirrors the per-song context menu action in `song_bar.dart`,
-  /// minus the per-row `ValueNotifier`s a global shortcut has no widget to
-  /// own.
+  /// Reads the live stack, so a fast double press never stacks two players.
+  static bool _isPlayerOnTop(NavigatorState navigator) {
+    var onTop = false;
+    navigator.popUntil((route) {
+      onTop = route.settings.name == nowPlayingRouteName;
+      return true;
+    });
+    return onTop;
+  }
+
+  /// Same as the offline action in the song menu (`song_bar.dart`).
   static Future<void> _toggleCurrentSongOffline(Map song, String ytid) async {
     final alreadyOffline = isSongAlreadyOffline(ytid);
     try {
@@ -406,13 +386,9 @@ class KeyboardShortcutsManager {
   }
 }
 
-/// Intercepts key events for the whole app and runs the matching
-/// [ShortcutAction]. Keeps out of the way while a text field is focused so that
-/// typing a space (or arrows) in the search bar still works.
-/// One resolved binding: the action plus the activator actually matched against
-/// key events (with [SingleActivator.includeRepeats] set per action).
 typedef _ShortcutMatcher = ({ShortcutAction action, SingleActivator activator});
 
+/// Runs the bound actions app-wide, except while a text field has focus.
 class GlobalShortcuts extends StatelessWidget {
   const GlobalShortcuts({required this.child, super.key});
 
@@ -423,7 +399,6 @@ class GlobalShortcuts extends StatelessWidget {
     return ValueListenableBuilder<Map<ShortcutAction, SingleActivator>>(
       valueListenable: KeyboardShortcutsManager.bindings,
       builder: (context, bindings, _) {
-        // Resolved once per rebind, not once per keystroke.
         final matchers = <_ShortcutMatcher>[
           for (final entry in bindings.entries)
             (
@@ -465,8 +440,6 @@ class GlobalShortcuts extends StatelessWidget {
     return KeyEventResult.ignored;
   }
 
-  /// Whether the focused widget is a text field, in which case the shortcuts
-  /// stand down so typing (space, arrows, Ctrl+A, ...) reaches the field.
   bool _isEditingText() {
     final context = FocusManager.instance.primaryFocus?.context;
     if (context == null) return false;

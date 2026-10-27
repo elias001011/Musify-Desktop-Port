@@ -306,33 +306,13 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
             supportedLocales: appSupportedLocales,
             locale: languageSetting,
             routerConfig: NavigationManager.router,
-            builder: (context, child) {
-              var content = child ?? const SizedBox.shrink();
-              // Interface scale and global shortcuts are desktop-only. On mobile
-              // the tree is returned untouched so the platform's own (possibly
-              // non-linear) text scaling is left alone.
-              if (!isDesktopPlatform) {
-                return content;
-              }
-              content = DesktopTitleBarTheme(
-                child: GlobalShortcuts(child: content),
-              );
-              return ValueListenableBuilder<double>(
-                valueListenable: interfaceScale,
-                builder: (context, scale, innerChild) {
-                  final mediaQuery = MediaQuery.of(context);
-                  return MediaQuery(
-                    data: mediaQuery.copyWith(
-                      textScaler: TextScaler.linear(
-                        mediaQuery.textScaler.scale(1) * scale,
-                      ),
+            builder: isDesktopPlatform
+                ? (context, child) => DesktopTitleBarTheme(
+                    child: DesktopInterfaceScale(
+                      child: GlobalShortcuts(child: child!),
                     ),
-                    child: innerChild!,
-                  );
-                },
-                child: content,
-              );
-            },
+                  )
+                : null,
           ),
         );
       },
@@ -366,15 +346,15 @@ Future<String?> initialisation() async {
     applicationDirPath = resolvedDirectory.path;
 
     if (isDesktopPlatform) {
-      // Older desktop builds stored Hive boxes and downloads in the document
-      // directory. Move them before Hive opens any box in the new location.
+      // Older desktop builds stored the Hive boxes in the documents
+      // directory. Copy them before Hive opens any box in the new location.
       if (resolvedDirectory.isFallback) {
         logger.log(
           'Skipping desktop data migration: application support directory '
           'could not be resolved',
         );
       } else {
-        await _migrateLegacyDesktopDataIfNeeded(applicationDirPath);
+        await _copyLegacyDesktopDataIfNeeded(applicationDirPath);
       }
       final installConfig = await InstallConfig.load();
       if (!resolvedDirectory.isFallback) {
@@ -588,10 +568,10 @@ Future<({String path, bool isFallback})> _resolveApplicationDirPath() async {
   }
 }
 
-Future<void> _migrateLegacyDesktopDataIfNeeded(String targetPath) async {
+Future<void> _copyLegacyDesktopDataIfNeeded(String targetPath) async {
   try {
     final legacyDirectory = await getApplicationDocumentsDirectory();
-    final report = await migrateLegacyDesktopData(
+    final report = await copyHiveBoxes(
       from: legacyDirectory,
       to: Directory(targetPath),
       log: logger.log,

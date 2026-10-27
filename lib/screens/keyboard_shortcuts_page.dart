@@ -24,81 +24,121 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
+import 'package:musify/localization/app_localizations.dart';
 import 'package:musify/services/keyboard_shortcuts_manager.dart';
 import 'package:musify/utilities/app_utils.dart';
 import 'package:musify/utilities/flutter_toast.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';
 import 'package:musify/widgets/custom_bar.dart';
 import 'package:musify/widgets/mini_player_bottom_space.dart';
+import 'package:musify/widgets/section_header.dart';
+
+const _playbackActions = [
+  ShortcutAction.playPause,
+  ShortcutAction.previousTrack,
+  ShortcutAction.nextTrack,
+  ShortcutAction.seekBackward,
+  ShortcutAction.seekForward,
+  ShortcutAction.volumeDown,
+  ShortcutAction.volumeUp,
+  ShortcutAction.toggleShuffle,
+  ShortcutAction.cycleRepeat,
+  ShortcutAction.toggleNowPlaying,
+  ShortcutAction.toggleOfflineForCurrentSong,
+];
+
+const _navigationActions = [
+  ShortcutAction.focusSearch,
+  ShortcutAction.goBack,
+  ShortcutAction.goHome,
+  ShortcutAction.goSearch,
+  ShortcutAction.goLibrary,
+  ShortcutAction.goSettings,
+];
 
 class KeyboardShortcutsPage extends StatelessWidget {
   const KeyboardShortcutsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n!;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.l10n!.keyboardShortcuts),
+        title: Text(l10n.keyboardShortcuts),
         actions: [
           IconButton(
-            icon: const Icon(FluentIcons.arrow_clockwise_24_filled),
-            tooltip: context.l10n!.resetToDefaults,
+            icon: const Icon(FluentIcons.arrow_reset_24_regular),
+            tooltip: l10n.resetToDefaults,
             onPressed: () => _confirmReset(context),
           ),
         ],
       ),
       body: ValueListenableBuilder<Map<ShortcutAction, SingleActivator>>(
         valueListenable: KeyboardShortcutsManager.bindings,
-        builder: (context, bindings, _) {
-          const actions = ShortcutAction.values;
-          return ListView.builder(
-            padding: commonSingleChildScrollViewPadding,
-            itemCount: actions.length + 2,
-            itemBuilder: (context, index) {
-              if (index == actions.length) {
-                return Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: CustomBar(
-                    context.l10n!.resetToDefaults,
-                    FluentIcons.arrow_clockwise_24_regular,
-                    borderRadius: commonCustomBarRadius,
-                    iconColor: Theme.of(context).colorScheme.error,
-                    onTap: () => _confirmReset(context),
+        builder: (context, bindings, _) => SingleChildScrollView(
+          padding: commonSingleChildScrollViewPadding,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 880),
+              child: Column(
+                children: [
+                  _buildSection(
+                    context,
+                    l10n.playback,
+                    FluentIcons.play_circle_24_filled,
+                    _playbackActions,
+                    bindings,
                   ),
-                );
-              }
-              if (index == actions.length + 1) {
-                return const MiniPlayerBottomSpace();
-              }
-
-              final action = actions[index];
-              final activator = bindings[action]!;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: CustomBar(
-                  shortcutActionLabel(context, action),
-                  FluentIcons.keyboard_24_regular,
-                  description: KeyboardShortcutsManager.describe(activator),
-                  borderRadius: getItemBorderRadius(index, actions.length),
-                  onTap: () => _captureShortcut(context, action),
-                ),
-              );
-            },
-          );
-        },
+                  _buildSection(
+                    context,
+                    l10n.navigation,
+                    FluentIcons.navigation_24_filled,
+                    _navigationActions,
+                    bindings,
+                  ),
+                  const SizedBox(height: 20),
+                  const MiniPlayerBottomSpace(),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
+    );
+  }
+
+  Widget _buildSection(
+    BuildContext context,
+    String title,
+    IconData icon,
+    List<ShortcutAction> actions,
+    Map<ShortcutAction, SingleActivator> bindings,
+  ) {
+    return Column(
+      children: [
+        SectionHeader(title: title, icon: icon),
+        for (var i = 0; i < actions.length; i++)
+          CustomBar(
+            shortcutActionLabel(context.l10n!, actions[i]),
+            _actionIcons[actions[i]]!,
+            borderRadius: getItemBorderRadius(i, actions.length),
+            trailing: KeyCaps(bindings[actions[i]]!),
+            onTap: () => _captureShortcut(context, actions[i]),
+          ),
+      ],
     );
   }
 
   void _confirmReset(BuildContext context) {
     showDialog<void>(
       context: context,
-      builder: (context) => ConfirmationDialog(
+      builder: (dialogContext) => ConfirmationDialog(
         confirmationMessage: context.l10n!.keyboardShortcutsResetConfirm,
         submitMessage: context.l10n!.resetToDefaults,
-        onCancel: () => Navigator.of(context).pop(),
+        onCancel: () => Navigator.of(dialogContext).pop(),
         onSubmit: () async {
-          Navigator.of(context).pop();
+          Navigator.of(dialogContext).pop();
           await KeyboardShortcutsManager.resetToDefaults();
           if (context.mounted) {
             showToast(context, context.l10n!.settingChangedMsg);
@@ -114,7 +154,7 @@ class KeyboardShortcutsPage extends StatelessWidget {
   ) async {
     final activator = await showDialog<SingleActivator>(
       context: context,
-      builder: (context) => _ShortcutCaptureDialog(action: action),
+      builder: (_) => _ShortcutCaptureDialog(action: action),
     );
     if (activator == null) return;
     await KeyboardShortcutsManager.setBinding(action, activator);
@@ -124,7 +164,88 @@ class KeyboardShortcutsPage extends StatelessWidget {
   }
 }
 
-/// A modal that records the next key combination the user presses.
+const _actionIcons = <ShortcutAction, IconData>{
+  ShortcutAction.playPause: FluentIcons.play_24_regular,
+  ShortcutAction.previousTrack: FluentIcons.previous_24_regular,
+  ShortcutAction.nextTrack: FluentIcons.next_24_regular,
+  ShortcutAction.seekBackward: FluentIcons.rewind_24_regular,
+  ShortcutAction.seekForward: FluentIcons.fast_forward_24_regular,
+  ShortcutAction.volumeDown: FluentIcons.speaker_1_24_regular,
+  ShortcutAction.volumeUp: FluentIcons.speaker_2_24_regular,
+  ShortcutAction.toggleShuffle: FluentIcons.arrow_shuffle_24_regular,
+  ShortcutAction.cycleRepeat: FluentIcons.arrow_repeat_all_24_regular,
+  ShortcutAction.toggleNowPlaying: FluentIcons.music_note_2_24_regular,
+  ShortcutAction.toggleOfflineForCurrentSong:
+      FluentIcons.arrow_download_24_regular,
+  ShortcutAction.focusSearch: FluentIcons.search_24_regular,
+  ShortcutAction.goBack: FluentIcons.arrow_left_24_regular,
+  ShortcutAction.goHome: FluentIcons.home_24_regular,
+  ShortcutAction.goSearch: FluentIcons.search_24_regular,
+  ShortcutAction.goLibrary: FluentIcons.library_24_regular,
+  ShortcutAction.goSettings: FluentIcons.settings_24_regular,
+};
+
+// Not every font has the arrow glyphs.
+const _arrowIcons = <String, IconData>{
+  '↑': FluentIcons.arrow_up_16_regular,
+  '↓': FluentIcons.arrow_down_16_regular,
+  '←': FluentIcons.arrow_left_16_regular,
+  '→': FluentIcons.arrow_right_16_regular,
+};
+
+/// The keys of a shortcut drawn as keyboard keys.
+class KeyCaps extends StatelessWidget {
+  const KeyCaps(this.activator, {super.key, this.large = false});
+
+  final SingleActivator activator;
+  final bool large;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final keys = KeyboardShortcutsManager.keyLabels(activator);
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      alignment: WrapAlignment.center,
+      children: [
+        for (final key in keys)
+          Container(
+            constraints: BoxConstraints(minWidth: large ? 44 : 32),
+            padding: EdgeInsets.symmetric(
+              horizontal: large ? 12 : 9,
+              vertical: large ? 8 : 5,
+            ),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+              border: Border(
+                bottom: BorderSide(color: colorScheme.outlineVariant, width: 2),
+              ),
+            ),
+            child: _arrowIcons.containsKey(key)
+                ? Icon(
+                    _arrowIcons[key],
+                    size: large ? 20 : 16,
+                    color: colorScheme.onSurface,
+                  )
+                : Text(
+                    key,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: large ? 16 : 13,
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Records the next key combination the user presses.
 class _ShortcutCaptureDialog extends StatefulWidget {
   const _ShortcutCaptureDialog({required this.action});
 
@@ -155,20 +276,12 @@ class _ShortcutCaptureDialogState extends State<_ShortcutCaptureDialog> {
   };
 
   @override
-  void initState() {
-    super.initState();
-    _focusNode.requestFocus();
-  }
-
-  @override
   void dispose() {
     _focusNode.dispose();
     super.dispose();
   }
 
-  /// Swallows every key event while the dialog is open so that capturing a
-  /// combination that is currently bound (e.g. Ctrl+Right) does not also run
-  /// its global action underneath the dialog.
+  // Swallows every key so a bound combination does not also run its action.
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.handled;
     if (event.logicalKey == LogicalKeyboardKey.escape) {
@@ -199,42 +312,48 @@ class _ShortcutCaptureDialogState extends State<_ShortcutCaptureDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = context.l10n!;
     final captured = _captured;
+    final conflict = _conflict;
 
     return AlertDialog(
-      title: Text(shortcutActionLabel(context, widget.action)),
+      icon: Icon(
+        _actionIcons[widget.action],
+        color: theme.colorScheme.primary,
+        size: 32,
+      ),
+      title: Text(shortcutActionLabel(l10n, widget.action)),
       content: Focus(
         focusNode: _focusNode,
         autofocus: true,
         onKeyEvent: _onKeyEvent,
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              context.l10n!.pressShortcutHint,
-              style: theme.textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
+            Text(l10n.pressShortcutHint, textAlign: TextAlign.center),
+            const SizedBox(height: 20),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
+              constraints: const BoxConstraints(minHeight: 72),
               alignment: Alignment.center,
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
+                color: theme.colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(16),
               ),
-              child: Text(
-                captured == null
-                    ? '…'
-                    : KeyboardShortcutsManager.describe(captured),
-                style: theme.textTheme.titleMedium,
-              ),
+              child: captured == null
+                  ? Icon(
+                      FluentIcons.keyboard_24_regular,
+                      size: 28,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    )
+                  : KeyCaps(captured, large: true),
             ),
-            if (_conflict != null) ...[
+            if (conflict != null) ...[
               const SizedBox(height: 12),
               Text(
-                context.l10n!.shortcutConflict,
+                l10n.shortcutConflict(shortcutActionLabel(l10n, conflict)),
+                textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.error,
                 ),
@@ -243,59 +362,42 @@ class _ShortcutCaptureDialogState extends State<_ShortcutCaptureDialog> {
           ],
         ),
       ),
+      actionsAlignment: MainAxisAlignment.center,
       actions: [
-        TextButton(
+        OutlinedButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text(context.l10n!.cancel),
+          child: Text(l10n.cancel),
         ),
         FilledButton(
-          onPressed: captured == null || _conflict != null
+          onPressed: captured == null || conflict != null
               ? null
               : () => Navigator.of(context).pop(captured),
-          child: Text(context.l10n!.confirm),
+          child: Text(l10n.confirm),
         ),
       ],
     );
   }
 }
 
-/// The localized name shown for [action] in the settings list.
-String shortcutActionLabel(BuildContext context, ShortcutAction action) {
-  final l10n = context.l10n!;
-  switch (action) {
-    case ShortcutAction.playPause:
-      return l10n.shortcutPlayPause;
-    case ShortcutAction.nextTrack:
-      return l10n.shortcutNextTrack;
-    case ShortcutAction.previousTrack:
-      return l10n.shortcutPreviousTrack;
-    case ShortcutAction.seekForward:
-      return l10n.shortcutSeekForward;
-    case ShortcutAction.seekBackward:
-      return l10n.shortcutSeekBackward;
-    case ShortcutAction.volumeUp:
-      return l10n.shortcutVolumeUp;
-    case ShortcutAction.volumeDown:
-      return l10n.shortcutVolumeDown;
-    case ShortcutAction.toggleShuffle:
-      return l10n.shortcutToggleShuffle;
-    case ShortcutAction.cycleRepeat:
-      return l10n.shortcutCycleRepeat;
-    case ShortcutAction.toggleNowPlaying:
-      return l10n.shortcutToggleNowPlaying;
-    case ShortcutAction.toggleOfflineForCurrentSong:
-      return l10n.shortcutToggleOfflineForCurrentSong;
-    case ShortcutAction.focusSearch:
-      return l10n.shortcutFocusSearch;
-    case ShortcutAction.goBack:
-      return l10n.shortcutGoBack;
-    case ShortcutAction.goHome:
-      return l10n.shortcutGoHome;
-    case ShortcutAction.goSearch:
-      return l10n.shortcutGoSearch;
-    case ShortcutAction.goLibrary:
-      return l10n.shortcutGoLibrary;
-    case ShortcutAction.goSettings:
-      return l10n.shortcutGoSettings;
-  }
+String shortcutActionLabel(AppLocalizations l10n, ShortcutAction action) {
+  return switch (action) {
+    ShortcutAction.playPause => l10n.shortcutPlayPause,
+    ShortcutAction.nextTrack => l10n.shortcutNextTrack,
+    ShortcutAction.previousTrack => l10n.shortcutPreviousTrack,
+    ShortcutAction.seekForward => l10n.shortcutSeekForward,
+    ShortcutAction.seekBackward => l10n.shortcutSeekBackward,
+    ShortcutAction.volumeUp => l10n.shortcutVolumeUp,
+    ShortcutAction.volumeDown => l10n.shortcutVolumeDown,
+    ShortcutAction.toggleShuffle => l10n.shortcutToggleShuffle,
+    ShortcutAction.cycleRepeat => l10n.shortcutCycleRepeat,
+    ShortcutAction.toggleNowPlaying => l10n.shortcutToggleNowPlaying,
+    ShortcutAction.toggleOfflineForCurrentSong =>
+      l10n.shortcutToggleOfflineForCurrentSong,
+    ShortcutAction.focusSearch => l10n.shortcutFocusSearch,
+    ShortcutAction.goBack => l10n.shortcutGoBack,
+    ShortcutAction.goHome => l10n.shortcutGoHome,
+    ShortcutAction.goSearch => l10n.shortcutGoSearch,
+    ShortcutAction.goLibrary => l10n.shortcutGoLibrary,
+    ShortcutAction.goSettings => l10n.shortcutGoSettings,
+  };
 }

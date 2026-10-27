@@ -113,10 +113,9 @@ class InstallConfig {
     final target = downloadsDir;
     if (target == null) return;
 
-    final store = Hive.box('userNoBackup');
-    if (store.get(_appliedDownloadsKey) == target) return;
-
     try {
+      final store = Hive.box('userNoBackup');
+      if (store.get(_appliedDownloadsKey) == target) return;
       final existing = store.get('downloadsDirectory');
       if (existing is! String || existing.isEmpty) {
         await Directory(target).create(recursive: true);
@@ -139,54 +138,4 @@ class InstallConfig {
 
     return normal(a) == normal(b);
   }
-}
-
-/// Result of [copyHiveBoxes].
-class HiveCopyReport {
-  const HiveCopyReport({this.copied = const [], this.failed = const []});
-
-  final List<String> copied;
-  final List<String> failed;
-}
-
-/// Copies the Hive boxes to [to], keeping originals and never replacing boxes there.
-Future<HiveCopyReport> copyHiveBoxes({
-  required Directory from,
-  required Directory to,
-}) async {
-  final separator = Platform.pathSeparator;
-  if (!await from.exists()) return const HiveCopyReport();
-  if (await hasLegacyDesktopHiveBoxes(to)) return const HiveCopyReport();
-
-  final copied = <String>[];
-  final failed = <String>[];
-  for (final box in legacyDesktopBoxNames) {
-    final name = '$box.hive';
-    final source = File('${from.path}$separator$name');
-    if (!await source.exists()) continue;
-
-    final target = File('${to.path}$separator$name');
-    final partial = File('${target.path}.partial');
-    try {
-      await source.copy(partial.path);
-      if (await partial.length() != await source.length()) {
-        throw const FileSystemException('Copy is incomplete');
-      }
-      await partial.rename(target.path);
-      copied.add(name);
-    } catch (_) {
-      failed.add(name);
-      if (await partial.exists()) await partial.delete();
-    }
-  }
-
-  // A half-copied set would mix old and new data, so undo it.
-  if (failed.isNotEmpty) {
-    for (final name in copied) {
-      final file = File('${to.path}$separator$name');
-      if (await file.exists()) await file.delete();
-    }
-    return HiveCopyReport(failed: failed);
-  }
-  return HiveCopyReport(copied: copied);
 }
