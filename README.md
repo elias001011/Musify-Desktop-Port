@@ -1,5 +1,21 @@
 # Musify Desktop Port
 
+> [!WARNING]
+> **This project will be discontinued in December 2026.**
+>
+> - **Official desktop support.** Upstream Musify now ships its own desktop
+>   support, which this repository helped build and test, so a separate port
+>   is becoming unnecessary.
+> - **Upstream's uncertain future.** Musify is facing copyright disputes,
+>   including a DMCA complaint against its releases
+>   ([gokadzev/Musify#1012](https://github.com/gokadzev/Musify/discussions/1012)).
+>   It is unclear how long the upstream project will stay available, and this
+>   port depends on it.
+> - **Other projects.** The maintainer's time is moving to other projects.
+>
+> Releases already published stay available until then. If the port is migrated
+> elsewhere or this decision is reversed, this README will be updated.
+
 Unofficial Windows and Linux desktop port of
 [Musify](https://github.com/gokadzev/Musify), created and maintained upstream by
 Valeri Gokadze and contributors.
