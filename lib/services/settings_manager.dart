@@ -98,6 +98,10 @@ final customTitleBar = ValueNotifier<bool>(
   Hive.box('settings').get('customTitleBar', defaultValue: true),
 );
 
+final syncedLyricsEnabled = ValueNotifier<bool>(
+  Hive.box('settings').get('syncedLyricsEnabled', defaultValue: true),
+);
+
 List<double> _readEqualizerGains() {
   final raw = Hive.box('settings')
       .get('equalizerBandGains', defaultValue: const <dynamic>[]);
@@ -205,6 +209,10 @@ void reloadSettingsFromStorage() {
   startMaximized.value = settings.get('startMaximized', defaultValue: false);
   customTitleBar.value = settings.get('customTitleBar', defaultValue: true);
   if (isDesktopPlatform) KeyboardShortcutsManager.reload();
+  syncedLyricsEnabled.value = settings.get(
+    'syncedLyricsEnabled',
+    defaultValue: true,
+  );
   equalizerEnabled.value = settings.get(
     'equalizerEnabled',
     defaultValue: false,
