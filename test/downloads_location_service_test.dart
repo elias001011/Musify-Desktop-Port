@@ -152,4 +152,58 @@ void main() {
     expect(legacyAudio.existsSync(), isTrue);
     expect(userOfflineSongs.value.last['audioPath'], copied);
   });
+
+  test('repairs a library migrated by 10.6.0-1', () async {
+    // The old migration moved the files into the app folder but left the
+    // offline index, with the old paths, in the documents folder.
+    final documents = '${tempDir.path}/documents';
+    Directory(documents).createSync(recursive: true);
+    final oldAudio = '$documents/tracks/$songId.m4a';
+    final stranded = await Hive.openBox('usernobackup_old', path: documents);
+    await stranded.put('offlineSongs', [
+      {'ytid': songId, 'audioPath': oldAudio},
+    ]);
+    await stranded.close();
+    File('$documents/usernobackup_old.hive')
+        .renameSync('$documents/usernobackup.hive');
+    await Hive.box('userNoBackup').delete('offlineSongs');
+    userOfflineSongs.value = [];
+    offlinePlaylistService.offlinePlaylists.value = [];
+
+    await DownloadsLocation.repairOldMigration(documentsPath: documents);
+
+    expect(
+      userOfflineSongs.value.single['audioPath'],
+      FilePaths.getAudioPath(songId),
+    );
+    expect(
+      (Hive.box(
+        'userNoBackup',
+      ).get('offlineSongs') as List).single['audioPath'],
+      FilePaths.getAudioPath(songId),
+    );
+    // Read, never touched.
+    expect(File('$documents/usernobackup.hive').existsSync(), isTrue);
+  });
+
+  test('leaves working paths alone when there is nothing to repair', () async {
+    final before = List.of(userOfflineSongs.value);
+    await DownloadsLocation.repairOldMigration(
+      documentsPath: '${tempDir.path}/nowhere',
+    );
+    expect(userOfflineSongs.value, before);
+  });
+
+  test(
+    'changing to the same folder spelt another way keeps the files',
+    () async {
+      final link = Link('${tempDir.path}/default-link')
+        ..createSync(defaultRoot);
+      addTearDown(link.deleteSync);
+
+      await DownloadsLocation.change(link.path);
+
+      expect(File('$defaultRoot/tracks/$songId.m4a').existsSync(), isTrue);
+    },
+  );
 }

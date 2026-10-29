@@ -87,8 +87,10 @@ class DownloadsLocation {
     if (!await _prepare(target)) return DownloadsMoveStatus.notWritable;
 
     var failed = 0;
+    // The same folder under another spelling (a link, another letter case on
+    // Windows) is no source: moving into itself would delete each file.
     final sources = <String>{downloadsDirPath, defaultPath, ?customPath}
-      ..remove(target);
+      ..removeWhere((source) => _sameDirectory(source, target));
 
     for (final source in sources) {
       failed += await _moveFolderContents(source, target);
@@ -102,7 +104,7 @@ class DownloadsLocation {
       failed += await _copyReferencedFile(song['artworkPath'], target, true);
     }
 
-    _rewriteStoredPaths(target);
+    await _rewriteStoredPaths(target);
 
     if (target == _trimSeparator(defaultPath)) {
       await deleteData('userNoBackup', _storageKey);
@@ -188,6 +190,10 @@ class DownloadsLocation {
   static Future<bool> _moveFile(File file, String destination) async {
     try {
       if (await File(destination).exists()) {
+        // The same file reached another way: nothing to move.
+        if (FileSystemEntity.identicalSync(file.path, destination)) {
+          return true;
+        }
         // Same song id, already there: keep one copy, not two.
         await file.delete();
         return true;
@@ -210,8 +216,74 @@ class DownloadsLocation {
     }
   }
 
-  /// Songs whose file did not move keep the path that still works.
-  static void _rewriteStoredPaths(String root) {
+  static bool _sameDirectory(String a, String b) {
+    if (a == b) return true;
+    try {
+      return FileSystemEntity.identicalSync(a, b);
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  /// Repairs libraries that builds 10.6.0-1 and older migrated on desktop.
+  /// They moved the downloads from the documents folder into the app folder
+  /// without rewriting the stored paths, so downloaded songs no longer played
+  /// offline; on Linux they also left the offline index in the documents
+  /// folder, looking for it under the wrong letter case. Cheap when there is
+  /// nothing to repair. Run after [initialise].
+  static Future<void> repairOldMigration({
+    required String documentsPath,
+  }) async {
+    if (!isDesktopPlatform) return;
+    await _importStrandedIndex(documentsPath);
+    await _rewriteStoredPaths(downloadsDirPath, onlyMissing: true);
+  }
+
+  static Future<void> _importStrandedIndex(String documentsPath) async {
+    final box = Hive.box('userNoBackup');
+    if ((box.get('offlineSongs') as List?)?.isNotEmpty ?? false) return;
+    final stranded = File('$documentsPath/usernobackup.hive');
+    if (!await stranded.exists()) return;
+    if (_sameDirectory(stranded.parent.path, applicationDirPath)) return;
+
+    // Read from a copy: Hive can't open two boxes under one name, and the
+    // original may belong to another Musify install.
+    final temporary = await Directory.systemTemp.createTemp('musify_index_');
+    try {
+      await stranded.copy('${temporary.path}/strandedindex.hive');
+      final old = await Hive.openBox('strandedindex', path: temporary.path);
+      final songs = old.get('offlineSongs');
+      final playlists = old.get('offlinePlaylists');
+      await old.close();
+      if (songs is List && songs.isNotEmpty) {
+        await box.put('offlineSongs', songs);
+        userOfflineSongs.value = songs;
+        logger.log('Brought back ${songs.length} offline songs');
+      }
+      final current = offlinePlaylistService.offlinePlaylists;
+      if (playlists is List && playlists.isNotEmpty && current.value.isEmpty) {
+        await box.put('offlinePlaylists', playlists);
+        current.value = playlists;
+      }
+    } catch (e, stackTrace) {
+      logger.log(
+        'Could not read the stranded offline index',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    } finally {
+      await temporary.delete(recursive: true);
+    }
+  }
+
+  /// Songs whose file did not move keep the path that still works. With
+  /// [onlyMissing], only paths whose file is gone change, and nothing is
+  /// written when none did.
+  static Future<void> _rewriteStoredPaths(
+    String root, {
+    bool onlyMissing = false,
+  }) async {
+    var changed = false;
     Map rewrite(Map song) {
       final updated = Map<String, dynamic>.from(song);
       for (final (key, subDir) in [
@@ -220,24 +292,22 @@ class DownloadsLocation {
       ]) {
         final path = updated[key];
         if (path is! String || path.isEmpty) continue;
+        if (onlyMissing && File(path).existsSync()) continue;
         final moved = '$root/$subDir/${File(path).uri.pathSegments.last}';
-        if (File(moved).existsSync()) updated[key] = moved;
+        if (moved != path && File(moved).existsSync()) {
+          updated[key] = moved;
+          changed = true;
+        }
       }
       return updated;
     }
 
-    userOfflineSongs.value = [
+    final songs = [
       for (final song in userOfflineSongs.value)
         if (song is Map) rewrite(song) else song,
     ];
-    addOrUpdateData<List>(
-      'userNoBackup',
-      'offlineSongs',
-      userOfflineSongs.value,
-    );
-
     final playlists = offlinePlaylistService.offlinePlaylists;
-    playlists.value = [
+    final playlistsList = [
       for (final playlist in playlists.value)
         if (playlist is Map && playlist['list'] is List)
           {
@@ -250,7 +320,16 @@ class DownloadsLocation {
         else
           playlist,
     ];
-    addOrUpdateData<List>('userNoBackup', 'offlinePlaylists', playlists.value);
+    if (onlyMissing && !changed) return;
+
+    userOfflineSongs.value = songs;
+    playlists.value = playlistsList;
+    await addOrUpdateData<List>('userNoBackup', 'offlineSongs', songs);
+    await addOrUpdateData<List>(
+      'userNoBackup',
+      'offlinePlaylists',
+      playlistsList,
+    );
   }
 
   static Future<void> _removeIfEmpty(String root) async {

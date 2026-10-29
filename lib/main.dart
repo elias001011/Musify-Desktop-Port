@@ -531,6 +531,11 @@ Future<String?> initialisation() async {
     }
     await DownloadsLocation.initialise();
     await FilePaths.ensureDirectoriesExist();
+    if (isDesktopPlatform) {
+      await DownloadsLocation.repairOldMigration(
+        documentsPath: (await getApplicationDocumentsDirectory()).path,
+      );
+    }
   } catch (e, stackTrace) {
     logger.log(
       'Failed to create application directories',

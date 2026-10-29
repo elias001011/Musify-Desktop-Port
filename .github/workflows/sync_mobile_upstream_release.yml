@@ -7,9 +7,6 @@ on:
         description: Upstream Musify tag to sync. Leave empty for latest release.
         required: false
         type: string
-  schedule:
-    # Run once a week on Sunday at 03:17
-    - cron: "17 3 * * 0"
 
 permissions:
   actions: write

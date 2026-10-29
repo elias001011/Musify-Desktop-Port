@@ -48,9 +48,6 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
 
   bool? _previousOfflineMode;
 
-  /// Track the previously selected shell branch to detect reselects.
-  int? _previousShellIndex;
-
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -222,7 +219,9 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
   void _onTabTapped(int index, List<_NavigationItem> items) {
     if (index < items.length) {
       final item = items[index];
-      final isReselect = _previousShellIndex == item.shellIndex;
+      // Against the branch shown now: back, deep links and shortcuts change
+      // it without a tap.
+      final isReselect = widget.child.currentIndex == item.shellIndex;
 
       // Close any open bottom sheet before switching tabs
       closeCurrentBottomSheet();
@@ -234,8 +233,6 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
       } else {
         widget.child.goBranch(item.shellIndex);
       }
-
-      _previousShellIndex = item.shellIndex;
     }
   }
 

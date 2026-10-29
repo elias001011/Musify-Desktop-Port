@@ -20,10 +20,15 @@
  */
 
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:hive/hive.dart';
+// ignore: implementation_imports
+import 'package:hive/src/binary/binary_reader_impl.dart';
+// ignore: implementation_imports
+import 'package:hive/src/hive_impl.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart' show logger;
@@ -291,14 +296,12 @@ Future<({String message, bool success})> restoreData(
   final missingBoxNames = <String>[];
 
   for (final boxName in boxNames) {
-    final backupFile = await _findBackupFile(boxName, result);
+    final backupFile = _matchingSelectedBackupFile(boxName, result);
     if (backupFile != null) {
       backupFiles[boxName] = backupFile;
     } else {
       missingBoxNames.add(boxName);
-      logger.log(
-        'Backup file for $boxName not found in selection or sibling folder',
-      );
+      logger.log('Backup file for $boxName not in the selection');
     }
   }
 
@@ -333,19 +336,32 @@ Future<({String message, bool success})> restoreData(
   }
 
   final restoredBoxes = <String>[];
+  final settings = Hive.box('settings');
+  final deviceSettings = {
+    for (final key in _deviceSettings)
+      if (settings.containsKey(key)) key: settings.get(key),
+  };
   try {
-    // Close all boxes before restoring to avoid conflicts
+    // Checked before anything closes: opening a damaged box would "recover"
+    // it by cutting it short, and an empty library is no backup.
     for (final boxName in backupFiles.keys) {
-      if (Hive.isBoxOpen(boxName)) {
-        await Hive.box(boxName).close();
+      if (boxName == 'user' && backupBytes[boxName]!.isEmpty) {
+        throw const FormatException('Empty backup: user');
       }
+      await validateHiveBackup(boxName, backupBytes[boxName]!);
     }
 
-    // Small delay to ensure boxes are properly closed
-    await Future.delayed(const Duration(milliseconds: 100));
-
     for (final boxName in backupFiles.keys) {
-      await _validateHiveBytes(boxName, backupBytes[boxName]!);
+      if (Hive.isBoxOpen(boxName)) {
+        await Hive.box(boxName).flush();
+        originalBytes[boxName] = Uint8List.fromList(
+          await File(boxPaths[boxName]!).readAsBytes(),
+        );
+        await Hive.box(boxName).close();
+      }
+      // What was there stays beside it, so a restore can be undone by hand.
+      await File('${boxPaths[boxName]!}.before-restore')
+          .writeAsBytes(originalBytes[boxName]!, flush: true);
     }
 
     for (final boxName in backupFiles.keys) {
@@ -380,7 +396,14 @@ Future<({String message, bool success})> restoreData(
   } finally {
     for (final boxName in backupFiles.keys) {
       try {
-        await _openBox(boxName);
+        final box = await _openBox(boxName);
+        if (boxName == 'settings' && restoredBoxes.contains(boxName)) {
+          for (final key in _deviceSettings) {
+            deviceSettings.containsKey(key)
+                ? await box.put(key, deviceSettings[key])
+                : await box.delete(key);
+          }
+        }
       } catch (e, stackTrace) {
         logger.log(
           'Failed to reopen box $boxName',
@@ -392,19 +415,33 @@ Future<({String message, bool success})> restoreData(
   }
 }
 
-Future<void> _validateHiveBytes(String boxName, Uint8List bytes) async {
-  final validationDirectory = await Directory.systemTemp.createTemp(
-    'musify_restore_',
-  );
-  try {
-    final validationFile = File('${validationDirectory.path}/$boxName.hive');
-    await validationFile.writeAsBytes(bytes, flush: true);
-    final box = await Hive.openBox(boxName, path: validationDirectory.path);
-    await box.close();
-  } finally {
-    await validationDirectory.delete(recursive: true);
-  }
-}
+/// Reads every frame of a Hive file, failing on any that is damaged.
+Future<void> validateHiveBackup(String boxName, Uint8List bytes) =>
+    Isolate.run(() {
+      final reader = BinaryReaderImpl(bytes, HiveImpl());
+      while (reader.availableBytes > 0) {
+        if (reader.readFrame() == null) {
+          throw FormatException('Corrupt Hive backup: $boxName');
+        }
+      }
+    });
+
+/// Settings that belong to this device, not to the library: a backup from
+/// Musify (which has none of them) or from another device leaves them as
+/// they are here.
+const _deviceSettings = [
+  'localSyncEnabled',
+  'localSyncAutomatic',
+  'localSyncCategories',
+  'localSyncLastSyncedAt',
+  'localSyncPairedDevices',
+  'customTitleBar',
+  'startMaximized',
+  'interfaceScale',
+  'keyboardShortcuts',
+  'equalizerEnabled',
+  'equalizerBandGains',
+];
 
 Future<void> _replaceHiveFile(String targetPath, Uint8List bytes) async {
   final targetFile = File(targetPath);
@@ -426,65 +463,6 @@ Future<void> _replaceHiveFile(String targetPath, Uint8List bytes) async {
     rethrow;
   }
 }
-Future<File?> _findBackupFile(
-  String boxName,
-  List<PlatformFile> selectedFiles,
-) async {
-  final selectedFile = _matchingSelectedBackupFile(boxName, selectedFiles);
-  if (selectedFile != null) {
-    return selectedFile;
-  }
-
-  final siblingDirectories = <String>{};
-  for (final selectedFile in selectedFiles) {
-    final selectedPath = selectedFile.path;
-    if (selectedPath == null || selectedPath.isEmpty) {
-      continue;
-    }
-
-    final selectedType = await FileSystemEntity.type(selectedPath);
-    if (selectedType == FileSystemEntityType.directory) {
-      siblingDirectories.add(selectedPath);
-    } else {
-      siblingDirectories.add(File(selectedPath).parent.path);
-    }
-  }
-
-  for (final directoryPath in siblingDirectories) {
-    final exactFile = File('$directoryPath/$boxName.hive');
-    if (await exactFile.exists()) {
-      return exactFile;
-    }
-
-    final directory = Directory(directoryPath);
-    if (!await directory.exists()) {
-      continue;
-    }
-
-    final timestampedBackups = <File>[];
-    await for (final entity in directory.list()) {
-      if (entity is! File) {
-        continue;
-      }
-
-      final name = _fileName(entity.path);
-      if (name.startsWith('${boxName}_') && name.endsWith('.hive')) {
-        timestampedBackups.add(entity);
-      }
-    }
-
-    if (timestampedBackups.isNotEmpty) {
-      timestampedBackups.sort((a, b) {
-        final aModified = a.lastModifiedSync();
-        final bModified = b.lastModifiedSync();
-        return bModified.compareTo(aModified);
-      });
-      return timestampedBackups.first;
-    }
-  }
-
-  return null;
-}
 
 File? _matchingSelectedBackupFile(
   String boxName,
@@ -496,14 +474,15 @@ File? _matchingSelectedBackupFile(
       continue;
     }
 
+    // Also "user (1).hive", as browsers and pickers rename copies.
     final name = selectedFile.name;
-    if (name == '$boxName.hive' ||
-        (name.startsWith('${boxName}_') && name.endsWith('.hive'))) {
+    if (name.endsWith('.hive') &&
+        (name == '$boxName.hive' ||
+            name.startsWith('${boxName}_') ||
+            name.startsWith('$boxName ('))) {
       return File(selectedPath);
     }
   }
 
   return null;
 }
-
-String _fileName(String path) => path.split(Platform.pathSeparator).last;
