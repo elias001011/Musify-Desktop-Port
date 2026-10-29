@@ -1,20 +1,28 @@
 # Musify Desktop Port
 
 > [!WARNING]
-> **This project will be discontinued in December 2026.**
+> **This project will be discontinued in December 2026.** Its work goes on in
+> two places:
 >
-> - **Official desktop support.** Upstream Musify now ships its own desktop
->   support, which this repository helped build and test, so a separate port
->   is becoming unnecessary.
-> - **Upstream's uncertain future.** Musify is facing copyright disputes,
->   including a DMCA complaint against its releases
->   ([gokadzev/Musify#1012](https://github.com/gokadzev/Musify/discussions/1012)).
->   It is unclear how long the upstream project will stay available, and this
->   port depends on it.
-> - **Other projects.** The maintainer's time is moving to other projects.
+> - **[Zenify](https://github.com/elias001011/Zenify), the successor.** A
+>   community edition of Musify by the same maintainer, built on this port:
+>   Windows, Linux and Android, Local Sync between all three, the same `.deb`,
+>   installer and portable packages, and a redesigned interface. It installs
+>   next to Musify. On desktop, its first start copies the library from this
+>   port's default data folder (the files here are left untouched); on
+>   Android, restore a Musify backup from Settings.
+> - **[Musify](https://github.com/gokadzev/Musify), the original project.**
+>   It now ships its own desktop support, which this repository helped build
+>   and test. It has no Local Sync between platforms for now.
 >
-> Releases already published stay available until then. If the port is migrated
-> elsewhere or this decision is reversed, this README will be updated.
+> Why this port ends: upstream's official desktop support makes a separate
+> port unnecessary; Musify faces copyright disputes, including a DMCA complaint
+> against its releases
+> ([gokadzev/Musify#1012](https://github.com/gokadzev/Musify/discussions/1012)),
+> so its future is unclear; and the maintainer's time now goes to Zenify.
+>
+> No new releases are planned. Releases already published stay available until
+> December.
 
 Unofficial Windows and Linux desktop port of
 [Musify](https://github.com/gokadzev/Musify), created and maintained upstream by
