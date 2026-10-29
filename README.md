@@ -21,8 +21,9 @@
 > ([gokadzev/Musify#1012](https://github.com/gokadzev/Musify/discussions/1012)),
 > so its future is unclear; and the maintainer's time now goes to Zenify.
 >
-> No new releases are planned. Releases already published stay available until
-> December.
+> The 10.6.0-2 releases (desktop and Android) are the last ones: they repair
+> libraries that older builds broke and make backup restore safe. Releases
+> already published stay available until December.
 
 Unofficial Windows and Linux desktop port of
 [Musify](https://github.com/gokadzev/Musify), created and maintained upstream by
