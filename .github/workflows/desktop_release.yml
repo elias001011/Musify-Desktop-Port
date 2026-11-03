@@ -271,6 +271,18 @@ jobs:
           cat > release-notes.md <<NOTES
           Musify Desktop Port ${RELEASE_TAG}
 
+          **Project update: introducing Zenify**
+
+          Musify Desktop Port is planned to wind down in December 2026. Further updates may still happen, but long-term support is not guaranteed.
+
+          Zenify is the successor to this port (https://github.com/elias001011/Zenify). Its interface is being redesigned gradually, moving further away from Musify's original design. It runs on Android, Linux and Windows and supports Local Sync.
+
+          - Stable: https://github.com/elias001011/Zenify/releases/tag/v0.2.2
+          - Newer pre-release: https://github.com/elias001011/Zenify/releases/tag/v0.2.3
+          - Full announcement: https://github.com/elias001011/Musify-Desktop-Port/discussions/17
+
+          **About this release**
+
           Unofficial Windows and Linux desktop release based on upstream Musify.
 
           Desktop port changes:

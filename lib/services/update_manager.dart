@@ -36,7 +36,7 @@ import 'package:musify/utilities/url_launcher.dart';
 import 'package:musify/widgets/auto_format_text.dart';
 
 const String checkUrl =
-    'https://raw.githubusercontent.com/gokadzev/Musify/update/check.json';
+    'https://raw.githubusercontent.com/elias001011/Musify-Desktop-Port/master/announcement.json';
 const String releasesUrl =
     'https://api.github.com/repos/gokadzev/Musify/releases/latest';
 const String desktopReleasesUrl =
@@ -433,13 +433,15 @@ String getDesktopDownloadUrl(Map<String, dynamic> release) {
   return release['html_url'].toString();
 }
 
-/// Fetch only the announcement URL from the `check.json` file and set the
+/// Fetch only the announcement URL from the port’s `announcement.json` file and set the
 /// global `announcementURL` ValueNotifier. This does not trigger releases
 /// fetching or any update dialogs/downloads and is safe to call for F‑Droid
 /// builds where update prompts are not allowed.
-Future<void> fetchAnnouncementOnly() async {
+Future<void> fetchAnnouncementOnly({http.Client? client}) async {
   try {
-    final response = await http.get(Uri.parse(checkUrl));
+    final response = client == null
+        ? await http.get(Uri.parse(checkUrl))
+        : await client.get(Uri.parse(checkUrl));
 
     if (response.statusCode != 200) {
       logger.log(
@@ -450,9 +452,7 @@ Future<void> fetchAnnouncementOnly() async {
 
     final map = json.decode(response.body) as Map<String, dynamic>;
     final ann = map['announcementurl'];
-    if (ann != null) {
-      announcementURL.value = ann.toString();
-    }
+    announcementURL.value = ann is String && ann.trim().isNotEmpty ? ann : null;
   } catch (e, stackTrace) {
     logger.log(
       'Error in fetchAnnouncementOnly',

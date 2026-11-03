@@ -1,8 +1,8 @@
 # Musify Desktop Port
 
 > [!WARNING]
-> **This project will be discontinued in December 2026.** Its work goes on in
-> two places:
+> **This port is planned to wind down in December 2026.** It may still receive
+> updates, but long-term support is not guaranteed. Its work continues in two places:
 >
 > - **[Zenify](https://github.com/elias001011/Zenify), the successor.** A
 >   community edition of Musify by the same maintainer, built on this port:
@@ -21,9 +21,10 @@
 > ([gokadzev/Musify#1012](https://github.com/gokadzev/Musify/discussions/1012)),
 > so its future is unclear; and the maintainer's time now goes to Zenify.
 >
-> The 10.6.0-2 releases (desktop and Android) are the last ones: they repair
-> libraries that older builds broke and make backup restore safe. Releases
-> already published stay available until December.
+> The 10.6.0-2 releases repaired libraries that older builds broke and made
+> backup restore safer. Further updates may still be released when needed, but
+> continued maintenance and support beyond December are not guaranteed.
+> Releases already published stay available until December.
 
 Unofficial Windows and Linux desktop port of
 [Musify](https://github.com/gokadzev/Musify), created and maintained upstream by

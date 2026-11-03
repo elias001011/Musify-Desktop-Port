@@ -210,15 +210,12 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
           SchedulerBinding.instance.addPostFrameCallback((_) {
             showUpdateCheckDialog(NavigationManager().context);
           });
-        } else {
-          SchedulerBinding.instance.addPostFrameCallback((_) async {
-            if (!offlineMode.value) {
-              await fetchAnnouncementOnly();
-            }
-          });
         }
       }
     }
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!offlineMode.value) unawaited(fetchAnnouncementOnly());
+    });
   }
 
   @override
@@ -261,7 +258,7 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
   }
 
   void _onOfflineModeChanged() {
-    // Force rebuild when offline mode changes
+    if (!offlineMode.value) unawaited(fetchAnnouncementOnly());
     setState(() {});
   }
 
@@ -513,10 +510,6 @@ Future<String?> initialisation() async {
       );
     } on PlatformException {
       logger.log('Failed to get initial uri');
-    }
-
-    if (isFdroidBuild && !offlineMode.value) {
-      await fetchAnnouncementOnly();
     }
   } catch (e, stackTrace) {
     logger.log('Initialization Error', error: e, stackTrace: stackTrace);
